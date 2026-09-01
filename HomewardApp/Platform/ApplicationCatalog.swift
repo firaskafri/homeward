@@ -3,7 +3,7 @@ import Foundation
 import HomewardCore
 
 @MainActor
-struct CatalogApplication: Identifiable, Equatable {
+struct CatalogApplication: Identifiable {
     let id: String
     let selection: SelectedApplication
     let icon: NSImage
