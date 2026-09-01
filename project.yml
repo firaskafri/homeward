@@ -1,0 +1,115 @@
+name: Homeward
+
+options:
+  bundleIdPrefix: com.firaskafri
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "15.0"
+
+packages:
+  HomewardCore:
+    path: .
+
+settings:
+  base:
+    ARCHS: arm64
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    MACOSX_DEPLOYMENT_TARGET: "15.0"
+
+targets:
+  Homeward:
+    type: application
+    platform: macOS
+    info:
+      path: HomewardApp/Info.plist
+      properties:
+        CFBundleDisplayName: Homeward
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSUIElement: true
+        LSMultipleInstancesProhibited: true
+        NSHumanReadableCopyright: Copyright © 2026 Firas Kafri. All rights reserved.
+    sources:
+      - path: HomewardApp
+    dependencies:
+      - package: HomewardCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.firaskafri.homeward
+        PRODUCT_NAME: Homeward
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        ENABLE_APP_SANDBOX: false
+        ENABLE_HARDENED_RUNTIME: true
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 752LD44EEA
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+        SUPPORTS_MACCATALYST: false
+
+  HomewardAppTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: HomewardAppTests
+    dependencies:
+      - target: Homeward
+      - package: HomewardCore
+      - target: HomewardFixture
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.firaskafri.homeward.tests
+        GENERATE_INFOPLIST_FILE: true
+
+  HomewardUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: HomewardUITests
+    dependencies:
+      - target: Homeward
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.firaskafri.homeward.uitests
+        GENERATE_INFOPLIST_FILE: true
+
+  HomewardFixture:
+    type: application
+    platform: macOS
+    sources:
+      - path: TestFixtures/HomewardFixture
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.firaskafri.homeward.fixture
+        PRODUCT_NAME: HomewardFixture
+        GENERATE_INFOPLIST_FILE: true
+        INFOPLIST_KEY_CFBundleDisplayName: Homeward Fixture
+        ENABLE_APP_SANDBOX: false
+        ENABLE_HARDENED_RUNTIME: true
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 752LD44EEA
+        SUPPORTS_MACCATALYST: false
+
+schemes:
+  Homeward:
+    build:
+      targets:
+        Homeward: all
+        HomewardAppTests: [test]
+        HomewardFixture: [test]
+    test:
+      targets:
+        - HomewardAppTests
+      gatherCoverageData: true
+  HomewardUI:
+    build:
+      targets:
+        Homeward: [test]
+        HomewardUITests: [test]
+    test:
+      targets:
+        - HomewardUITests
+  HomewardFixture:
+    build:
+      targets:
+        HomewardFixture: all

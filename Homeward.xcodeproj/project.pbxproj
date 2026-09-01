@@ -1,0 +1,770 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1597D71D4F32EFC067D38CA3 /* AppModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31699DAA3B984608F48DB8C7 /* AppModelTests.swift */; };
+		16A6007DBB69A41FB8407F3F /* NotesViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B0B42B121AA92EE46736305 /* NotesViews.swift */; };
+		1B00A9433871C889096338A8 /* HomewardFixtureApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F117EE7F61D877CEFAB182A /* HomewardFixtureApp.swift */; };
+		20CF63808DF61B0BEA9CB27F /* LoginItemService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4742E4A385D79FAC7B57D8B /* LoginItemService.swift */; };
+		2A8CF5E783091E51949CAB76 /* GeneralSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8803C0D338B2B8B3F8077F87 /* GeneralSettingsView.swift */; };
+		2DF536DDB5F090F327CDEBFA /* AppPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 824D980FED36836A4DF4434F /* AppPickerView.swift */; };
+		34A8ED1906E36F70B7B015B0 /* ClosingSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18AA31B1FEFDC7D8F71B53EF /* ClosingSettingsView.swift */; };
+		40E5DC531A680CD6D429A506 /* HomewardApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18DA08C84B626D7FF3574B9A /* HomewardApp.swift */; };
+		5B381DF03C5BB63379750D4A /* PlatformIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16487E2FC326A907532C9E73 /* PlatformIntegrationTests.swift */; };
+		5CDC05C4C77D6B668B0C6288 /* ClosingPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEA7B78D014CA35898DE2F61 /* ClosingPanel.swift */; };
+		6D0DC21C306F00BC01C45475 /* RunningApplicationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C40E0666C4692BC743C361B /* RunningApplicationController.swift */; };
+		9743756B90EC3C1C7975F051 /* HomewardCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7BF201EAFF9DD7BE1EFFC6FE /* HomewardCore */; };
+		98F8CFD36D341B56A630EFE6 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F03F85C275005C63113FBBA /* OnboardingView.swift */; };
+		AA631684F394F2C4F0F58A02 /* ManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01561C80930E51EFFD168902 /* ManagementView.swift */; };
+		AD0D6C9C567D35A575F5A1F2 /* HomewardCore in Frameworks */ = {isa = PBXBuildFile; productRef = 729E8A4F86BAC6BA4DF87786 /* HomewardCore */; };
+		C518F3620842A37DB8EF6264 /* WorkspaceMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 211ACE83BF905969FC84D52F /* WorkspaceMonitor.swift */; };
+		C88AA6E72DAD07040C592BE0 /* BlockedLaunchPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EDC30D2CCF50E826EC06D0E /* BlockedLaunchPanel.swift */; };
+		CB655B651F4FBFAA6796EE14 /* ApplicationCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0042F761B849F855A8FEF75B /* ApplicationCatalog.swift */; };
+		D428334D03D1AED046344433 /* ScheduleEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0175B67ED7ABF57FF7FCE88A /* ScheduleEditorView.swift */; };
+		D5E6EC8F05576A95E8EB18ED /* HomewardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C529F2EFC4F45212AADAC6 /* HomewardUITests.swift */; };
+		D79F3949C8B821E939FA55F5 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CB3A8CB65627B55BB16279B /* AppModel.swift */; };
+		DDA9FA451191047B7A8D0073 /* HomewardRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93D6AEDBD4C0CA66C28C9A6D /* HomewardRepository.swift */; };
+		E24293AA343779622B3B2159 /* OverviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A03C36FFFFD53F10D5D27A19 /* OverviewView.swift */; };
+		E7D5C1B8C48F6647221BC016 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D0F65F5BC55B3CECBB3B72E /* RootView.swift */; };
+		EFFE0FF801EE769B8DBA0BAB /* HomewardNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81537A5166F6C90091957D86 /* HomewardNotificationService.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		687C97BB826A5794086B202A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3B4384F81F8149D06ED9360F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 6953D57BD5507B60BBAAC429;
+			remoteInfo = Homeward;
+		};
+		DB5CEAEB8740C7A35E47A368 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3B4384F81F8149D06ED9360F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F4331618A35B9DB1F1214FFA;
+			remoteInfo = HomewardFixture;
+		};
+		EA7F83814B703E2A8375C619 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3B4384F81F8149D06ED9360F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 6953D57BD5507B60BBAAC429;
+			remoteInfo = Homeward;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		0042F761B849F855A8FEF75B /* ApplicationCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationCatalog.swift; sourceTree = "<group>"; };
+		01561C80930E51EFFD168902 /* ManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagementView.swift; sourceTree = "<group>"; };
+		0175B67ED7ABF57FF7FCE88A /* ScheduleEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleEditorView.swift; sourceTree = "<group>"; };
+		16487E2FC326A907532C9E73 /* PlatformIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformIntegrationTests.swift; sourceTree = "<group>"; };
+		18AA31B1FEFDC7D8F71B53EF /* ClosingSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosingSettingsView.swift; sourceTree = "<group>"; };
+		18DA08C84B626D7FF3574B9A /* HomewardApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomewardApp.swift; sourceTree = "<group>"; };
+		1C071497D8B7FAF8F20BDE55 /* HomewardAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HomewardAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		1C40E0666C4692BC743C361B /* RunningApplicationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunningApplicationController.swift; sourceTree = "<group>"; };
+		211ACE83BF905969FC84D52F /* WorkspaceMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceMonitor.swift; sourceTree = "<group>"; };
+		31699DAA3B984608F48DB8C7 /* AppModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelTests.swift; sourceTree = "<group>"; };
+		3D0F65F5BC55B3CECBB3B72E /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		3E01390C87671B9E23FF0D9D /* homeward */ = {isa = PBXFileReference; lastKnownFileType = folder; name = homeward; path = .; sourceTree = SOURCE_ROOT; };
+		506C75E528C1C271D55B2092 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		5A3735E0EF8D884950D764D0 /* Homeward.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Homeward.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		66C529F2EFC4F45212AADAC6 /* HomewardUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomewardUITests.swift; sourceTree = "<group>"; };
+		6B0B42B121AA92EE46736305 /* NotesViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesViews.swift; sourceTree = "<group>"; };
+		6CB3A8CB65627B55BB16279B /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		6D4E951D34433BC45C63151B /* HomewardFixture.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HomewardFixture.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		6F117EE7F61D877CEFAB182A /* HomewardFixtureApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomewardFixtureApp.swift; sourceTree = "<group>"; };
+		7F03F85C275005C63113FBBA /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		81537A5166F6C90091957D86 /* HomewardNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomewardNotificationService.swift; sourceTree = "<group>"; };
+		824D980FED36836A4DF4434F /* AppPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPickerView.swift; sourceTree = "<group>"; };
+		8803C0D338B2B8B3F8077F87 /* GeneralSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsView.swift; sourceTree = "<group>"; };
+		8EDC30D2CCF50E826EC06D0E /* BlockedLaunchPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockedLaunchPanel.swift; sourceTree = "<group>"; };
+		93D6AEDBD4C0CA66C28C9A6D /* HomewardRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomewardRepository.swift; sourceTree = "<group>"; };
+		A03C36FFFFD53F10D5D27A19 /* OverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverviewView.swift; sourceTree = "<group>"; };
+		A4742E4A385D79FAC7B57D8B /* LoginItemService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginItemService.swift; sourceTree = "<group>"; };
+		D889BEE891BA58735C5927E5 /* HomewardUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HomewardUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		DEA7B78D014CA35898DE2F61 /* ClosingPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosingPanel.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		468F5ACB5E29E0C5CA4671F9 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9743756B90EC3C1C7975F051 /* HomewardCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EA19F08C2098B651819FDDE2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AD0D6C9C567D35A575F5A1F2 /* HomewardCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		08601F29AC163A58B63F1C28 = {
+			isa = PBXGroup;
+			children = (
+				F486A3B8774E8D66EC67CBB7 /* HomewardApp */,
+				6D883A1D4B9EF33E9F9E0CB3 /* HomewardAppTests */,
+				C0AE0AC3E1B88A8450958A34 /* HomewardUITests */,
+				FC640C9956F0BA05428DA0C2 /* Packages */,
+				D93CBCA2F9D13D05476AE507 /* TestFixtures */,
+				7534CF11635DC72A80583F7F /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		6D883A1D4B9EF33E9F9E0CB3 /* HomewardAppTests */ = {
+			isa = PBXGroup;
+			children = (
+				31699DAA3B984608F48DB8C7 /* AppModelTests.swift */,
+				16487E2FC326A907532C9E73 /* PlatformIntegrationTests.swift */,
+			);
+			path = HomewardAppTests;
+			sourceTree = "<group>";
+		};
+		6E7652CD5BE276C9AADD4EC5 /* Platform */ = {
+			isa = PBXGroup;
+			children = (
+				0042F761B849F855A8FEF75B /* ApplicationCatalog.swift */,
+				81537A5166F6C90091957D86 /* HomewardNotificationService.swift */,
+				93D6AEDBD4C0CA66C28C9A6D /* HomewardRepository.swift */,
+				A4742E4A385D79FAC7B57D8B /* LoginItemService.swift */,
+				1C40E0666C4692BC743C361B /* RunningApplicationController.swift */,
+				211ACE83BF905969FC84D52F /* WorkspaceMonitor.swift */,
+			);
+			path = Platform;
+			sourceTree = "<group>";
+		};
+		7534CF11635DC72A80583F7F /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				5A3735E0EF8D884950D764D0 /* Homeward.app */,
+				1C071497D8B7FAF8F20BDE55 /* HomewardAppTests.xctest */,
+				6D4E951D34433BC45C63151B /* HomewardFixture.app */,
+				D889BEE891BA58735C5927E5 /* HomewardUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		C0AE0AC3E1B88A8450958A34 /* HomewardUITests */ = {
+			isa = PBXGroup;
+			children = (
+				66C529F2EFC4F45212AADAC6 /* HomewardUITests.swift */,
+			);
+			path = HomewardUITests;
+			sourceTree = "<group>";
+		};
+		D93CBCA2F9D13D05476AE507 /* TestFixtures */ = {
+			isa = PBXGroup;
+			children = (
+				E8C54C4CF2E06693B72F0230 /* HomewardFixture */,
+			);
+			path = TestFixtures;
+			sourceTree = "<group>";
+		};
+		E67C0CECFD4E8FCC784F1462 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				824D980FED36836A4DF4434F /* AppPickerView.swift */,
+				8EDC30D2CCF50E826EC06D0E /* BlockedLaunchPanel.swift */,
+				DEA7B78D014CA35898DE2F61 /* ClosingPanel.swift */,
+				18AA31B1FEFDC7D8F71B53EF /* ClosingSettingsView.swift */,
+				8803C0D338B2B8B3F8077F87 /* GeneralSettingsView.swift */,
+				01561C80930E51EFFD168902 /* ManagementView.swift */,
+				6B0B42B121AA92EE46736305 /* NotesViews.swift */,
+				7F03F85C275005C63113FBBA /* OnboardingView.swift */,
+				A03C36FFFFD53F10D5D27A19 /* OverviewView.swift */,
+				3D0F65F5BC55B3CECBB3B72E /* RootView.swift */,
+				0175B67ED7ABF57FF7FCE88A /* ScheduleEditorView.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		E8C54C4CF2E06693B72F0230 /* HomewardFixture */ = {
+			isa = PBXGroup;
+			children = (
+				6F117EE7F61D877CEFAB182A /* HomewardFixtureApp.swift */,
+			);
+			path = HomewardFixture;
+			sourceTree = "<group>";
+		};
+		F486A3B8774E8D66EC67CBB7 /* HomewardApp */ = {
+			isa = PBXGroup;
+			children = (
+				6CB3A8CB65627B55BB16279B /* AppModel.swift */,
+				18DA08C84B626D7FF3574B9A /* HomewardApp.swift */,
+				506C75E528C1C271D55B2092 /* Info.plist */,
+				6E7652CD5BE276C9AADD4EC5 /* Platform */,
+				E67C0CECFD4E8FCC784F1462 /* UI */,
+			);
+			path = HomewardApp;
+			sourceTree = "<group>";
+		};
+		FC640C9956F0BA05428DA0C2 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				3E01390C87671B9E23FF0D9D /* homeward */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		53340FF28C9C62DFFD5C4E49 /* HomewardUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F51BE577DCDDFE4A3CC30F41 /* Build configuration list for PBXNativeTarget "HomewardUITests" */;
+			buildPhases = (
+				AF3A725993BD9CB66E27A2D9 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C670C2FCDF14268BAFC7052D /* PBXTargetDependency */,
+			);
+			name = HomewardUITests;
+			packageProductDependencies = (
+			);
+			productName = HomewardUITests;
+			productReference = D889BEE891BA58735C5927E5 /* HomewardUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		6953D57BD5507B60BBAAC429 /* Homeward */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F18154E1188B89378797A230 /* Build configuration list for PBXNativeTarget "Homeward" */;
+			buildPhases = (
+				C2F4978BBF12F40A7A4A20B2 /* Sources */,
+				EA19F08C2098B651819FDDE2 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Homeward;
+			packageProductDependencies = (
+				729E8A4F86BAC6BA4DF87786 /* HomewardCore */,
+			);
+			productName = Homeward;
+			productReference = 5A3735E0EF8D884950D764D0 /* Homeward.app */;
+			productType = "com.apple.product-type.application";
+		};
+		77B2646FDC66CDCB6F8355D6 /* HomewardAppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B1A6F64C8F4C3EE424D3C6D7 /* Build configuration list for PBXNativeTarget "HomewardAppTests" */;
+			buildPhases = (
+				D0924CF8834A0A132CA61134 /* Sources */,
+				468F5ACB5E29E0C5CA4671F9 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				3C8B892CF97A168B9FC266DC /* PBXTargetDependency */,
+				FA5F81205DAFBCD72CB71650 /* PBXTargetDependency */,
+			);
+			name = HomewardAppTests;
+			packageProductDependencies = (
+				7BF201EAFF9DD7BE1EFFC6FE /* HomewardCore */,
+			);
+			productName = HomewardAppTests;
+			productReference = 1C071497D8B7FAF8F20BDE55 /* HomewardAppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		F4331618A35B9DB1F1214FFA /* HomewardFixture */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 27D8C41809F0DEE8415BF27D /* Build configuration list for PBXNativeTarget "HomewardFixture" */;
+			buildPhases = (
+				965EDA4B7F900171627709CD /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = HomewardFixture;
+			packageProductDependencies = (
+			);
+			productName = HomewardFixture;
+			productReference = 6D4E951D34433BC45C63151B /* HomewardFixture.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		3B4384F81F8149D06ED9360F /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					53340FF28C9C62DFFD5C4E49 = {
+						TestTargetID = 6953D57BD5507B60BBAAC429;
+					};
+					6953D57BD5507B60BBAAC429 = {
+						DevelopmentTeam = 752LD44EEA;
+						ProvisioningStyle = Automatic;
+					};
+					F4331618A35B9DB1F1214FFA = {
+						DevelopmentTeam = 752LD44EEA;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = B4915A18467D22573631922F /* Build configuration list for PBXProject "Homeward" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 08601F29AC163A58B63F1C28;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A04C58666015924278F40E0D /* XCLocalSwiftPackageReference "." */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 7534CF11635DC72A80583F7F /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				6953D57BD5507B60BBAAC429 /* Homeward */,
+				77B2646FDC66CDCB6F8355D6 /* HomewardAppTests */,
+				53340FF28C9C62DFFD5C4E49 /* HomewardUITests */,
+				F4331618A35B9DB1F1214FFA /* HomewardFixture */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		965EDA4B7F900171627709CD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1B00A9433871C889096338A8 /* HomewardFixtureApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AF3A725993BD9CB66E27A2D9 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D5E6EC8F05576A95E8EB18ED /* HomewardUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C2F4978BBF12F40A7A4A20B2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D79F3949C8B821E939FA55F5 /* AppModel.swift in Sources */,
+				2DF536DDB5F090F327CDEBFA /* AppPickerView.swift in Sources */,
+				CB655B651F4FBFAA6796EE14 /* ApplicationCatalog.swift in Sources */,
+				C88AA6E72DAD07040C592BE0 /* BlockedLaunchPanel.swift in Sources */,
+				5CDC05C4C77D6B668B0C6288 /* ClosingPanel.swift in Sources */,
+				34A8ED1906E36F70B7B015B0 /* ClosingSettingsView.swift in Sources */,
+				2A8CF5E783091E51949CAB76 /* GeneralSettingsView.swift in Sources */,
+				40E5DC531A680CD6D429A506 /* HomewardApp.swift in Sources */,
+				EFFE0FF801EE769B8DBA0BAB /* HomewardNotificationService.swift in Sources */,
+				DDA9FA451191047B7A8D0073 /* HomewardRepository.swift in Sources */,
+				20CF63808DF61B0BEA9CB27F /* LoginItemService.swift in Sources */,
+				AA631684F394F2C4F0F58A02 /* ManagementView.swift in Sources */,
+				16A6007DBB69A41FB8407F3F /* NotesViews.swift in Sources */,
+				98F8CFD36D341B56A630EFE6 /* OnboardingView.swift in Sources */,
+				E24293AA343779622B3B2159 /* OverviewView.swift in Sources */,
+				E7D5C1B8C48F6647221BC016 /* RootView.swift in Sources */,
+				6D0DC21C306F00BC01C45475 /* RunningApplicationController.swift in Sources */,
+				D428334D03D1AED046344433 /* ScheduleEditorView.swift in Sources */,
+				C518F3620842A37DB8EF6264 /* WorkspaceMonitor.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D0924CF8834A0A132CA61134 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1597D71D4F32EFC067D38CA3 /* AppModelTests.swift in Sources */,
+				5B381DF03C5BB63379750D4A /* PlatformIntegrationTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		3C8B892CF97A168B9FC266DC /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 6953D57BD5507B60BBAAC429 /* Homeward */;
+			targetProxy = EA7F83814B703E2A8375C619 /* PBXContainerItemProxy */;
+		};
+		C670C2FCDF14268BAFC7052D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 6953D57BD5507B60BBAAC429 /* Homeward */;
+			targetProxy = 687C97BB826A5794086B202A /* PBXContainerItemProxy */;
+		};
+		FA5F81205DAFBCD72CB71650 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F4331618A35B9DB1F1214FFA /* HomewardFixture */;
+			targetProxy = DB5CEAEB8740C7A35E47A368 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		02A76AEF30B9459E5B2E09AC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 752LD44EEA;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Homeward Fixture";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.firaskafri.homeward.fixture;
+				PRODUCT_NAME = HomewardFixture;
+				SDKROOT = macosx;
+				SUPPORTS_MACCATALYST = NO;
+			};
+			name = Debug;
+		};
+		2F16D8B0F3D3F8B7CEF85D36 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		581E69DA9702A4EDF2151901 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.firaskafri.homeward.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Homeward.app/Contents/MacOS/Homeward";
+			};
+			name = Debug;
+		};
+		593172D9DC2A1C2413484DE6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		64DD8D4C879127AB91A10993 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.firaskafri.homeward.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Homeward.app/Contents/MacOS/Homeward";
+			};
+			name = Release;
+		};
+		8BC4BBA4EE87FDB4F79D59CD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.firaskafri.homeward.uitests;
+				SDKROOT = macosx;
+				TEST_TARGET_NAME = Homeward;
+			};
+			name = Release;
+		};
+		929CF82DD152DB27EC84B9CE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 752LD44EEA;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = HomewardApp/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.firaskafri.homeward;
+				PRODUCT_NAME = Homeward;
+				SDKROOT = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+			};
+			name = Release;
+		};
+		AD4686DBDDD62FAB10802345 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.firaskafri.homeward.uitests;
+				SDKROOT = macosx;
+				TEST_TARGET_NAME = Homeward;
+			};
+			name = Debug;
+		};
+		CAEE5F5061AB7B1957329454 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 752LD44EEA;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = HomewardApp/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.firaskafri.homeward;
+				PRODUCT_NAME = Homeward;
+				SDKROOT = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+			};
+			name = Debug;
+		};
+		E928A7C8648087DA6F077081 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 752LD44EEA;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Homeward Fixture";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.firaskafri.homeward.fixture;
+				PRODUCT_NAME = HomewardFixture;
+				SDKROOT = macosx;
+				SUPPORTS_MACCATALYST = NO;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		27D8C41809F0DEE8415BF27D /* Build configuration list for PBXNativeTarget "HomewardFixture" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				02A76AEF30B9459E5B2E09AC /* Debug */,
+				E928A7C8648087DA6F077081 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B1A6F64C8F4C3EE424D3C6D7 /* Build configuration list for PBXNativeTarget "HomewardAppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				581E69DA9702A4EDF2151901 /* Debug */,
+				64DD8D4C879127AB91A10993 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B4915A18467D22573631922F /* Build configuration list for PBXProject "Homeward" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2F16D8B0F3D3F8B7CEF85D36 /* Debug */,
+				593172D9DC2A1C2413484DE6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F18154E1188B89378797A230 /* Build configuration list for PBXNativeTarget "Homeward" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CAEE5F5061AB7B1957329454 /* Debug */,
+				929CF82DD152DB27EC84B9CE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F51BE577DCDDFE4A3CC30F41 /* Build configuration list for PBXNativeTarget "HomewardUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AD4686DBDDD62FAB10802345 /* Debug */,
+				8BC4BBA4EE87FDB4F79D59CD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		A04C58666015924278F40E0D /* XCLocalSwiftPackageReference "." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = .;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		729E8A4F86BAC6BA4DF87786 /* HomewardCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = HomewardCore;
+		};
+		7BF201EAFF9DD7BE1EFFC6FE /* HomewardCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = HomewardCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 3B4384F81F8149D06ED9360F /* Project object */;
+}
