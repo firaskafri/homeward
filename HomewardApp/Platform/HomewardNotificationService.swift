@@ -1,6 +1,6 @@
 import Foundation
 import HomewardCore
-import UserNotifications
+@preconcurrency import UserNotifications
 
 @MainActor
 protocol HomewardNotificationHandling: AnyObject {
