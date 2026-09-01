@@ -90,6 +90,28 @@ struct AtomicFileStoreTests {
         #expect(!FileManager.default.fileExists(atPath: fixture.fileURL.path))
         #expect(!FileManager.default.fileExists(atPath: fixture.fileURL.appendingPathExtension("previous").path))
     }
+
+    /// 1 - Name: Recovery replacement over corrupt primary.
+    /// 2 - Description: Replaces undecodable active data without promoting it to the validated backup.
+    /// 3 - Assumptions: Recovery is an explicit user action after normal load has failed open.
+    /// 4 - Expectations: The replacement becomes active and the earlier validated recovery candidate remains intact.
+    @Test
+    func recoveryReplacementOverCorruptPrimary() async throws {
+        let fixture = try TemporaryStoreFixture()
+        defer { fixture.remove() }
+        let store = AtomicFileStore<NotesDocument>(fileURL: fixture.fileURL)
+        let first = try NotesDocument(notes: [TomorrowNote(text: "First")])
+        let second = try NotesDocument(notes: [TomorrowNote(text: "Second")])
+        let replacement = try NotesDocument(notes: [TomorrowNote(text: "Replacement")])
+        try await store.save(first)
+        try await store.save(second)
+        try Data("corrupt".utf8).write(to: fixture.fileURL, options: .atomic)
+
+        try await store.replaceRecovering(replacement)
+
+        #expect(try await store.load() == replacement)
+        #expect(try await store.loadRecoveryCandidate() == first)
+    }
 }
 
 private struct TemporaryStoreFixture {

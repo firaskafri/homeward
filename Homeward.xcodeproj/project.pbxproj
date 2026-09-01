@@ -13,8 +13,10 @@
 		20CF63808DF61B0BEA9CB27F /* LoginItemService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4742E4A385D79FAC7B57D8B /* LoginItemService.swift */; };
 		2A8CF5E783091E51949CAB76 /* GeneralSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8803C0D338B2B8B3F8077F87 /* GeneralSettingsView.swift */; };
 		2DF536DDB5F090F327CDEBFA /* AppPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 824D980FED36836A4DF4434F /* AppPickerView.swift */; };
+		335B872B50FC6055B8B5583A /* InlineErrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE826D0D3E0DA31B5EBA46B4 /* InlineErrorView.swift */; };
 		34A8ED1906E36F70B7B015B0 /* ClosingSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18AA31B1FEFDC7D8F71B53EF /* ClosingSettingsView.swift */; };
 		40E5DC531A680CD6D429A506 /* HomewardApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18DA08C84B626D7FF3574B9A /* HomewardApp.swift */; };
+		416CFE5E235CAA4693865BF1 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = D44212DE0EC352FC4A2A8BA3 /* Localizable.xcstrings */; };
 		5B381DF03C5BB63379750D4A /* PlatformIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16487E2FC326A907532C9E73 /* PlatformIntegrationTests.swift */; };
 		5CDC05C4C77D6B668B0C6288 /* ClosingPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEA7B78D014CA35898DE2F61 /* ClosingPanel.swift */; };
 		6D0DC21C306F00BC01C45475 /* RunningApplicationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C40E0666C4692BC743C361B /* RunningApplicationController.swift */; };
@@ -86,6 +88,8 @@
 		93D6AEDBD4C0CA66C28C9A6D /* HomewardRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomewardRepository.swift; sourceTree = "<group>"; };
 		A03C36FFFFD53F10D5D27A19 /* OverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverviewView.swift; sourceTree = "<group>"; };
 		A4742E4A385D79FAC7B57D8B /* LoginItemService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginItemService.swift; sourceTree = "<group>"; };
+		AE826D0D3E0DA31B5EBA46B4 /* InlineErrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineErrorView.swift; sourceTree = "<group>"; };
+		D44212DE0EC352FC4A2A8BA3 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		D889BEE891BA58735C5927E5 /* HomewardUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HomewardUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DEA7B78D014CA35898DE2F61 /* ClosingPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosingPanel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -179,6 +183,7 @@
 				DEA7B78D014CA35898DE2F61 /* ClosingPanel.swift */,
 				18AA31B1FEFDC7D8F71B53EF /* ClosingSettingsView.swift */,
 				8803C0D338B2B8B3F8077F87 /* GeneralSettingsView.swift */,
+				AE826D0D3E0DA31B5EBA46B4 /* InlineErrorView.swift */,
 				01561C80930E51EFFD168902 /* ManagementView.swift */,
 				6B0B42B121AA92EE46736305 /* NotesViews.swift */,
 				7F03F85C275005C63113FBBA /* OnboardingView.swift */,
@@ -203,6 +208,7 @@
 				6CB3A8CB65627B55BB16279B /* AppModel.swift */,
 				18DA08C84B626D7FF3574B9A /* HomewardApp.swift */,
 				506C75E528C1C271D55B2092 /* Info.plist */,
+				D44212DE0EC352FC4A2A8BA3 /* Localizable.xcstrings */,
 				6E7652CD5BE276C9AADD4EC5 /* Platform */,
 				E67C0CECFD4E8FCC784F1462 /* UI */,
 			);
@@ -243,6 +249,7 @@
 			buildConfigurationList = F18154E1188B89378797A230 /* Build configuration list for PBXNativeTarget "Homeward" */;
 			buildPhases = (
 				C2F4978BBF12F40A7A4A20B2 /* Sources */,
+				EA4D14AB5476E8BFB0A38E85 /* Resources */,
 				EA19F08C2098B651819FDDE2 /* Frameworks */,
 			);
 			buildRules = (
@@ -342,6 +349,17 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		EA4D14AB5476E8BFB0A38E85 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				416CFE5E235CAA4693865BF1 /* Localizable.xcstrings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		965EDA4B7F900171627709CD /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -373,6 +391,7 @@
 				40E5DC531A680CD6D429A506 /* HomewardApp.swift in Sources */,
 				EFFE0FF801EE769B8DBA0BAB /* HomewardNotificationService.swift in Sources */,
 				DDA9FA451191047B7A8D0073 /* HomewardRepository.swift in Sources */,
+				335B872B50FC6055B8B5583A /* InlineErrorView.swift in Sources */,
 				20CF63808DF61B0BEA9CB27F /* LoginItemService.swift in Sources */,
 				AA631684F394F2C4F0F58A02 /* ManagementView.swift in Sources */,
 				16A6007DBB69A41FB8407F3F /* NotesViews.swift in Sources */,

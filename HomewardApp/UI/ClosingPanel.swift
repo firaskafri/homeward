@@ -4,6 +4,7 @@ import SwiftUI
 @MainActor
 final class ClosingPanelController: NSWindowController, NSWindowDelegate {
     private unowned let model: AppModel
+    private weak var previousApplication: NSRunningApplication?
 
     init(model: AppModel) {
         self.model = model
@@ -11,7 +12,7 @@ final class ClosingPanelController: NSWindowController, NSWindowDelegate {
         let hostingController = NSHostingController(rootView: content)
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 440, height: 320),
-            styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel],
+            styleMask: [.titled, .closable, .utilityWindow],
             backing: .buffered,
             defer: false
         )
@@ -41,6 +42,7 @@ final class ClosingPanelController: NSWindowController, NSWindowDelegate {
         }
         window.center()
         if activating {
+            previousApplication = NSWorkspace.shared.frontmostApplication
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         } else {
@@ -61,6 +63,11 @@ final class ClosingPanelController: NSWindowController, NSWindowDelegate {
             sender.orderOut(nil)
         }
         return false
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        previousApplication?.activate(options: [.activateAllWindows])
+        previousApplication = nil
     }
 }
 
@@ -93,7 +100,7 @@ private struct ClosingPanelView: View {
                     Button("Change Today Only…") {
                         Task {
                             await model.stopForceQuit()
-                            model.openManagementSettings()
+                            model.showTodayChangePanel()
                         }
                     }
                 }

@@ -7,7 +7,7 @@ final class NotesPanelController: NSWindowController {
     init(model: AppModel) {
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 560, height: 420),
-            styleMask: [.titled, .closable, .resizable, .utilityWindow, .nonactivatingPanel],
+            styleMask: [.titled, .closable, .resizable, .utilityWindow],
             backing: .buffered,
             defer: false
         )

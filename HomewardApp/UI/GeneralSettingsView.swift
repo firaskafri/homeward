@@ -9,6 +9,13 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         Form {
+            if let error = model.lastError {
+                Section {
+                    InlineErrorView(message: error) {
+                        model.clearError()
+                    }
+                }
+            }
             Section("Start at Login") {
                 LabeledContent("Status") {
                     Text(loginStatusText)

@@ -50,7 +50,15 @@ public struct HomewardConfiguration: Codable, Equatable, Sendable {
         guard Set(keys).count == keys.count else {
             throw ConfigurationError.duplicateApplicationSelection
         }
+        if let protectedIdentifier = selectedApplications.first(
+            where: \.isProtected
+        )?.bundleIdentifier {
+            throw ConfigurationError.protectedApplicationSelection(
+                protectedIdentifier
+            )
+        }
 
+        try overrides.forEach { try $0.validate() }
         overrides = overrides.sorted(by: { $0.effectiveAt < $1.effectiveAt })
     }
 }
@@ -98,9 +106,23 @@ public struct NotesDocument: Codable, Equatable, Sendable {
         }
         return lhs.createdAt < rhs.createdAt
     }
+
+    public mutating func validate() throws {
+        guard schemaVersion == Self.currentSchemaVersion else {
+            throw ConfigurationError.unsupportedSchemaVersion(schemaVersion)
+        }
+        try notes.forEach { try $0.validate() }
+        let noteIDs = notes.map(\.id)
+        guard Set(noteIDs).count == noteIDs.count else {
+            throw ConfigurationError.duplicateNote
+        }
+        notes.sort(by: Self.noteOrder)
+    }
 }
 
 public enum ConfigurationError: Error, Equatable, Sendable {
     case unsupportedSchemaVersion(Int)
     case duplicateApplicationSelection
+    case protectedApplicationSelection(String)
+    case duplicateNote
 }

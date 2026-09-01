@@ -141,4 +141,42 @@ struct ModelTests {
 
         #expect(decoded.consumedGentleExtensionIntervalIDs == ["blocked-interval-1"])
     }
+
+    /// 1 - Name: Protected persisted application.
+    /// 2 - Description: Rejects a protected bundle identifier even when it enters configuration outside the picker.
+    /// 3 - Assumptions: Persisted files are untrusted input and must repeat safety validation.
+    /// 4 - Expectations: Finder cannot become an enforcement selection.
+    @Test
+    func protectedPersistedApplicationIsRejected() throws {
+        var configuration = try HomewardConfiguration.initial()
+        configuration.selectedApplications = [
+            SelectedApplication(
+                bundleIdentifier: "com.apple.finder",
+                bundlePath: "/System/Library/CoreServices/Finder.app",
+                displayName: "Finder"
+            ),
+        ]
+
+        #expect(throws: ConfigurationError.protectedApplicationSelection(
+            "com.apple.finder"
+        )) {
+            try configuration.validate()
+        }
+    }
+
+    /// 1 - Name: Decoded local-time validation.
+    /// 2 - Description: Demonstrates that Codable can construct values that bypass public initializers.
+    /// 3 - Assumptions: Persisted JSON is untrusted and receives semantic validation after decoding.
+    /// 4 - Expectations: An out-of-range decoded hour fails validation.
+    @Test
+    func decodedLocalTimeValidation() throws {
+        let decoded = try JSONDecoder().decode(
+            LocalTime.self,
+            from: Data(#"{"hour":99,"minute":0}"#.utf8)
+        )
+
+        #expect(throws: ValidationError.invalidLocalTime(hour: 99, minute: 0)) {
+            try decoded.validate()
+        }
+    }
 }

@@ -31,3 +31,13 @@ jobs:
 
       - name: Verify without interactive UI automation
         run: RUN_UI_TESTS=0 ./scripts/verify.sh
+
+      - name: Package non-public release candidate
+        run: SKIP_VERIFY=1 ./scripts/package-local-candidate.sh
+
+      - name: Upload release-candidate evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: homeward-local-candidate-${{ github.sha }}
+          path: dist/
+          retention-days: 14

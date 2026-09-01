@@ -87,6 +87,32 @@ struct EnforcementPlannerTests {
         #expect(targets.isEmpty)
     }
 
+    /// 1 - Name: Protected selection fails open.
+    /// 2 - Description: Revalidates protected identity at the termination-planning boundary.
+    /// 3 - Assumptions: Persisted or in-memory policy may be corrupted outside the normal picker.
+    /// 4 - Expectations: Finder never becomes a normal or forced termination target.
+    @Test
+    func protectedSelectionFailsOpen() {
+        let selection = SelectedApplication(
+            bundleIdentifier: "com.apple.finder",
+            bundlePath: "/System/Library/CoreServices/Finder.app",
+            displayName: "Finder"
+        )
+
+        let targets = EnforcementPlanner().targets(
+            selections: [selection],
+            runningApplications: [
+                process(
+                    pid: 10,
+                    bundleIdentifier: "com.apple.finder",
+                    path: "/System/Library/CoreServices/Finder.app"
+                ),
+            ]
+        )
+
+        #expect(targets.isEmpty)
+    }
+
     /// 1 - Name: Firm force eligibility.
     /// 2 - Description: Requires elapsed grace, blocked policy, current selection, and exact live process identity.
     /// 3 - Assumptions: The session began with a normal quit request at its start time.
@@ -247,6 +273,20 @@ struct EnforcementPlannerTests {
         #expect(availableResult.isEmpty)
         #expect(deselectedResult.isEmpty)
         #expect(replacedProcessResult.isEmpty)
+    }
+
+    /// 1 - Name: Countdown announcement milestones.
+    /// 2 - Description: Limits spoken countdown updates to 30, 15, and 5 seconds without duplicates.
+    /// 3 - Assumptions: Per-second visual updates continue independently from accessibility announcements.
+    /// 4 - Expectations: Milestones announce once and intermediate ticks remain silent.
+    @Test
+    func countdownAnnouncementMilestones() {
+        let policy = CountdownAnnouncementPolicy()
+
+        #expect(policy.shouldAnnounce(secondsRemaining: 30, announced: []))
+        #expect(!policy.shouldAnnounce(secondsRemaining: 29, announced: []))
+        #expect(!policy.shouldAnnounce(secondsRemaining: 15, announced: [15]))
+        #expect(policy.shouldAnnounce(secondsRemaining: 5, announced: [30, 15]))
     }
 }
 

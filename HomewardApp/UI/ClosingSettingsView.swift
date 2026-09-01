@@ -7,6 +7,13 @@ struct ClosingSettingsView: View {
 
     var body: some View {
         Form {
+            if let error = model.lastError {
+                Section {
+                    InlineErrorView(message: error) {
+                        model.clearError()
+                    }
+                }
+            }
             Section("Closing behavior") {
                 Picker("Mode", selection: modeBinding) {
                     Text("Gentle Close").tag(CloseMode.gentle)

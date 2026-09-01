@@ -8,6 +8,7 @@
 - Swift: 6.3.3
 - macOS SDK: 26.5
 - Deployment target: macOS 15.0
+- CI: macOS 15 arm64 with Xcode 16.4
 
 ## Automated evidence
 

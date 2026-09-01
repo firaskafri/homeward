@@ -29,6 +29,12 @@ public struct LocalTime: Codable, Equatable, Comparable, Hashable, Sendable {
     public static func < (lhs: LocalTime, rhs: LocalTime) -> Bool {
         (lhs.hour, lhs.minute) < (rhs.hour, rhs.minute)
     }
+
+    public func validate() throws {
+        guard (0...23).contains(hour), (0...59).contains(minute) else {
+            throw ValidationError.invalidLocalTime(hour: hour, minute: minute)
+        }
+    }
 }
 
 public enum DayRule: Codable, Equatable, Sendable {
@@ -83,6 +89,8 @@ public struct WeeklySchedule: Codable, Equatable, Sendable {
             guard case let .scheduled(start, end, endsNextDay) = rule else {
                 continue
             }
+            try start.validate()
+            try end.validate()
             if start == end {
                 throw ValidationError.equalScheduleBoundaries(weekday)
             }
@@ -170,9 +178,24 @@ public struct ScheduleOverride: Codable, Equatable, Identifiable, Sendable {
     public func isActive(at date: Date) -> Bool {
         effectiveAt <= date && date < expiresAt
     }
+
+    public func validate() throws {
+        guard expiresAt > effectiveAt else {
+            throw ValidationError.invalidOverrideRange
+        }
+    }
 }
 
 public struct SelectedApplication: Codable, Equatable, Identifiable, Hashable, Sendable {
+    public static let protectedBundleIdentifiers: Set<String> = [
+        "com.apple.finder",
+        "com.apple.systempreferences",
+        "com.apple.SystemSettings",
+        "com.apple.loginwindow",
+        "com.apple.dock",
+        "com.firaskafri.homeward",
+    ]
+
     public let id: UUID
     public var bundleIdentifier: String?
     public var bundlePath: String
@@ -198,6 +221,10 @@ public struct SelectedApplication: Codable, Equatable, Identifiable, Hashable, S
 
     public var stableSelectionKey: String {
         bundleIdentifier ?? URL(fileURLWithPath: bundlePath).standardizedFileURL.path
+    }
+
+    public var isProtected: Bool {
+        bundleIdentifier.map(Self.protectedBundleIdentifiers.contains) ?? false
     }
 }
 
@@ -227,6 +254,19 @@ public struct TomorrowNote: Codable, Equatable, Identifiable, Sendable {
         self.createdAt = createdAt
         self.lastPresentedIntervalID = lastPresentedIntervalID
     }
+
+    public func validate() throws {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw ValidationError.emptyNote
+        }
+        guard trimmed == text else {
+            throw ValidationError.noteRequiresTrimming
+        }
+        guard text.count <= Self.maximumCharacterCount else {
+            throw ValidationError.noteTooLong(maximum: Self.maximumCharacterCount)
+        }
+    }
 }
 
 public enum ValidationError: Error, Equatable, Sendable {
@@ -238,5 +278,6 @@ public enum ValidationError: Error, Equatable, Sendable {
     case overnightConflictsWithBlockedDay(source: Weekday, destination: Weekday)
     case invalidOverrideRange
     case emptyNote
+    case noteRequiresTrimming
     case noteTooLong(maximum: Int)
 }

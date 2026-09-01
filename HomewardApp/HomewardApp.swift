@@ -4,8 +4,10 @@ import SwiftUI
 @main
 struct HomewardApp: App {
     @StateObject private var model: AppModel
+    private let isUITest: Bool
 
     init() {
+        isUITest = ProcessInfo.processInfo.environment["HOMEWARD_UI_TEST_MODE"] == "1"
         let instance: AppModel
         do {
             instance = try AppModel.makeDefault()
@@ -13,6 +15,9 @@ struct HomewardApp: App {
             fatalError("Homeward could not initialize local storage: \(error)")
         }
         _model = StateObject(wrappedValue: instance)
+        if isUITest {
+            NSApp.setActivationPolicy(.regular)
+        }
     }
 
     var body: some Scene {
@@ -26,15 +31,13 @@ struct HomewardApp: App {
         }
         .menuBarExtraStyle(.menu)
 
-        WindowGroup("Homeward", id: "homeward") {
+        Window("Homeward", id: "homeward") {
             RootView(model: model)
         }
         .defaultSize(width: 760, height: 600)
-        .defaultLaunchBehavior(.presented)
-
-        Settings {
-            RootView(model: model)
-                .frame(minWidth: 680, minHeight: 520)
+        .defaultLaunchBehavior(isUITest ? .presented : .suppressed)
+        .commands {
+            HomewardCommands()
         }
     }
 }
@@ -44,21 +47,42 @@ private struct MenuBarLabel: View {
     @AppStorage("showRemainingTime") private var showRemainingTime = false
 
     var body: some View {
-        if showRemainingTime, let transition = model.resolvedSchedule.nextTransition {
-            Label(
-                transition.date.formatted(date: .omitted, time: .shortened),
-                systemImage: "house"
-            )
-        } else {
-            Image(systemName: "house")
+        Group {
+            if showRemainingTime, let transition = model.resolvedSchedule.nextTransition {
+                Label(
+                    transition.date.formatted(date: .omitted, time: .shortened),
+                    systemImage: "house"
+                )
+            } else {
+                Image(systemName: "house")
+            }
         }
+        .accessibilityLabel("Homeward")
+        .accessibilityValue(accessibilityState)
+    }
+
+    private var accessibilityState: String {
+        let state: String
+        switch model.resolvedSchedule.phase {
+        case .workAvailable:
+            state = "Work available"
+        case .windingDown:
+            state = "Winding down"
+        case .workClosed:
+            state = model.closingRows.isEmpty ? "Work is closed" : "Closing work apps"
+        case .temporarilyExtended:
+            state = "Work extended"
+        }
+        if let transition = model.resolvedSchedule.nextTransition {
+            return "\(state). Next transition \(transition.date.formatted(date: .abbreviated, time: .shortened))."
+        }
+        return state
     }
 }
 
 private struct MenuContent: View {
     @ObservedObject var model: AppModel
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         if requiresRecovery {
@@ -87,6 +111,15 @@ private struct MenuContent: View {
             Section {
                 Text("\(model.configuration.selectedApplications.count) work apps")
                 Text(model.configuration.closeMode == .gentle ? "Gentle Close" : "Firm Close")
+                if let activeOverride = model.resolvedSchedule.activeOverride {
+                    Text(
+                        "Today-only change until "
+                            + activeOverride.expiresAt.formatted(
+                                date: .abbreviated,
+                                time: .shortened
+                            )
+                    )
+                }
             }
 
             if !model.closingRows.isEmpty {
@@ -141,7 +174,7 @@ private struct MenuContent: View {
             if model.loginItemStatus != .enabled || model.notificationStatus != .authorized {
                 Divider()
                 Button("Homeward Needs Attention…") {
-                    openSettings()
+                    openWindow(id: "homeward")
                 }
             }
 
@@ -150,7 +183,7 @@ private struct MenuContent: View {
                 openWindow(id: "homeward")
             }
             Button("Settings…") {
-                openSettings()
+                openWindow(id: "homeward")
             }
             Divider()
             Button("Quit Homeward…") {
@@ -245,5 +278,18 @@ private struct MenuContent: View {
             return
         }
         model.quit()
+    }
+}
+
+private struct HomewardCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") {
+                openWindow(id: "homeward")
+            }
+            .keyboardShortcut(",", modifiers: .command)
+        }
     }
 }

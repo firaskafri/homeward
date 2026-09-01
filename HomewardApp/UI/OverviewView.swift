@@ -173,6 +173,19 @@ struct OverviewView: View {
                     .foregroundStyle(.secondary)
                 Text(warningSummary)
             }
+            if let activeOverride = model.resolvedSchedule.activeOverride {
+                GridRow {
+                    Text("Today only")
+                        .foregroundStyle(.secondary)
+                    Text(
+                        "\(overrideName(activeOverride.kind)) until "
+                            + activeOverride.expiresAt.formatted(
+                                date: .abbreviated,
+                                time: .shortened
+                            )
+                    )
+                }
+            }
             if !model.closingRows.isEmpty {
                 GridRow {
                     Text("Needs attention")
@@ -237,6 +250,23 @@ struct OverviewView: View {
         return values.isEmpty ? "Off" : values.joined(separator: ", ")
     }
 
+    private func overrideName(_ kind: OverrideKind) -> String {
+        switch kind {
+        case .endWorkNow:
+            "Work ended early"
+        case .fixedExtension:
+            "Extended"
+        case .customCutoff:
+            "Custom cutoff"
+        case .makeAvailable:
+            "Work available"
+        case .takeDayOff:
+            "Day off"
+        case .forceEscalationPaused:
+            "Force quit paused"
+        }
+    }
+
     private func warning(_ message: String) -> some View {
         Label(message, systemImage: "exclamationmark.triangle")
             .foregroundStyle(.orange)
@@ -285,6 +315,16 @@ struct CustomCutoffView: View {
     init(model: AppModel, onClose: (() -> Void)? = nil) {
         self.model = model
         self.onClose = onClose
+        let now = Date()
+        let calendar = Calendar.autoupdatingCurrent
+        let midnight = calendar.date(
+            byAdding: .day,
+            value: 1,
+            to: calendar.startOfDay(for: now)
+        ) ?? now.addingTimeInterval(24 * 60 * 60)
+        _cutoff = State(
+            initialValue: min(now.addingTimeInterval(60 * 60), midnight)
+        )
     }
 
     var body: some View {
@@ -294,7 +334,7 @@ struct CustomCutoffView: View {
             DatePicker(
                 "Work apps available until",
                 selection: $cutoff,
-                in: Date()...Date().addingTimeInterval(24 * 60 * 60)
+                in: Date()...maximumCutoff
             )
             Text(cutoff.formatted(date: .abbreviated, time: .shortened))
                 .foregroundStyle(.secondary)
@@ -318,5 +358,99 @@ struct CustomCutoffView: View {
         .padding(20)
         .frame(minWidth: 420)
         .accessibilityIdentifier("today.customCutoff")
+    }
+
+    private var maximumCutoff: Date {
+        let calendar = Calendar.autoupdatingCurrent
+        return calendar.date(
+            byAdding: .day,
+            value: 1,
+            to: calendar.startOfDay(for: Date())
+        ) ?? Date().addingTimeInterval(24 * 60 * 60)
+    }
+}
+
+@MainActor
+final class TodayChangePanelController: NSWindowController {
+    init(model: AppModel) {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 320),
+            styleMask: [.titled, .closable, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        panel.title = "Change Today Only"
+        panel.contentViewController = NSHostingController(
+            rootView: TodayChangePanelView(
+                model: model,
+                onClose: { [weak panel] in panel?.close() }
+            )
+        )
+        panel.isReleasedWhenClosed = false
+        super.init(window: panel)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    func show() {
+        window?.center()
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+private struct TodayChangePanelView: View {
+    @ObservedObject var model: AppModel
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Change today only")
+                .font(.title2.bold())
+            Text("Your weekly schedule will not change.")
+                .foregroundStyle(.secondary)
+
+            Button("Extend by 10 Minutes") {
+                apply { await model.createExtension(minutes: 10) }
+            }
+            Button("Extend by 15 Minutes") {
+                apply { await model.createExtension(minutes: 15) }
+            }
+            Button("Extend by 30 Minutes") {
+                apply { await model.createExtension(minutes: 30) }
+            }
+            Button("Choose Another Cutoff…") {
+                onClose()
+                model.showCustomCutoff()
+            }
+            if !model.resolvedSchedule.isAvailable {
+                Button("Make Work Available Now") {
+                    apply { await model.makeWorkAvailableNow() }
+                }
+            }
+            Button("Take Today Off…") {
+                apply { await model.takeTodayOff() }
+            }
+            Button("Return to Weekly Schedule") {
+                apply { await model.returnToWeeklySchedule() }
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel", action: onClose)
+                    .keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 400, minHeight: 300)
+        .accessibilityIdentifier("today.changePanel")
+    }
+
+    private func apply(_ action: @escaping @MainActor () async -> Void) {
+        onClose()
+        Task { await action() }
     }
 }

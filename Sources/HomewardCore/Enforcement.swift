@@ -124,7 +124,7 @@ public struct EnforcementPlanner: Sendable {
         runningApplications: [RunningApplicationSnapshot]
     ) -> [EnforcementTarget] {
         var targets: [EnforcementTarget] = []
-        for selection in selections where selection.isAvailable {
+        for selection in selections where !selection.isProtected {
             for process in runningApplications where matches(selection: selection, process: process) {
                 guard let target = try? EnforcementTarget(
                     selectionID: selection.id,
@@ -196,4 +196,18 @@ public struct EnforcementPlanner: Sendable {
 
 public enum EnforcementError: Error, Equatable, Sendable {
     case missingProcessIdentity
+}
+
+public struct CountdownAnnouncementPolicy: Sendable {
+    public static let milestones: Set<Int> = [30, 15, 5]
+
+    public init() {}
+
+    public func shouldAnnounce(
+        secondsRemaining: Int,
+        announced: Set<Int>
+    ) -> Bool {
+        Self.milestones.contains(secondsRemaining)
+            && !announced.contains(secondsRemaining)
+    }
 }

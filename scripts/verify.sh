@@ -23,8 +23,14 @@ if (( actual_major < 2 || (actual_major == 2 && actual_minor < 46) )); then
   exit 1
 fi
 
+project_file="$project/project.pbxproj"
+before_generation="$(shasum -a 256 "$project_file" | awk '{print $1}')"
 xcodegen generate
-git diff --exit-code -- Homeward.xcodeproj
+after_generation="$(shasum -a 256 "$project_file" | awk '{print $1}')"
+[[ "$before_generation" == "$after_generation" ]] || {
+  printf 'Homeward.xcodeproj was stale. Regenerate and review it before verification.\n' >&2
+  exit 1
+}
 xcodebuild \
   -project "$project" \
   -scheme Homeward \

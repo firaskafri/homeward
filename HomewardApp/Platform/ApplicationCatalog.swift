@@ -11,14 +11,8 @@ struct CatalogApplication: Identifiable {
 
 @MainActor
 final class ApplicationCatalog {
-    static let protectedBundleIdentifiers: Set<String> = [
-        "com.apple.finder",
-        "com.apple.systempreferences",
-        "com.apple.SystemSettings",
-        "com.apple.loginwindow",
-        "com.apple.dock",
-        "com.firaskafri.homeward",
-    ]
+    static let protectedBundleIdentifiers =
+        SelectedApplication.protectedBundleIdentifiers
 
     private let fileManager: FileManager
     private let workspace: NSWorkspace

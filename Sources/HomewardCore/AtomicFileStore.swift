@@ -55,6 +55,24 @@ public actor AtomicFileStore<Value: Codable & Sendable> {
         try setOwnerOnlyFilePermissions(at: fileURL)
     }
 
+    public func replaceRecovering(_ value: Value) throws {
+        let directory = fileURL.deletingLastPathComponent()
+        try createSecureDirectoryIfNeeded(directory)
+
+        let data = try encoder.encode(value)
+        _ = try decoder.decode(Value.self, from: data)
+
+        if fileManager.fileExists(atPath: fileURL.path) {
+            let quarantineURL = fileURL
+                .appendingPathExtension("corrupt-\(UUID().uuidString)")
+            try fileManager.moveItem(at: fileURL, to: quarantineURL)
+            try setOwnerOnlyFilePermissions(at: quarantineURL)
+        }
+
+        try data.write(to: fileURL, options: .atomic)
+        try setOwnerOnlyFilePermissions(at: fileURL)
+    }
+
     public func delete() throws {
         if fileManager.fileExists(atPath: fileURL.path) {
             try fileManager.removeItem(at: fileURL)

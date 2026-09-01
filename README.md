@@ -23,7 +23,7 @@ Canonical PRD:
 
 - macOS 15 or later
 - Apple Silicon
-- Xcode 26.6 / Swift 6
+- Xcode 16.4 or later / Swift 6
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) 2.46 or later
 
 ## Build
@@ -47,6 +47,16 @@ xcodebuild \
 The verification entry point regenerates the Xcode project, checks mandatory
 test documentation, runs pure-core tests, native app and UI tests, static
 analysis, and an arm64 Release build.
+
+To produce a non-public, ad-hoc-signed DMG and provenance manifest after
+verification:
+
+```sh
+RUN_UI_TESTS=0 ./scripts/package-local-candidate.sh
+```
+
+That artifact is for local testing only; public distribution still requires
+Developer ID signing and notarization.
 
 ## Architecture
 

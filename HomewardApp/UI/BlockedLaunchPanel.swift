@@ -10,7 +10,7 @@ final class BlockedLaunchPanelController: NSWindowController {
     ) {
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 220),
-            styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel],
+            styleMask: [.titled, .closable, .utilityWindow],
             backing: .buffered,
             defer: false
         )

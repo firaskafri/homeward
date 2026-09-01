@@ -12,6 +12,7 @@ protocol WorkspaceMonitorDelegate: AnyObject {
         didTerminate application: NSRunningApplication
     )
     func workspaceMonitorRequiresReconciliation(_ monitor: WorkspaceMonitor)
+    func workspaceMonitorWillSuspend(_ monitor: WorkspaceMonitor)
     func workspaceMonitor(
         _ monitor: WorkspaceMonitor,
         sessionActiveDidChange isActive: Bool
@@ -64,8 +65,20 @@ final class WorkspaceMonitor: NSObject {
         )
         center.addObserver(
             self,
+            selector: #selector(workspaceWillSleep(_:)),
+            name: NSWorkspace.willSleepNotification,
+            object: workspace
+        )
+        center.addObserver(
+            self,
             selector: #selector(workspaceDidWake(_:)),
             name: NSWorkspace.didWakeNotification,
+            object: workspace
+        )
+        center.addObserver(
+            self,
+            selector: #selector(workspaceWillSleep(_:)),
+            name: NSWorkspace.screensDidSleepNotification,
             object: workspace
         )
         center.addObserver(
@@ -131,6 +144,11 @@ final class WorkspaceMonitor: NSObject {
             return
         }
         delegate?.workspaceMonitor(self, didTerminate: application)
+    }
+
+    @objc
+    private func workspaceWillSleep(_ notification: Notification) {
+        delegate?.workspaceMonitorWillSuspend(self)
     }
 
     @objc

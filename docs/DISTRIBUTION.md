@@ -6,6 +6,10 @@ The automated verification pipeline produces an arm64, macOS 15 Release app
 with an ad-hoc local signature and Hardened Runtime. This is suitable for local
 verification only.
 
+`scripts/package-local-candidate.sh` packages that verified app into a local
+DMG and emits a checksum, provenance manifest, and dSYM archive. CI retains
+these files as non-public evidence tied to the source commit.
+
 ## Public release prerequisites
 
 - Developer ID Application certificate and private key.

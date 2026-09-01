@@ -12,19 +12,37 @@ import XCTest
 @MainActor
 final class HomewardUITests: XCTestCase {
     /// 1 - Name: First-launch onboarding.
-    /// 2 - Description: Launches Homeward and locates its pre-activation menu-bar item.
-    /// 3 - Assumptions: Menu-bar clicks are manually verified because hidden menu bars make coordinate automation unreliable.
-    /// 4 - Expectations: Homeward exposes one accessibility-visible status item.
+    /// 2 - Description: Launches Homeward in an isolated UI-test container and reaches the first onboarding step.
+    /// 3 - Assumptions: UI-test mode presents the same onboarding content without changing production launch behavior.
+    /// 4 - Expectations: The schedule save and Continue actions are accessibility-visible.
     func testFirstLaunchShowsOnboarding() throws {
+        let app = launchIsolatedApp()
+
+        XCTAssertTrue(app.buttons["Save Schedule"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Continue"].exists)
+    }
+
+    /// 1 - Name: Schedule controls accessibility.
+    /// 2 - Description: Verifies each weekday exposes an independently accessible mode control.
+    /// 3 - Assumptions: The default Monday-through-Friday schedule is loaded from HomewardCore.
+    /// 4 - Expectations: Seven mode controls and the copy action are discoverable.
+    func testScheduleControlsAreAccessible() {
+        let app = launchIsolatedApp()
+
+        XCTAssertTrue(app.buttons["Save Schedule"].waitForExistence(timeout: 5))
+        XCTAssertGreaterThanOrEqual(app.popUpButtons.count, 7)
+        XCTAssertTrue(app.menuButtons["Copy to…"].exists)
+    }
+
+    private func launchIsolatedApp() -> XCUIApplication {
         let app = XCUIApplication()
         app.terminate()
         app.launchEnvironment["HOMEWARD_STORAGE_DIRECTORY"] = FileManager.default
             .temporaryDirectory
             .appendingPathComponent("HomewardUITests-\(UUID().uuidString)")
             .path
+        app.launchEnvironment["HOMEWARD_UI_TEST_MODE"] = "1"
         app.launch()
-
-        let statusItem = app.menuBars.statusItems.firstMatch
-        XCTAssertTrue(statusItem.waitForExistence(timeout: 5))
+        return app
     }
 }

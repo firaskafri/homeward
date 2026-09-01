@@ -8,6 +8,8 @@ struct ScheduleEditorView: View {
     @State private var validationMessage: String?
     @State private var isSaving = false
     @State private var copySource: Weekday = .monday
+    @State private var pendingSchedule: WeeklySchedule?
+    @State private var showImmediateCloseConfirmation = false
 
     init(
         model: AppModel,
@@ -83,6 +85,22 @@ struct ScheduleEditorView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("Schedule")
+        .confirmationDialog(
+            "Save and close work apps now?",
+            isPresented: $showImmediateCloseConfirmation
+        ) {
+            Button("Save & Close", role: .destructive) {
+                if let pendingSchedule {
+                    performSave(pendingSchedule)
+                }
+                pendingSchedule = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingSchedule = nil
+            }
+        } message: {
+            Text("This schedule makes the current time blocked. Homeward will begin the configured closing flow.")
+        }
         .accessibilityIdentifier("schedule.view")
     }
 
@@ -106,15 +124,34 @@ struct ScheduleEditorView: View {
     private func save() {
         do {
             let schedule = try WeeklySchedule(rules: rules)
-            isSaving = true
-            Task { @MainActor in
-                await model.setSchedule(schedule)
-                rules = model.configuration.schedule.rules
-                validationMessage = model.lastError
-                isSaving = false
+            let result = ScheduleResolver().resolve(
+                schedule: schedule,
+                overrides: model.configuration.overrides,
+                at: Date(),
+                calendar: .autoupdatingCurrent,
+                warnings: model.configuration.warningPreferences
+            )
+            if model.configuration.completedOnboarding,
+               model.resolvedSchedule.isAvailable,
+               !result.isAvailable {
+                pendingSchedule = schedule
+                showImmediateCloseConfirmation = true
+            } else {
+                performSave(schedule)
             }
         } catch {
             validationMessage = scheduleValidationMessage(error)
+        }
+    }
+
+    private func performSave(_ schedule: WeeklySchedule) {
+        isSaving = true
+        model.clearError()
+        Task { @MainActor in
+            await model.setSchedule(schedule)
+            rules = model.configuration.schedule.rules
+            validationMessage = model.lastError
+            isSaving = false
         }
     }
 
@@ -162,6 +199,7 @@ private struct DayRuleRow: View {
                 }
                 .labelsHidden()
                 .frame(width: 150)
+                .accessibilityLabel("\(weekdayName) mode")
 
                 if case .scheduled = rule {
                     DatePicker(
@@ -170,6 +208,7 @@ private struct DayRuleRow: View {
                         displayedComponents: .hourAndMinute
                     )
                     .labelsHidden()
+                    .accessibilityLabel("\(weekdayName) start time")
                     Text("to")
                         .foregroundStyle(.secondary)
                     DatePicker(
@@ -178,8 +217,10 @@ private struct DayRuleRow: View {
                         displayedComponents: .hourAndMinute
                     )
                     .labelsHidden()
+                    .accessibilityLabel("\(weekdayName) end time")
                     Toggle("Next day", isOn: nextDayBinding)
                         .toggleStyle(.checkbox)
+                        .accessibilityLabel("\(weekdayName) ends next day")
                 }
             }
         }

@@ -6,9 +6,16 @@ import UniformTypeIdentifiers
 struct AppPickerView: View {
     @ObservedObject var model: AppModel
     @State private var searchText = ""
+    @State private var pendingSelection: SelectedApplication?
+    @State private var showImmediateCloseConfirmation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if let error = model.lastError {
+                InlineErrorView(message: error) {
+                    model.clearError()
+                }
+            }
             HStack {
                 TextField("Search applications", text: $searchText)
                     .textFieldStyle(.roundedBorder)
@@ -59,6 +66,9 @@ struct AppPickerView: View {
             let applicationURLs = urls.filter {
                 $0.pathExtension.lowercased() == "app"
             }
+            guard !requiresImmediateCloseConfirmation || confirmImmediateClose() else {
+                return false
+            }
             Task {
                 for url in applicationURLs {
                     await model.addApplication(at: url)
@@ -67,6 +77,22 @@ struct AppPickerView: View {
             return !applicationURLs.isEmpty
         }
         .accessibilityIdentifier("apps.view")
+        .confirmationDialog(
+            "Add and close this work app now?",
+            isPresented: $showImmediateCloseConfirmation
+        ) {
+            Button("Add & Close", role: .destructive) {
+                if let pendingSelection {
+                    Task { await model.addApplication(pendingSelection) }
+                }
+                pendingSelection = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingSelection = nil
+            }
+        } message: {
+            Text("The current time is blocked. Homeward will immediately apply the configured closing flow.")
+        }
         .task {
             await model.refreshCatalog()
         }
@@ -115,13 +141,18 @@ struct AppPickerView: View {
             }
             Spacer()
             Toggle(
-                "Select \(application.selection.displayName)",
+                application.selection.displayName,
                 isOn: Binding(
                     get: { isSelected },
                     set: { selected in
                         Task {
                             if selected {
-                                await model.addApplication(application.selection)
+                                if requiresImmediateCloseConfirmation {
+                                    pendingSelection = application.selection
+                                    showImmediateCloseConfirmation = true
+                                } else {
+                                    await model.addApplication(application.selection)
+                                }
                             } else if let existing = model.configuration.selectedApplications.first(
                                 where: {
                                     $0.stableSelectionKey
@@ -135,6 +166,8 @@ struct AppPickerView: View {
                 )
             )
             .labelsHidden()
+            .accessibilityLabel(application.selection.displayName)
+            .accessibilityValue(isSelected ? "Selected" : "Not selected")
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("apps.row.\(application.id)")
@@ -175,6 +208,9 @@ struct AppPickerView: View {
     }
 
     private func chooseApplication() {
+        guard !requiresImmediateCloseConfirmation || confirmImmediateClose() else {
+            return
+        }
         let panel = NSOpenPanel()
         panel.title = "Choose a Work Application"
         panel.prompt = "Choose"
@@ -190,6 +226,20 @@ struct AppPickerView: View {
                 await model.addApplication(at: url)
             }
         }
+    }
+
+    private var requiresImmediateCloseConfirmation: Bool {
+        model.configuration.completedOnboarding
+            && !model.resolvedSchedule.isAvailable
+    }
+
+    private func confirmImmediateClose() -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Add and close selected work apps now?"
+        alert.informativeText = "The current time is blocked. Homeward will immediately apply the configured closing flow."
+        alert.addButton(withTitle: "Add & Close")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     private func chooseReplacement(for id: UUID) {

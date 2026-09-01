@@ -28,6 +28,7 @@ final class AppModel: NSObject, ObservableObject {
         let id: String
         let applicationName: String
         let processIdentifier: Int32
+        let blockedIntervalID: String
         var status: Status
         var deadline: Date?
         var secondsRemaining: Int?
@@ -49,13 +50,28 @@ final class AppModel: NSObject, ObservableObject {
     @Published var health: Health = .starting
     @Published var notificationStatus: HomewardNotificationService.AuthorizationStatus = .notDetermined
     @Published var loginItemStatus: LoginItemService.Status = .notRegistered
-    @Published var lastError: String?
+    @Published var lastError: String? {
+        didSet {
+            guard let lastError, oldValue != lastError, let application = NSApp else {
+                return
+            }
+            NSAccessibility.post(
+                element: application,
+                notification: .announcementRequested,
+                userInfo: [
+                    .announcement: lastError,
+                    .priority: NSAccessibilityPriorityLevel.high.rawValue,
+                ]
+            )
+        }
+    }
     @Published var isSessionActive = false
     @Published var previewState: PreviewState = .idle
 
     private let repository: HomewardRepository
     private let resolver = ScheduleResolver()
     private let planner = EnforcementPlanner()
+    private let countdownAnnouncementPolicy = CountdownAnnouncementPolicy()
     private let workspaceMonitor = WorkspaceMonitor()
     private let runningController = RunningApplicationController()
     private let appCatalog = ApplicationCatalog()
@@ -68,7 +84,9 @@ final class AppModel: NSObject, ObservableObject {
 
     private var transitionTask: Task<Void, Never>?
     private var enforcementTasks: [String: Task<Void, Never>] = [:]
+    private var announcedCountdownMilestones: [String: Set<Int>] = [:]
     private var gentleExemptSessionIDs: Set<String> = []
+    private var runtimeForcePauseIntervalIDs: Set<String> = []
     private var blockedLaunchTargets: [String: EnforcementTarget] = [:]
     private var lastBlockedFeedbackBySelection: [UUID: Date] = [:]
     private var scheduledCloseHadTarget = false
@@ -77,10 +95,13 @@ final class AppModel: NSObject, ObservableObject {
     private var noteCapturePanelController: NoteCapturePanelController?
     private var notesPanelController: NotesPanelController?
     private var customCutoffPanelController: CustomCutoffPanelController?
+    private var todayChangePanelController: TodayChangePanelController?
     private var presentedNoteIntervalIDs: Set<String> = []
     private var previewSelectionID: UUID?
     private var previewProcessSessionID: String?
     private var previewTimeoutTask: Task<Void, Never>?
+    private var configurationSaveInProgress = false
+    private var notesSaveInProgress = false
     private var started = false
 
     init(repository: HomewardRepository) throws {
@@ -119,11 +140,12 @@ final class AppModel: NSObject, ObservableObject {
 
     var forceEscalationPaused: Bool {
         let intervalID = blockedIntervalID(at: Date())
-        return configuration.overrides.contains {
-            $0.kind == .forceEscalationPaused
-                && $0.isActive(at: Date())
-                && $0.relatedIntervalID == intervalID
-        }
+        return runtimeForcePauseIntervalIDs.contains(intervalID)
+            || configuration.overrides.contains {
+                $0.kind == .forceEscalationPaused
+                    && $0.isActive(at: Date())
+                    && $0.relatedIntervalID == intervalID
+            }
     }
 
     func start() async {
@@ -206,7 +228,7 @@ final class AppModel: NSObject, ObservableObject {
             }
         }
         if changed {
-            await commit(updated, reconcileAfterSave: false)
+            await commit(updated)
         }
     }
 
@@ -264,7 +286,9 @@ final class AppModel: NSObject, ObservableObject {
         }
         var updated = configuration
         updated.completedOnboarding = true
-        await commit(updated)
+        if await commit(updated) {
+            UserDefaults.standard.set(0, forKey: "onboardingStep")
+        }
     }
 
     func markOnboardingScheduleDirty() {
@@ -429,7 +453,9 @@ final class AppModel: NSObject, ObservableObject {
                 expiresAt: expiresAt
             )
             var updated = configuration
-            updated.overrides.removeAll(where: { $0.isActive(at: now) })
+            updated.overrides.removeAll(where: {
+                $0.isActive(at: now) && $0.kind != .forceEscalationPaused
+            })
             updated.overrides.append(scheduleOverride)
             await commit(updated)
         } catch {
@@ -489,7 +515,9 @@ final class AppModel: NSObject, ObservableObject {
                 expiresAt: expiry
             )
             var updated = configuration
-            updated.overrides.removeAll(where: { $0.isActive(at: now) })
+            updated.overrides.removeAll(where: {
+                $0.isActive(at: now) && $0.kind != .forceEscalationPaused
+            })
             updated.overrides.append(scheduleOverride)
             await commit(updated)
         } catch {
@@ -512,8 +540,18 @@ final class AppModel: NSObject, ObservableObject {
 
     func chooseCutoff(_ cutoff: Date) async {
         let now = Date()
+        let calendar = Calendar.autoupdatingCurrent
+        let nextLocalMidnight = calendar.date(
+            byAdding: .day,
+            value: 1,
+            to: calendar.startOfDay(for: now)
+        ) ?? now.addingTimeInterval(24 * 60 * 60)
         guard cutoff > now else {
             await endWorkNow()
+            return
+        }
+        guard cutoff <= nextLocalMidnight else {
+            lastError = "Choose a cutoff before the end of the current local day."
             return
         }
         let blockedUntil = nextBaseWindowStart(afterCurrentIntervalAt: cutoff)
@@ -574,10 +612,12 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     func stopForceQuit() async {
+        runtimeForcePauseIntervalIDs.insert(blockedIntervalID(at: Date()))
         for task in enforcementTasks.values {
             task.cancel()
         }
         enforcementTasks.removeAll()
+        announcedCountdownMilestones.removeAll()
         closingRows = closingRows.map { row in
             var updated = row
             if updated.status == .countingDown {
@@ -611,6 +651,7 @@ final class AppModel: NSObject, ObservableObject {
         var updated = configuration
         updated.overrides.removeAll(where: { $0.kind == .forceEscalationPaused })
         if await commit(updated, reconcileAfterSave: false) {
+            runtimeForcePauseIntervalIDs.remove(blockedIntervalID(at: Date()))
             cancelAllEnforcement()
             await reconcile(runningApplications: workspaceMonitor.runningApplications)
         }
@@ -645,11 +686,6 @@ final class AppModel: NSObject, ObservableObject {
         closingPanelController?.show(activating: true)
     }
 
-    func openManagementSettings() {
-        NSApp.activate(ignoringOtherApps: true)
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-    }
-
     func showNotesReview() {
         guard resolvedSchedule.isAvailable,
               resolvedSchedule.phase != .temporarilyExtended,
@@ -673,7 +709,18 @@ final class AppModel: NSObject, ObservableObject {
         customCutoffPanelController?.show()
     }
 
+    func showTodayChangePanel() {
+        todayChangePanelController = TodayChangePanelController(model: self)
+        todayChangePanelController?.show()
+    }
+
     func saveNote(_ text: String) async -> Bool {
+        guard !notesSaveInProgress else {
+            lastError = "Another saved-thought change is still in progress."
+            return false
+        }
+        notesSaveInProgress = true
+        defer { notesSaveInProgress = false }
         do {
             let note = try TomorrowNote(text: text)
             var updated = notes
@@ -714,6 +761,7 @@ final class AppModel: NSObject, ObservableObject {
             let initial = try HomewardConfiguration.initial()
             try await repository.saveConfiguration(initial)
             configuration = initial
+            UserDefaults.standard.set(0, forKey: "onboardingStep")
             resolvedSchedule = resolver.resolve(
                 schedule: initial.schedule,
                 overrides: [],
@@ -743,7 +791,7 @@ final class AppModel: NSObject, ObservableObject {
                 lastError = "No previous settings are available."
                 return
             }
-            try await repository.saveConfiguration(candidate)
+            try await repository.replaceConfigurationDuringRecovery(candidate)
             configuration = candidate
             await completeRecoveredBootstrap()
         } catch {
@@ -754,8 +802,9 @@ final class AppModel: NSObject, ObservableObject {
     func replaceWithFreshSetup() async {
         do {
             let initial = try HomewardConfiguration.initial()
-            try await repository.saveConfiguration(initial)
+            try await repository.replaceConfigurationDuringRecovery(initial)
             configuration = initial
+            UserDefaults.standard.set(0, forKey: "onboardingStep")
             await completeRecoveredBootstrap()
         } catch {
             lastError = "A fresh setup could not be saved. App closing remains paused."
@@ -799,6 +848,12 @@ final class AppModel: NSObject, ObservableObject {
         _ updated: HomewardConfiguration,
         reconcileAfterSave: Bool = true
     ) async -> Bool {
+        guard !configurationSaveInProgress else {
+            lastError = "Another settings change is still being saved. Try again."
+            return false
+        }
+        configurationSaveInProgress = true
+        defer { configurationSaveInProgress = false }
         do {
             var validated = updated
             try validated.validate()
@@ -815,6 +870,12 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     private func commitNotes(_ updated: NotesDocument) async {
+        guard !notesSaveInProgress else {
+            lastError = "Another saved-thought change is still in progress."
+            return
+        }
+        notesSaveInProgress = true
+        defer { notesSaveInProgress = false }
         do {
             try await repository.saveNotes(updated)
             notes = updated
@@ -951,6 +1012,15 @@ final class AppModel: NSObject, ObservableObject {
             warnings: configuration.warningPreferences
         )
 
+        let currentBlockedIntervalID = blockedIntervalID(at: now)
+        if resolvedSchedule.isAvailable {
+            runtimeForcePauseIntervalIDs.removeAll()
+        } else {
+            runtimeForcePauseIntervalIDs = runtimeForcePauseIntervalIDs.filter {
+                $0 == currentBlockedIntervalID
+            }
+        }
+
         if resolvedSchedule.isAvailable || !configuration.completedOnboarding {
             cancelAllEnforcement()
             if configuration.completedOnboarding {
@@ -1030,6 +1100,7 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     private func beginEnforcement(target: EnforcementTarget, now: Date) {
+        let intervalID = blockedIntervalID(at: now)
         if blockedLaunchTargets[target.id] == nil {
             scheduledCloseHadTarget = true
         }
@@ -1042,6 +1113,7 @@ final class AppModel: NSObject, ObservableObject {
                 id: target.id,
                 applicationName: target.process.displayName,
                 processIdentifier: target.process.processIdentifier,
+                blockedIntervalID: intervalID,
                 status: normalRequestAccepted ? .requestingNormalQuit : .needsAttention,
                 deadline: nil,
                 secondsRemaining: nil
@@ -1072,6 +1144,7 @@ final class AppModel: NSObject, ObservableObject {
                 id: target.id,
                 applicationName: target.process.displayName,
                 processIdentifier: target.process.processIdentifier,
+                blockedIntervalID: intervalID,
                 status: paused ? .forcePaused : .countingDown,
                 deadline: paused ? nil : deadline,
                 secondsRemaining: paused ? nil : Int(EnforcementSession.firmGracePeriod)
@@ -1089,6 +1162,11 @@ final class AppModel: NSObject, ObservableObject {
                     self.updateClosingRow(sessionID: target.id) {
                         $0.secondsRemaining = remaining
                     }
+                    self.announceCountdownIfNeeded(
+                        sessionID: target.id,
+                        applicationName: target.process.displayName,
+                        secondsRemaining: remaining
+                    )
                     if remaining == 0 {
                         break
                     }
@@ -1097,14 +1175,19 @@ final class AppModel: NSObject, ObservableObject {
                 guard !Task.isCancelled else {
                     return
                 }
-                await self.attemptForceTermination(target: target, deadline: deadline)
+                await self.attemptForceTermination(
+                    target: target,
+                    deadline: deadline,
+                    blockedIntervalID: intervalID
+                )
             }
         }
     }
 
     private func attemptForceTermination(
         target: EnforcementTarget,
-        deadline: Date
+        deadline: Date,
+        blockedIntervalID originalBlockedIntervalID: String
     ) async {
         let now = Date()
         resolvedSchedule = resolver.resolve(
@@ -1115,7 +1198,7 @@ final class AppModel: NSObject, ObservableObject {
             warnings: configuration.warningPreferences
         )
         let session = EnforcementSession(
-            blockedIntervalID: blockedIntervalID(at: now),
+            blockedIntervalID: originalBlockedIntervalID,
             mode: .firm,
             startedAt: deadline.addingTimeInterval(-EnforcementSession.firmGracePeriod),
             targets: [target],
@@ -1130,7 +1213,8 @@ final class AppModel: NSObject, ObservableObject {
                 workspaceMonitor.runningApplications
             )
         )
-        guard eligible.contains(target.id) else {
+        guard blockedIntervalID(at: now) == originalBlockedIntervalID,
+              eligible.contains(target.id) else {
             return
         }
         guard isSessionActive, closingPanelController?.isVisible == true else {
@@ -1157,7 +1241,9 @@ final class AppModel: NSObject, ObservableObject {
             task.cancel()
         }
         enforcementTasks.removeAll()
+        announcedCountdownMilestones.removeAll()
         closingRows.removeAll()
+        blockedLaunchTargets.removeAll()
         gentleExemptSessionIDs.removeAll()
         scheduledCloseHadTarget = false
         closingPanelController?.close()
@@ -1168,6 +1254,7 @@ final class AppModel: NSObject, ObservableObject {
             task.cancel()
         }
         enforcementTasks.removeAll()
+        announcedCountdownMilestones.removeAll()
         closingRows = closingRows.map { row in
             var updated = row
             if updated.status == .countingDown {
@@ -1235,6 +1322,7 @@ final class AppModel: NSObject, ObservableObject {
         let didTerminate = runningController.isTerminated(sessionID: sessionID)
         enforcementTasks[sessionID]?.cancel()
         enforcementTasks.removeValue(forKey: sessionID)
+        announcedCountdownMilestones.removeValue(forKey: sessionID)
         closingRows.removeAll(where: { $0.id == sessionID })
         runningController.remove(sessionID: sessionID)
         refreshClosingPanel()
@@ -1304,6 +1392,29 @@ final class AppModel: NSObject, ObservableObject {
         }
     }
 
+    private func announceCountdownIfNeeded(
+        sessionID: String,
+        applicationName: String,
+        secondsRemaining: Int
+    ) {
+        let announced = announcedCountdownMilestones[sessionID, default: []]
+        guard countdownAnnouncementPolicy.shouldAnnounce(
+            secondsRemaining: secondsRemaining,
+            announced: announced
+        ), let application = NSApp else {
+            return
+        }
+        announcedCountdownMilestones[sessionID, default: []].insert(secondsRemaining)
+        NSAccessibility.post(
+            element: application,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: "\(applicationName) will be force quit in \(secondsRemaining) seconds.",
+                .priority: NSAccessibilityPriorityLevel.high.rawValue,
+            ]
+        )
+    }
+
     private func blockedIntervalID(at date: Date) -> String {
         let intervals = resolver.intervals(
             for: configuration.schedule,
@@ -1357,20 +1468,24 @@ final class AppModel: NSObject, ObservableObject {
         presentedNoteIntervalIDs.insert(intervalID)
         showNotesReview()
     }
-}
 
-extension AppModel: WorkspaceMonitorDelegate {
-    func workspaceMonitor(
-        _ monitor: WorkspaceMonitor,
-        didLaunch application: NSRunningApplication
-    ) {
-        let snapshot = runningController.snapshot(application)
+    private func handleLaunchSnapshot(_ snapshot: RunningApplicationSnapshot) {
         if handlePreviewLaunch(snapshot) {
             return
         }
         guard configuration.completedOnboarding else {
             return
         }
+        let now = Date()
+        resolvedSchedule = resolver.resolve(
+            schedule: configuration.schedule,
+            overrides: configuration.overrides,
+            at: now,
+            calendar: .autoupdatingCurrent,
+            warnings: configuration.warningPreferences
+        )
+        transitionTask?.cancel()
+        scheduleNextTransition()
         if resolvedSchedule.isAvailable {
             presentNotesIfNeeded(for: snapshot)
         } else {
@@ -1380,8 +1495,33 @@ extension AppModel: WorkspaceMonitorDelegate {
             ) {
                 blockedLaunchTargets[target.id] = target
             }
-            enforce(snapshots: [snapshot], now: Date())
+            enforce(snapshots: [snapshot], now: now)
         }
+    }
+}
+
+extension AppModel: WorkspaceMonitorDelegate {
+    func workspaceMonitor(
+        _ monitor: WorkspaceMonitor,
+        didLaunch application: NSRunningApplication
+    ) {
+        let snapshot = runningController.snapshot(application)
+        guard snapshot.processSessionID != nil else {
+            Task { @MainActor [weak self, weak application] in
+                try? await Task.sleep(for: .milliseconds(250))
+                guard !Task.isCancelled,
+                      let self,
+                      let application,
+                      !application.isTerminated else {
+                    return
+                }
+                self.handleLaunchSnapshot(
+                    self.runningController.snapshot(application)
+                )
+            }
+            return
+        }
+        handleLaunchSnapshot(snapshot)
     }
 
     func workspaceMonitor(
@@ -1413,6 +1553,11 @@ extension AppModel: WorkspaceMonitorDelegate {
             }
             await self.reconcile(runningApplications: monitor.runningApplications)
         }
+    }
+
+    func workspaceMonitorWillSuspend(_ monitor: WorkspaceMonitor) {
+        isSessionActive = false
+        suspendForceEscalation()
     }
 
     func workspaceMonitor(

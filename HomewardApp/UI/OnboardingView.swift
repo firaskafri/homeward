@@ -3,7 +3,7 @@ import SwiftUI
 
 struct OnboardingView: View {
     @ObservedObject var model: AppModel
-    @State private var step = 0
+    @AppStorage("onboardingStep") private var step = 0
     @State private var showPreview = false
 
     private let stepTitles = [
@@ -22,6 +22,7 @@ struct OnboardingView: View {
                     .foregroundStyle(.secondary)
                 Text(stepTitles[step])
                     .font(.largeTitle.bold())
+                    .accessibilityAddTraits(.isHeader)
                 if step == 0 {
                     Text("Bring your Mac home. Leave work at work.")
                         .font(.title3)
@@ -33,6 +34,14 @@ struct OnboardingView: View {
             .padding(24)
 
             Divider()
+
+            if let error = model.lastError {
+                InlineErrorView(message: error) {
+                    model.clearError()
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 12)
+            }
 
             Group {
                 switch step {

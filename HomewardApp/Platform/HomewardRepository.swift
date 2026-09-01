@@ -32,7 +32,11 @@ actor HomewardRepository {
     }
 
     func loadConfiguration() async throws -> HomewardConfiguration? {
-        try await configurationStore.load()
+        guard var configuration = try await configurationStore.load() else {
+            return nil
+        }
+        try configuration.validate()
+        return configuration
     }
 
     func saveConfiguration(_ configuration: HomewardConfiguration) async throws {
@@ -41,16 +45,33 @@ actor HomewardRepository {
         try await configurationStore.save(validated)
     }
 
+    func replaceConfigurationDuringRecovery(
+        _ configuration: HomewardConfiguration
+    ) async throws {
+        var validated = configuration
+        try validated.validate()
+        try await configurationStore.replaceRecovering(validated)
+    }
+
     func configurationRecoveryCandidate() async throws -> HomewardConfiguration? {
-        try await configurationStore.loadRecoveryCandidate()
+        guard var configuration = try await configurationStore
+            .loadRecoveryCandidate() else {
+            return nil
+        }
+        try configuration.validate()
+        return configuration
     }
 
     func loadNotes() async throws -> NotesDocument {
-        try await notesStore.load() ?? NotesDocument()
+        var notes = try await notesStore.load() ?? NotesDocument()
+        try notes.validate()
+        return notes
     }
 
     func saveNotes(_ notes: NotesDocument) async throws {
-        try await notesStore.save(notes)
+        var validated = notes
+        try validated.validate()
+        try await notesStore.save(validated)
     }
 
     func resetConfiguration() async throws {
