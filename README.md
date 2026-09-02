@@ -72,3 +72,8 @@ The app is unsandboxed because App Sandbox does not permit the required
 cross-application lifecycle management. It uses public macOS APIs and does not
 request Accessibility, Screen Recording, Automation, administrator, or
 privileged-helper access.
+
+## License
+
+Copyright © 2026 Firas Kafri. All rights reserved. No license to copy, modify,
+or distribute this source is granted pending legal review.

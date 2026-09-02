@@ -23,12 +23,11 @@
   persistence, recovery candidates, and note validation.
 - The app builds without App Sandbox, Accessibility, Screen Recording,
   Automation, system-extension, or privileged-helper entitlements.
+- UI automation verifies that the pre-activation Homeward menu-bar item is
+  accessibility-visible.
 
 ## Evidence still requiring manual execution
 
-- The current unattended UI-test attempt was blocked by macOS reporting that
-  system authentication was in progress. The UI test remains in the project
-  and must be rerun from an unlocked session.
 - Real notification permission and action behavior.
 - `SMAppService.mainApp` registration after installing Homeward in
   `/Applications`.

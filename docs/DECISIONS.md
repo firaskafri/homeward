@@ -29,6 +29,7 @@
 - Fifteen- and five-minute warnings begin enabled; the five-minute warning can
   be disabled.
 - The one-time Gentle extension begins disabled.
+- When used, it makes all selected work apps available for ten minutes.
 
 ## Data and privacy
 

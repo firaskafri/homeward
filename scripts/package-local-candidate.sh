@@ -56,6 +56,7 @@ cat >"$dist/${artifact_name}.manifest.json" <<EOF
   "artifact": "${artifact_name}.dmg",
   "build": "${build}",
   "bundleIdentifier": "com.firaskafri.homeward",
+  "license": "All rights reserved",
   "minimumSystemVersion": "15.0",
   "architecture": "arm64",
   "sha256": "${checksum}",

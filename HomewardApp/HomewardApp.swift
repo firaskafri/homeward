@@ -4,10 +4,8 @@ import SwiftUI
 @main
 struct HomewardApp: App {
     @StateObject private var model: AppModel
-    private let isUITest: Bool
 
     init() {
-        isUITest = ProcessInfo.processInfo.environment["HOMEWARD_UI_TEST_MODE"] == "1"
         let instance: AppModel
         do {
             instance = try AppModel.makeDefault()
@@ -15,9 +13,6 @@ struct HomewardApp: App {
             fatalError("Homeward could not initialize local storage: \(error)")
         }
         _model = StateObject(wrappedValue: instance)
-        if isUITest {
-            NSApp.setActivationPolicy(.regular)
-        }
     }
 
     var body: some Scene {
@@ -35,7 +30,7 @@ struct HomewardApp: App {
             RootView(model: model)
         }
         .defaultSize(width: 760, height: 600)
-        .defaultLaunchBehavior(isUITest ? .presented : .suppressed)
+        .defaultLaunchBehavior(.suppressed)
         .commands {
             HomewardCommands()
         }
