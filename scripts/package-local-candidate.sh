@@ -69,8 +69,11 @@ cat >"$dist/${artifact_name}.manifest.json" <<EOF
 }
 EOF
 
-shasum -a 256 "$dist/${artifact_name}.dmg" \
-  >"$dist/${artifact_name}.dmg.sha256"
+(
+  cd "$dist"
+  shasum -a 256 "${artifact_name}.dmg" \
+    >"${artifact_name}.dmg.sha256"
+)
 
 if [[ -d "$derived_data/Build/Products/Release/Homeward.app.dSYM" ]]; then
   /usr/bin/ditto \
