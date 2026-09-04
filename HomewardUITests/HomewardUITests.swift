@@ -14,8 +14,9 @@ final class HomewardUITests: XCTestCase {
     private var storageDirectory: URL?
 
     override func tearDownWithError() throws {
-        if let storageDirectory {
-            try? FileManager.default.removeItem(at: storageDirectory)
+        if let storageDirectory,
+           FileManager.default.fileExists(atPath: storageDirectory.path) {
+            try FileManager.default.removeItem(at: storageDirectory)
         }
         storageDirectory = nil
     }
@@ -30,9 +31,10 @@ final class HomewardUITests: XCTestCase {
 
         let statusItem = app.menuBars.statusItems.firstMatch
         XCTAssertTrue(statusItem.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.windows["Homeward"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 5))
         XCTAssertTrue(
-            app.otherElements["onboarding.step.1"].waitForExistence(timeout: 5)
+            app.descendants(matching: .any)["onboarding.step.1"]
+                .waitForExistence(timeout: 5)
         )
     }
 

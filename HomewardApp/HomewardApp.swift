@@ -2,9 +2,46 @@ import AppKit
 import HomewardCore
 import SwiftUI
 
+enum HomewardRoute: String, CaseIterable, Identifiable {
+    case today = "Today"
+    case schedule = "Schedule"
+    case workApps = "Work Apps"
+    case closing = "Closing & Warnings"
+    case savedThoughts = "Saved Thoughts"
+
+    var id: Self { self }
+
+    var symbol: String {
+        switch self {
+        case .today:
+            "house"
+        case .schedule:
+            "calendar"
+        case .workApps:
+            "square.grid.2x2"
+        case .closing:
+            "power"
+        case .savedThoughts:
+            "note.text"
+        }
+    }
+}
+
+@MainActor
+final class HomewardNavigationState: ObservableObject {
+    @Published var selection: HomewardRoute? = .today
+
+    func select(_ route: HomewardRoute) {
+        selection = route
+    }
+}
+
 @main
 struct HomewardApp: App {
+    @NSApplicationDelegateAdaptor(HomewardApplicationDelegate.self)
+    private var applicationDelegate
     @StateObject private var model: AppModel
+    @StateObject private var navigation = HomewardNavigationState()
 
     init() {
         HomewardPreferenceKeys.migrate()
@@ -19,25 +56,38 @@ struct HomewardApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuContent(model: model)
+            MenuContent(model: model, navigation: navigation)
         } label: {
-            MenuBarLabel(model: model)
+            MenuBarLabel(model: model, navigation: navigation)
         }
         .menuBarExtraStyle(.menu)
 
         Window("Homeward", id: "homeward") {
-            RootView(model: model)
+            RootView(model: model, navigation: navigation)
+                .background {
+                    MainWindowReader { window in
+                        applicationDelegate.register(
+                            mainWindow: window,
+                            navigation: navigation
+                        )
+                    }
+                }
         }
         .defaultSize(width: 760, height: 600)
         .defaultLaunchBehavior(.suppressed)
         .commands {
-            HomewardCommands()
+            HomewardCommands(model: model)
+        }
+
+        Settings {
+            GeneralSettingsView(model: model)
         }
     }
 }
 
 private struct MenuBarLabel: View {
     @ObservedObject var model: AppModel
+    @ObservedObject var navigation: HomewardNavigationState
     @Environment(\.openWindow) private var openWindow
     @AppStorage(HomewardPreferenceKeys.showNextTransitionTime)
     private var showNextTransitionTime = false
@@ -66,10 +116,15 @@ private struct MenuBarLabel: View {
             case .ready where model.isOnboardingComplete:
                 break
             case .ready, .configurationUnavailable:
-                openWindow(id: "homeward")
-                NSApp.activate(ignoringOtherApps: true)
+                openMainWindow()
             }
         }
+    }
+
+    private func openMainWindow() {
+        navigation.select(.today)
+        openWindow(id: "homeward")
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     private var accessibilityState: String {
@@ -86,24 +141,26 @@ private struct MenuBarLabel: View {
 
 private struct MenuContent: View {
     @ObservedObject var model: AppModel
+    @ObservedObject var navigation: HomewardNavigationState
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         if requiresRecovery {
             Button("Open Recovery…") {
-                openWindow(id: "homeward")
+                openMainWindow()
             }
             Divider()
             Button("Quit Homeward…") {
-                confirmQuit()
+                confirmQuit(model: model)
             }
         } else if !model.isOnboardingComplete {
             Button("Finish Setup…") {
-                openWindow(id: "homeward")
+                openMainWindow()
             }
             Divider()
             Button("Quit Homeward…") {
-                confirmQuit()
+                confirmQuit(model: model)
             }
         } else {
             Section {
@@ -131,8 +188,8 @@ private struct MenuContent: View {
             }
 
             if !model.closingRows.isEmpty {
-                Button("Show Closing Details…") {
-                    model.showClosingDetails()
+                Button("Closing & Warnings…") {
+                    openMainWindow(route: .closing)
                 }
             }
 
@@ -185,22 +242,42 @@ private struct MenuContent: View {
             if model.loginItemStatus != .enabled || model.notificationStatus != .authorized {
                 Divider()
                 Button("Homeward Needs Attention…") {
-                    openWindow(id: "homeward")
+                    openSettingsWindow()
                 }
             }
 
             Divider()
             Button("Open Homeward") {
-                openWindow(id: "homeward")
+                openMainWindow()
             }
             Button("Settings…") {
-                openWindow(id: "homeward")
+                openSettingsWindow()
+            }
+            .keyboardShortcut(",", modifiers: .command)
+            Divider()
+            Button("About Homeward") {
+                NSApp.activate(ignoringOtherApps: true)
+                NSApp.orderFrontStandardAboutPanel()
+            }
+            Button("Hide Homeward") {
+                NSApp.hide(nil)
             }
             Divider()
             Button("Quit Homeward…") {
-                confirmQuit()
+                confirmQuit(model: model)
             }
         }
+    }
+
+    private func openMainWindow(route: HomewardRoute = .today) {
+        navigation.select(route)
+        openWindow(id: "homeward")
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func openSettingsWindow() {
+        openSettings()
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     private var requiresRecovery: Bool {
@@ -259,28 +336,102 @@ private struct MenuContent: View {
         Task { await model.takeTodayOff() }
     }
 
-    private func confirmQuit() {
-        let alert = NSAlert()
-        alert.messageText = "Quit Homeward?"
-        alert.informativeText = "Pending force quits will be cancelled. Apps already asked to quit may still close. Selected apps will not be monitored until Homeward is reopened."
-        alert.addButton(withTitle: "Quit Homeward")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else {
-            return
-        }
-        model.quit()
-    }
 }
 
 private struct HomewardCommands: Commands {
-    @Environment(\.openWindow) private var openWindow
+    @ObservedObject var model: AppModel
+    @Environment(\.openSettings) private var openSettings
 
     var body: some Commands {
         CommandGroup(replacing: .appSettings) {
             Button("Settings…") {
-                openWindow(id: "homeward")
+                openSettings()
             }
             .keyboardShortcut(",", modifiers: .command)
         }
+
+        CommandGroup(replacing: .appTermination) {
+            Button("Quit Homeward…") {
+                confirmQuit(model: model)
+            }
+            .keyboardShortcut("q", modifiers: .command)
+        }
     }
+}
+
+@MainActor
+private final class HomewardApplicationDelegate: NSObject, NSApplicationDelegate {
+    private weak var mainWindow: NSWindow?
+    private weak var navigation: HomewardNavigationState?
+
+    func register(
+        mainWindow: NSWindow,
+        navigation: HomewardNavigationState
+    ) {
+        self.mainWindow = mainWindow
+        self.navigation = navigation
+    }
+
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows flag: Bool
+    ) -> Bool {
+        navigation?.select(.today)
+        guard let mainWindow else {
+            return true
+        }
+
+        sender.unhide(nil)
+        if mainWindow.isMiniaturized {
+            mainWindow.deminiaturize(nil)
+        }
+        mainWindow.makeKeyAndOrderFront(nil)
+        sender.activate(ignoringOtherApps: true)
+        return false
+    }
+}
+
+@MainActor
+private struct MainWindowReader: NSViewRepresentable {
+    let onWindowChange: (NSWindow) -> Void
+
+    func makeNSView(context: Context) -> WindowProbeView {
+        let view = WindowProbeView()
+        view.onWindowChange = onWindowChange
+        return view
+    }
+
+    func updateNSView(_ nsView: WindowProbeView, context: Context) {
+        nsView.onWindowChange = onWindowChange
+        nsView.reportWindow()
+    }
+
+    final class WindowProbeView: NSView {
+        var onWindowChange: ((NSWindow) -> Void)?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            reportWindow()
+        }
+
+        func reportWindow() {
+            guard let window else {
+                return
+            }
+            onWindowChange?(window)
+        }
+    }
+}
+
+@MainActor
+private func confirmQuit(model: AppModel) {
+    let alert = NSAlert()
+    alert.messageText = "Quit Homeward?"
+    alert.informativeText = "Pending force quits will be cancelled. Apps already asked to quit may still close. Selected apps will not be monitored until Homeward is reopened."
+    alert.addButton(withTitle: "Quit Homeward")
+    alert.addButton(withTitle: "Cancel")
+    guard alert.runModal() == .alertFirstButtonReturn else {
+        return
+    }
+    model.quit()
 }

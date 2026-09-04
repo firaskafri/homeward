@@ -97,6 +97,89 @@ struct ScheduleResolverTests {
         #expect(result.isAvailable)
     }
 
+    /// 1 - Name: Warning-boundary refreshes.
+    /// 2 - Description: Selects each enabled warning boundary before the final schedule cutoff.
+    /// 3 - Assumptions: Warning offsets are measured backward from a work-window end transition.
+    /// 4 - Expectations: Refresh advances from fifteen minutes to five minutes and then to cutoff.
+    @Test
+    func warningBoundariesDriveRefresh() throws {
+        let calendar = utcCalendar()
+        let resolver = ScheduleResolver()
+        let schedule = try WeeklySchedule.defaultWorkWeek()
+        let preferences = WarningPreferences()
+        let beforeWarnings = date(2026, 9, 7, 16, 40, calendar: calendar)
+        let atFifteen = date(2026, 9, 7, 16, 45, calendar: calendar)
+        let atFive = date(2026, 9, 7, 16, 55, calendar: calendar)
+
+        let initial = resolver.resolve(
+            schedule: schedule,
+            overrides: [],
+            at: beforeWarnings,
+            calendar: calendar,
+            warnings: preferences
+        )
+        let windingDown = resolver.resolve(
+            schedule: schedule,
+            overrides: [],
+            at: atFifteen,
+            calendar: calendar,
+            warnings: preferences
+        )
+        let finalWarning = resolver.resolve(
+            schedule: schedule,
+            overrides: [],
+            at: atFive,
+            calendar: calendar,
+            warnings: preferences
+        )
+
+        #expect(resolver.nextRefreshDate(
+            for: initial,
+            after: beforeWarnings,
+            warnings: preferences
+        ) == atFifteen)
+        #expect(resolver.nextRefreshDate(
+            for: windingDown,
+            after: atFifteen,
+            warnings: preferences
+        ) == atFive)
+        #expect(resolver.nextRefreshDate(
+            for: finalWarning,
+            after: atFive,
+            warnings: preferences
+        ) == date(2026, 9, 7, 17, 0, calendar: calendar))
+    }
+
+    /// 1 - Name: Warning action cutoff validation.
+    /// 2 - Description: Accepts only an action tied to the current future work-window cutoff.
+    /// 3 - Assumptions: Notification actions carry the cutoff that produced their warning.
+    /// 4 - Expectations: Changed cutoffs and actions handled at or after cutoff are rejected.
+    @Test
+    func warningActionRequiresCurrentCutoff() throws {
+        let calendar = utcCalendar()
+        let now = date(2026, 9, 7, 16, 50, calendar: calendar)
+        let cutoff = date(2026, 9, 7, 17, 0, calendar: calendar)
+        let resolved = ScheduleResolver().resolve(
+            schedule: try WeeklySchedule.defaultWorkWeek(),
+            overrides: [],
+            at: now,
+            calendar: calendar,
+            warnings: WarningPreferences()
+        )
+
+        #expect(WarningActionContext(cutoff: cutoff).isCurrent(
+            for: resolved,
+            at: now
+        ))
+        #expect(!WarningActionContext(
+            cutoff: cutoff.addingTimeInterval(60)
+        ).isCurrent(for: resolved, at: now))
+        #expect(!WarningActionContext(cutoff: cutoff).isCurrent(
+            for: resolved,
+            at: cutoff
+        ))
+    }
+
     /// 1 - Name: Explicit overnight window.
     /// 2 - Description: Resolves a Monday window that starts at 22:00 and ends Tuesday at 02:00.
     /// 3 - Assumptions: Tuesday is not blocked all day, satisfying cross-day validation.
@@ -167,7 +250,8 @@ struct ScheduleResolverTests {
             kind: .forceEscalationPaused,
             effect: .unchanged,
             effectiveAt: now,
-            expiresAt: date(2026, 9, 8, 9, 0, calendar: calendar)
+            expiresAt: date(2026, 9, 8, 9, 0, calendar: calendar),
+            relatedIntervalID: "blocked-test"
         )
 
         let result = ScheduleResolver().resolve(
@@ -300,11 +384,13 @@ struct ScheduleResolverTests {
 
         let mondayID = resolver.blockedIntervalID(
             for: schedule,
+            overrides: [],
             at: mondayEvening,
             calendar: calendar
         )
         let tuesdayID = resolver.blockedIntervalID(
             for: schedule,
+            overrides: [],
             at: tuesdayMorning,
             calendar: calendar
         )
@@ -317,9 +403,49 @@ struct ScheduleResolverTests {
         ) == nextOpening)
         #expect(resolver.forcePauseExpiry(
             for: schedule,
+            overrides: [],
             at: mondayEvening,
             calendar: calendar
         ) == nextOpening)
+    }
+
+    /// 1 - Name: Override-defined blocked interval.
+    /// 2 - Description: Derives Firm-pause identity and expiry from an active block over an always-available week.
+    /// 3 - Assumptions: No weekly blocked boundary exists, so the override is the complete blocking cause.
+    /// 4 - Expectations: The identifier follows the override and the pause expires with it.
+    @Test
+    func overrideDefinesBlockedInterval() throws {
+        let resolver = ScheduleResolver()
+        let calendar = utcCalendar()
+        let now = date(2026, 9, 7, 12, 0, calendar: calendar)
+        let expiry = date(2026, 9, 7, 17, 0, calendar: calendar)
+        let overrideID = UUID()
+        let block = try ScheduleOverride(
+            id: overrideID,
+            kind: .takeDayOff,
+            effect: .block,
+            effectiveAt: now,
+            expiresAt: expiry
+        )
+        let rules = Dictionary(
+            uniqueKeysWithValues: Weekday.allCases.map {
+                ($0, DayRule.availableAllDay)
+            }
+        )
+        let schedule = try WeeklySchedule(rules: rules)
+
+        #expect(resolver.blockedIntervalID(
+            for: schedule,
+            overrides: [block],
+            at: now,
+            calendar: calendar
+        ) == "override-\(overrideID.uuidString)")
+        #expect(resolver.forcePauseExpiry(
+            for: schedule,
+            overrides: [block],
+            at: now,
+            calendar: calendar
+        ) == expiry)
     }
 
     /// 1 - Name: Spring-forward schedule.

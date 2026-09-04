@@ -26,6 +26,7 @@ final class AppModel: NSObject, ObservableObject {
         }
 
         let sessionID: ProcessSessionID
+        let enforcementIdentity: EnforcementIdentity
         let applicationName: String
         let processIdentifier: Int32
         var status: Status
@@ -38,6 +39,11 @@ final class AppModel: NSObject, ObservableObject {
         case starting
         case ready
         case configurationUnavailable
+    }
+
+    enum WarningOption {
+        case fifteenMinute
+        case fiveMinute
     }
 
     @Published private(set) var configuration: HomewardConfiguration
@@ -70,6 +76,9 @@ final class AppModel: NSObject, ObservableObject {
     @Published private(set) var previewState: PreviewState = .idle
 
     private let repository: HomewardRepository
+    private let nowProvider: () -> Date
+    private let configurationSaver:
+        (HomewardConfiguration) async throws -> HomewardConfiguration
     private let resolver = ScheduleResolver()
     private let planner = EnforcementPlanner()
     private let countdownAnnouncementPolicy = CountdownAnnouncementPolicy()
@@ -92,18 +101,30 @@ final class AppModel: NSObject, ObservableObject {
     private var previewProcessSessionID: ProcessSessionID?
     private var previewTimeoutTask: Task<Void, Never>?
     private var configurationSaveInProgress = false
+    private var configurationSaveWaiters: [CheckedContinuation<Void, Never>] = []
     private var notesSaveInProgress = false
+    private var notesSaveWaiters: [CheckedContinuation<Void, Never>] = []
     private var started = false
 
-    init(repository: HomewardRepository) throws {
+    init(
+        repository: HomewardRepository,
+        nowProvider: @escaping () -> Date = Date.init,
+        configurationSaver: (
+            (HomewardConfiguration) async throws -> HomewardConfiguration
+        )? = nil
+    ) throws {
         let initialConfiguration = try HomewardConfiguration.initial()
         self.repository = repository
+        self.nowProvider = nowProvider
+        self.configurationSaver = configurationSaver ?? { configuration in
+            try await repository.saveConfiguration(configuration)
+        }
         configuration = initialConfiguration
         notes = try NotesDocument()
         resolvedSchedule = ScheduleResolver().resolve(
             schedule: initialConfiguration.schedule,
             overrides: initialConfiguration.overrides,
-            at: Date(),
+            at: nowProvider(),
             calendar: .autoupdatingCurrent,
             warnings: initialConfiguration.warningPreferences
         )
@@ -133,9 +154,20 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     var hasAvailabilityOverride: Bool {
-        configuration.overrides.contains {
-            $0.kind != .forceEscalationPaused && $0.isActive(at: Date())
+        let now = nowProvider()
+        return configuration.overrides.contains {
+            $0.kind != .forceEscalationPaused && $0.isActive(at: now)
         }
+    }
+
+    var canUseGentleShortcutExtension: Bool {
+        let intervalID = blockedIntervalID(at: nowProvider())
+        return configuration.closeMode == .gentle
+            && configuration.gentleShortcutExtensionEnabled
+            && !resolvedSchedule.isAvailable
+            && !configuration.consumedGentleExtensionIntervalIDs.contains(
+                intervalID
+            )
     }
 
     var visibleNotes: [TomorrowNote] {
@@ -151,7 +183,7 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     var forceEscalationPaused: Bool {
-        let now = Date()
+        let now = nowProvider()
         let intervalID = blockedIntervalID(at: now)
         return runtimeForcePauseIntervalIDs.contains(intervalID)
             || configuration.overrides.contains {
@@ -299,12 +331,15 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     func completeOnboarding() async {
+        await waitForConfigurationSave()
+        guard !configuration.completedOnboarding else {
+            return
+        }
         guard configuration.onboardingScheduleConfirmed,
               !configuration.selectedApplications.isEmpty else {
             lastError = "Confirm the schedule and choose at least one work app."
             return
         }
-        await waitForConfigurationSave()
         var updated = configuration
         updated.completedOnboarding = true
         if await commit(updated) {
@@ -396,6 +431,18 @@ final class AppModel: NSObject, ObservableObject {
         await commit(updated)
     }
 
+    func setWarning(_ option: WarningOption, enabled: Bool) async {
+        await waitForConfigurationSave()
+        var updated = configuration
+        switch option {
+        case .fifteenMinute:
+            updated.warningPreferences.fifteenMinuteWarningEnabled = enabled
+        case .fiveMinute:
+            updated.warningPreferences.fiveMinuteWarningEnabled = enabled
+        }
+        await commit(updated)
+    }
+
     func setGentleShortcutExtensionEnabled(_ enabled: Bool) async {
         await waitForConfigurationSave()
         var updated = configuration
@@ -478,7 +525,7 @@ final class AppModel: NSObject, ObservableObject {
             lastError = "Choose a supported extension duration."
             return
         }
-        let now = Date()
+        let now = nowProvider()
         let extensionBase: Date
         if resolvedSchedule.isAvailable,
            let transition = resolvedSchedule.nextTransition {
@@ -522,7 +569,7 @@ final class AppModel: NSObject, ObservableObject {
             lastError = "The one-time Gentle extension has already been used for this blocked period."
             return
         }
-        let now = Date()
+        let now = nowProvider()
         let extensionBase = resolvedSchedule.isAvailable
             ? max(now, resolvedSchedule.nextTransition?.date ?? now)
             : now
@@ -542,7 +589,7 @@ final class AppModel: NSObject, ObservableObject {
                 relatedIntervalID: intervalID
             )
             var updated = configuration
-            updated.consumedGentleExtensionIntervalIDs.insert(intervalID)
+            try updated.markGentleExtensionConsumed(in: intervalID)
             updated.replaceActiveAvailabilityOverrides(
                 with: [extensionOverride],
                 at: now
@@ -555,7 +602,7 @@ final class AppModel: NSObject, ObservableObject {
 
     func endWorkNow() async {
         await waitForConfigurationSave()
-        let now = Date()
+        let now = nowProvider()
         let expiry = nextBaseWindowStart(afterCurrentIntervalAt: now) ?? Date.distantFuture
         do {
             let scheduleOverride = try ScheduleOverride(
@@ -577,7 +624,7 @@ final class AppModel: NSObject, ObservableObject {
 
     func makeWorkAvailableNow() async {
         await waitForConfigurationSave()
-        let now = Date()
+        let now = nowProvider()
         let expiry = nextBaseWindowStart(afterCurrentIntervalAt: now)
             ?? Calendar.autoupdatingCurrent.date(byAdding: .hour, value: 24, to: now)
             ?? Date.distantFuture
@@ -591,13 +638,15 @@ final class AppModel: NSObject, ObservableObject {
 
     func chooseCutoff(_ cutoff: Date) async {
         await waitForConfigurationSave()
-        let now = Date()
+        let now = nowProvider()
         let calendar = Calendar.autoupdatingCurrent
         let nextLocalMidnight = calendar.date(
             byAdding: .day,
             value: 1,
             to: calendar.startOfDay(for: now)
-        ) ?? now.addingTimeInterval(24 * 60 * 60)
+        ) ?? now.addingTimeInterval(
+            HomewardPolicy.nextLocalMidnightFallbackInterval
+        )
         guard cutoff > now else {
             await endWorkNow()
             return
@@ -634,13 +683,15 @@ final class AppModel: NSObject, ObservableObject {
 
     func takeTodayOff() async {
         await waitForConfigurationSave()
-        let now = Date()
+        let now = nowProvider()
         let calendar = Calendar.autoupdatingCurrent
         let tomorrow = calendar.date(
             byAdding: .day,
             value: 1,
             to: calendar.startOfDay(for: now)
-        ) ?? now.addingTimeInterval(24 * 60 * 60)
+        ) ?? now.addingTimeInterval(
+            HomewardPolicy.nextLocalMidnightFallbackInterval
+        )
         let intervals = resolver.intervals(
             for: configuration.schedule,
             around: now,
@@ -664,8 +715,9 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     func stopForceQuit() async {
-        await waitForConfigurationSave()
-        runtimeForcePauseIntervalIDs.insert(blockedIntervalID(at: Date()))
+        let requestedAt = nowProvider()
+        let requestedIntervalID = blockedIntervalID(at: requestedAt)
+        runtimeForcePauseIntervalIDs.insert(requestedIntervalID)
         for task in enforcementTasks.values {
             task.cancel()
         }
@@ -680,7 +732,11 @@ final class AppModel: NSObject, ObservableObject {
             return updated
         }
 
-        let now = Date()
+        await waitForConfigurationSave()
+        let now = nowProvider()
+        guard blockedIntervalID(at: now) == requestedIntervalID else {
+            return
+        }
         let expiry = pausedForceOverrideExpiry(at: now)
         do {
             let pause = try ScheduleOverride(
@@ -688,11 +744,13 @@ final class AppModel: NSObject, ObservableObject {
                 effect: .unchanged,
                 effectiveAt: now,
                 expiresAt: expiry,
-                relatedIntervalID: blockedIntervalID(at: now)
+                relatedIntervalID: requestedIntervalID
             )
             var updated = configuration
             updated.setForceEscalationPause(pause)
-            await commit(updated, reconcileAfterSave: false)
+            if await commit(updated, reconcileAfterSave: false) == false {
+                lastError = "Force quit is paused while Homeward remains open, but the pause could not be saved."
+            }
         } catch {
             lastError = "Force quit is paused while Homeward remains open, but the pause could not be saved."
         }
@@ -703,7 +761,9 @@ final class AppModel: NSObject, ObservableObject {
         var updated = configuration
         updated.clearForceEscalationPause()
         if await commit(updated, reconcileAfterSave: false) {
-            runtimeForcePauseIntervalIDs.remove(blockedIntervalID(at: Date()))
+            runtimeForcePauseIntervalIDs.remove(
+                blockedIntervalID(at: nowProvider())
+            )
             cancelAllEnforcement()
             await reconcile(runningApplications: workspaceMonitor.runningApplications)
         }
@@ -755,16 +815,13 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     func saveNote(_ text: String) async -> Bool {
-        guard !notesSaveInProgress else {
-            lastError = "Another saved-thought change is still in progress."
-            return false
-        }
+        await waitForNotesSave()
         notesSaveInProgress = true
-        defer { notesSaveInProgress = false }
+        defer { finishNotesSave() }
         do {
             let note = try TomorrowNote(text: text)
             var updated = notes
-            updated.append(note)
+            try updated.append(note)
             notes = try await repository.saveNotes(updated)
             return true
         } catch {
@@ -774,9 +831,14 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     func keepNote(id: UUID, intervalID: String) async {
-        var updated = notes
-        updated.markPresented(id: id, in: intervalID)
-        _ = await commitNotes(updated)
+        await waitForNotesSave()
+        do {
+            var updated = notes
+            try updated.markPresented(id: id, in: intervalID)
+            _ = await commitNotes(updated)
+        } catch {
+            lastError = "The thought could not be kept for later."
+        }
     }
 
     func removeNote(id: UUID) async {
@@ -784,6 +846,7 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     func completeNote(id: UUID) async -> TomorrowNote? {
+        await waitForNotesSave()
         var updated = notes
         guard let removed = updated.remove(id: id),
               await commitNotes(updated) else {
@@ -793,20 +856,28 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     func restoreNote(_ note: TomorrowNote) async -> Bool {
+        await waitForNotesSave()
         var updated = notes
-        guard !updated.notes.contains(where: { $0.id == note.id }) else {
+        do {
+            try updated.append(note)
+        } catch {
+            lastError = "The thought could not be restored."
             return false
         }
-        updated.append(note)
         return await commitNotes(updated)
     }
 
     func resetSetup() async {
+        await waitForConfigurationSave()
         do {
             let initial = try HomewardConfiguration.initial()
-            let saved = try await repository.saveConfiguration(initial)
+            guard await commit(
+                initial,
+                reconcileAfterSave: false
+            ) else {
+                return
+            }
             cancelAllEnforcement()
-            configuration = saved
             UserDefaults.standard.set(
                 0,
                 forKey: HomewardPreferenceKeys.onboardingStep
@@ -814,10 +885,11 @@ final class AppModel: NSObject, ObservableObject {
             resolvedSchedule = resolver.resolve(
                 schedule: initial.schedule,
                 overrides: [],
-                at: Date(),
+                at: nowProvider(),
                 calendar: .autoupdatingCurrent,
                 warnings: initial.warningPreferences
             )
+            await notificationService.removeWarnings()
         } catch {
             HomewardLog.persistence.error("Setup reset failed")
             lastError = "Setup could not be reset. The existing app-closing policy remains active."
@@ -865,6 +937,7 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     func resetSavedThoughts() async {
+        await waitForNotesSave()
         do {
             try await repository.resetNotes()
             notes = try NotesDocument()
@@ -906,15 +979,16 @@ final class AppModel: NSObject, ObservableObject {
             return false
         }
         configurationSaveInProgress = true
+        defer { finishConfigurationSave() }
         do {
-            configuration = try await repository.saveConfiguration(updated)
-            configurationSaveInProgress = false
+            var persisted = updated
+            persisted.removeExpiredOverrides(at: nowProvider())
+            configuration = try await configurationSaver(persisted)
             if reconcileAfterSave {
                 await reconcile(runningApplications: workspaceMonitor.runningApplications)
             }
             return true
         } catch {
-            configurationSaveInProgress = false
             HomewardLog.persistence.error("Configuration save failed")
             lastError = "Changes could not be saved. No new app-closing policy was applied."
             return false
@@ -923,8 +997,17 @@ final class AppModel: NSObject, ObservableObject {
 
     private func waitForConfigurationSave() async {
         while configurationSaveInProgress {
-            await Task.yield()
+            await withCheckedContinuation { continuation in
+                configurationSaveWaiters.append(continuation)
+            }
         }
+    }
+
+    private func finishConfigurationSave() {
+        configurationSaveInProgress = false
+        let waiters = configurationSaveWaiters
+        configurationSaveWaiters.removeAll()
+        waiters.forEach { $0.resume() }
     }
 
     private func commitNotes(_ updated: NotesDocument) async -> Bool {
@@ -933,7 +1016,7 @@ final class AppModel: NSObject, ObservableObject {
             return false
         }
         notesSaveInProgress = true
-        defer { notesSaveInProgress = false }
+        defer { finishNotesSave() }
         do {
             notes = try await repository.saveNotes(updated)
             return true
@@ -942,6 +1025,21 @@ final class AppModel: NSObject, ObservableObject {
             lastError = "Saved thoughts could not be changed."
             return false
         }
+    }
+
+    private func waitForNotesSave() async {
+        while notesSaveInProgress {
+            await withCheckedContinuation { continuation in
+                notesSaveWaiters.append(continuation)
+            }
+        }
+    }
+
+    private func finishNotesSave() {
+        notesSaveInProgress = false
+        let waiters = notesSaveWaiters
+        notesSaveWaiters.removeAll()
+        waiters.forEach { $0.resume() }
     }
 
     private func schedulePreviewTimeout(applicationName: String) {
@@ -1063,7 +1161,7 @@ final class AppModel: NSObject, ObservableObject {
 
     private func reconcile(runningApplications: [NSRunningApplication]) async {
         transitionTask?.cancel()
-        let now = Date()
+        let now = nowProvider()
         resolvedSchedule = resolver.resolve(
             schedule: configuration.schedule,
             overrides: configuration.overrides,
@@ -1120,20 +1218,27 @@ final class AppModel: NSObject, ObservableObject {
             presentedNoteIntervalIDs.removeAll()
         }
 
-        guard resolvedSchedule.isAvailable,
-              resolvedSchedule.phase != .temporarilyExtended,
-              !configuration.consumedGentleExtensionIntervalIDs.isEmpty,
-              !configurationSaveInProgress else {
+        guard !configurationSaveInProgress else {
             return
         }
         var updated = configuration
-        updated.consumedGentleExtensionIntervalIDs.removeAll()
+        var changed = updated.removeExpiredOverrides(at: now)
+        if resolvedSchedule.isAvailable,
+           resolvedSchedule.phase != .temporarilyExtended,
+           !updated.consumedGentleExtensionIntervalIDs.isEmpty {
+            updated.clearGentleExtensionConsumption()
+            changed = true
+        }
+        guard changed else {
+            return
+        }
         do {
             configurationSaveInProgress = true
-            defer { configurationSaveInProgress = false }
-            configuration = try await repository.saveConfiguration(updated)
+            defer { finishConfigurationSave() }
+            configuration = try await configurationSaver(updated)
         } catch {
-            lastError = "The expired Gentle extension state could not be cleaned up."
+            HomewardLog.persistence.error("Transient state cleanup failed")
+            lastError = "Expired temporary state could not be cleaned up."
         }
     }
 
@@ -1166,12 +1271,15 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     private func scheduleNextTransition() {
-        guard let transition = resolvedSchedule.nextTransition,
-              transition.date > Date()
-        else {
+        let now = nowProvider()
+        guard let refreshDate = resolver.nextRefreshDate(
+            for: resolvedSchedule,
+            after: now,
+            warnings: configuration.warningPreferences
+        ) else {
             return
         }
-        let delay = transition.date.timeIntervalSinceNow
+        let delay = refreshDate.timeIntervalSince(now)
         transitionTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(max(0, delay)))
             guard !Task.isCancelled, let self else {
@@ -1185,17 +1293,34 @@ final class AppModel: NSObject, ObservableObject {
         snapshots: [RunningApplicationSnapshot],
         now: Date
     ) {
+        let intervalID = blockedIntervalID(at: now)
         let targets = planner.targets(
             selections: configuration.selectedApplications,
             runningApplications: snapshots
         ).filter { !gentleExemptSessionIDs.contains($0.id) }
+        pruneStaleEnforcement(
+            currentTargets: targets,
+            blockedIntervalID: intervalID
+        )
         for target in targets where closingRows.contains(where: { $0.id == target.id }) == false {
-            beginEnforcement(target: target, now: now)
+            beginEnforcement(
+                target: target,
+                now: now,
+                blockedIntervalID: intervalID
+            )
         }
     }
 
-    private func beginEnforcement(target: EnforcementTarget, now: Date) {
-        let intervalID = blockedIntervalID(at: now)
+    private func beginEnforcement(
+        target: EnforcementTarget,
+        now: Date,
+        blockedIntervalID intervalID: String
+    ) {
+        let enforcementIdentity = EnforcementIdentity(
+            target: target,
+            schedule: configuration.schedule,
+            blockedIntervalID: intervalID
+        )
         if blockedLaunchTargets[target.id] == nil {
             scheduledCloseHadTarget = true
         }
@@ -1206,6 +1331,7 @@ final class AppModel: NSObject, ObservableObject {
         case .gentle:
             let row = ClosingRow(
                 sessionID: target.id,
+                enforcementIdentity: enforcementIdentity,
                 applicationName: target.process.displayName,
                 processIdentifier: target.process.processIdentifier,
                 status: normalRequestAccepted ? .requestingNormalQuit : .needsAttention,
@@ -1237,6 +1363,7 @@ final class AppModel: NSObject, ObservableObject {
             let deadline = now.addingTimeInterval(EnforcementSession.firmGracePeriod)
             closingRows.append(ClosingRow(
                 sessionID: target.id,
+                enforcementIdentity: enforcementIdentity,
                 applicationName: target.process.displayName,
                 processIdentifier: target.process.processIdentifier,
                 status: paused ? .forcePaused : .countingDown,
@@ -1251,7 +1378,10 @@ final class AppModel: NSObject, ObservableObject {
                     return
                 }
                 while !Task.isCancelled {
-                    let remaining = max(0, Int(ceil(deadline.timeIntervalSinceNow)))
+                    let remaining = max(
+                        0,
+                        Int(ceil(deadline.timeIntervalSince(self.nowProvider())))
+                    )
                     self.updateClosingRow(sessionID: target.id) {
                         $0.secondsRemaining = remaining
                     }
@@ -1279,12 +1409,40 @@ final class AppModel: NSObject, ObservableObject {
         }
     }
 
+    private func pruneStaleEnforcement(
+        currentTargets: [EnforcementTarget],
+        blockedIntervalID: String
+    ) {
+        let staleSessionIDs = closingRows.compactMap { row in
+            row.enforcementIdentity.isCurrent(
+                schedule: configuration.schedule,
+                blockedIntervalID: blockedIntervalID,
+                targets: currentTargets
+            ) ? nil : row.id
+        }
+        guard !staleSessionIDs.isEmpty else {
+            return
+        }
+        for sessionID in staleSessionIDs {
+            enforcementTasks[sessionID]?.cancel()
+            enforcementTasks.removeValue(forKey: sessionID)
+            announcedCountdownMilestones.removeValue(forKey: sessionID)
+            blockedLaunchTargets.removeValue(forKey: sessionID)
+        }
+        let staleSet = Set(staleSessionIDs)
+        closingRows.removeAll { staleSet.contains($0.id) }
+        if closingRows.isEmpty {
+            scheduledCloseHadTarget = false
+        }
+        refreshClosingPanel()
+    }
+
     private func attemptForceTermination(
         target: EnforcementTarget,
         deadline: Date,
         blockedIntervalID originalBlockedIntervalID: String
     ) async {
-        let now = Date()
+        let now = nowProvider()
         resolvedSchedule = resolver.resolve(
             schedule: configuration.schedule,
             overrides: configuration.overrides,
@@ -1436,7 +1594,7 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     private func showBlockedLaunchFeedback(for target: EnforcementTarget) {
-        let now = Date()
+        let now = nowProvider()
         let lastFeedback = lastBlockedFeedbackBySelection[target.selectionID]
         lastBlockedFeedbackBySelection[target.selectionID] = now
         let availability = resolvedSchedule.nextAvailability.map {
@@ -1521,18 +1679,20 @@ final class AppModel: NSObject, ObservableObject {
     private func blockedIntervalID(at date: Date) -> String {
         resolver.blockedIntervalID(
             for: configuration.schedule,
+            overrides: configuration.overrides,
             at: date,
             calendar: .autoupdatingCurrent
         )
     }
 
     private func currentOrUpcomingBlockedIntervalID() -> String {
-        blockedIntervalID(at: Date())
+        blockedIntervalID(at: nowProvider())
     }
 
     private func pausedForceOverrideExpiry(at date: Date) -> Date {
         resolver.forcePauseExpiry(
             for: configuration.schedule,
+            overrides: configuration.overrides,
             at: date,
             calendar: .autoupdatingCurrent
         )
@@ -1562,7 +1722,7 @@ final class AppModel: NSObject, ObservableObject {
         guard configuration.completedOnboarding else {
             return
         }
-        let now = Date()
+        let now = nowProvider()
         resolvedSchedule = resolver.resolve(
             schedule: configuration.schedule,
             overrides: configuration.overrides,
@@ -1668,16 +1828,47 @@ extension AppModel: WorkspaceMonitorDelegate {
 }
 
 extension AppModel: HomewardNotificationHandling {
-    func handleNotificationAction(_ identifier: String) {
+    func handleNotificationAction(
+        _ identifier: String,
+        context: WarningActionContext?
+    ) {
+        guard identifier == HomewardNotificationService.startClosingAction
+                || identifier == HomewardNotificationService.extendAction else {
+            return
+        }
+        Task { @MainActor [weak self] in
+            await self?.applyNotificationAction(
+                identifier,
+                context: context
+            )
+        }
+    }
+
+    func applyNotificationAction(
+        _ identifier: String,
+        context: WarningActionContext?
+    ) async {
+        await waitForConfigurationSave()
+        let now = nowProvider()
+        let currentSchedule = resolver.resolve(
+            schedule: configuration.schedule,
+            overrides: configuration.overrides,
+            at: now,
+            calendar: .autoupdatingCurrent,
+            warnings: configuration.warningPreferences
+        )
+        guard context?.isCurrent(for: currentSchedule, at: now) == true else {
+            return
+        }
         switch identifier {
         case HomewardNotificationService.startClosingAction:
-            Task { await endWorkNow() }
+            await endWorkNow()
         case HomewardNotificationService.extendAction:
             guard configuration.closeMode == .gentle,
                   configuration.gentleShortcutExtensionEnabled else {
                 return
             }
-            Task { await useGentleShortcutExtension() }
+            await useGentleShortcutExtension()
         default:
             break
         }

@@ -87,6 +87,46 @@ struct ModelTests {
         }
     }
 
+    /// 1 - Name: Missing application identity.
+    /// 2 - Description: Rejects a persisted selection without a bundle identifier or usable path.
+    /// 3 - Assumptions: Enforcement cannot safely match an application without stable identity.
+    /// 4 - Expectations: Configuration validation reports the invalid selection identifier.
+    @Test
+    func missingApplicationIdentityIsRejected() throws {
+        let id = UUID()
+        let selection = SelectedApplication(
+            id: id,
+            bundleIdentifier: nil,
+            bundlePath: " ",
+            displayName: "Unknown"
+        )
+
+        #expect(throws: ValidationError.invalidApplicationSelection(id)) {
+            _ = try HomewardConfiguration(
+                schedule: .defaultWorkWeek(),
+                selectedApplications: [selection]
+            )
+        }
+    }
+
+    /// 1 - Name: Force-pause interval identity.
+    /// 2 - Description: Rejects a force-escalation pause that is not tied to one blocked interval.
+    /// 3 - Assumptions: Safety pauses must expire with the interval in which the user requested them.
+    /// 4 - Expectations: A missing interval identifier fails override construction.
+    @Test
+    func forcePauseRequiresIntervalIdentity() {
+        #expect(throws: ValidationError.invalidOverrideInterval(
+            .forceEscalationPaused
+        )) {
+            _ = try ScheduleOverride(
+                kind: .forceEscalationPaused,
+                effect: .unchanged,
+                effectiveAt: Date(timeIntervalSince1970: 1),
+                expiresAt: Date(timeIntervalSince1970: 2)
+            )
+        }
+    }
+
     /// 1 - Name: Tomorrow-note validation.
     /// 2 - Description: Rejects empty notes and content longer than the approved 500-character bound.
     /// 3 - Assumptions: Swift String count represents user-perceived extended grapheme clusters.
@@ -114,7 +154,7 @@ struct ModelTests {
     /// 1 - Name: Tomorrow-note ordering and removal.
     /// 2 - Description: Appends notes deterministically and removes completed content without an archive.
     /// 3 - Assumptions: Creation time is the primary order and UUID is the stable tie-breaker.
-    /// 4 - Expectations: Notes remain oldest-first and removed notes leave the document.
+    /// 4 - Expectations: Notes remain oldest-first, remove cleanly, and reject duplicate identifiers.
     @Test
     func tomorrowNoteOrderingAndRemoval() throws {
         let earlier = try TomorrowNote(
@@ -128,11 +168,14 @@ struct ModelTests {
             createdAt: Date(timeIntervalSince1970: 2)
         )
         var document = try NotesDocument(notes: [later])
-        document.append(earlier)
+        try document.append(earlier)
 
         #expect(document.notes.map(\.text) == ["Earlier", "Later"])
         #expect(document.remove(id: earlier.id) == earlier)
         #expect(document.notes == [later])
+        #expect(throws: ConfigurationError.duplicateNote) {
+            _ = try NotesDocument(notes: [later, later])
+        }
     }
 
     /// 1 - Name: Gentle-extension consumption persistence.
@@ -142,12 +185,49 @@ struct ModelTests {
     @Test
     func gentleExtensionConsumptionPersistence() throws {
         var configuration = try HomewardConfiguration.initial()
-        configuration.consumedGentleExtensionIntervalIDs.insert("blocked-interval-1")
+        try configuration.markGentleExtensionConsumed(
+            in: "blocked-interval-1"
+        )
 
         let data = try JSONEncoder().encode(configuration)
         let decoded = try JSONDecoder().decode(HomewardConfiguration.self, from: data)
 
         #expect(decoded.consumedGentleExtensionIntervalIDs == ["blocked-interval-1"])
+    }
+
+    /// 1 - Name: Expired override pruning.
+    /// 2 - Description: Removes completed temporary policy while preserving current policy.
+    /// 3 - Assumptions: Override expiry is half-open and an override ending now is expired.
+    /// 4 - Expectations: Pruning reports a change and retains only the active override.
+    @Test
+    func expiredOverridePruning() throws {
+        let now = Date(timeIntervalSince1970: 100)
+        let expired = try ScheduleOverride(
+            kind: .fixedExtension,
+            effect: .allow,
+            effectiveAt: Date(timeIntervalSince1970: 50),
+            expiresAt: now
+        )
+        let active = try ScheduleOverride(
+            kind: .takeDayOff,
+            effect: .block,
+            effectiveAt: Date(timeIntervalSince1970: 75),
+            expiresAt: Date(timeIntervalSince1970: 125)
+        )
+        var configuration = try HomewardConfiguration(
+            schedule: .defaultWorkWeek(),
+            overrides: [expired, active]
+        )
+
+        let didRemoveExpiredOverride = configuration.removeExpiredOverrides(
+            at: now
+        )
+        #expect(didRemoveExpiredOverride)
+        #expect(configuration.overrides == [active])
+        let didRemoveAnotherOverride = configuration.removeExpiredOverrides(
+            at: now
+        )
+        #expect(!didRemoveAnotherOverride)
     }
 
     /// 1 - Name: Protected persisted application.
@@ -173,9 +253,9 @@ struct ModelTests {
     }
 
     /// 1 - Name: Decoded local-time validation.
-    /// 2 - Description: Demonstrates that Codable can construct values that bypass public initializers.
-    /// 3 - Assumptions: Persisted JSON is untrusted and receives semantic validation after decoding.
-    /// 4 - Expectations: An out-of-range decoded hour fails validation.
+    /// 2 - Description: Verifies Codable applies the same validation as the public initializer.
+    /// 3 - Assumptions: Persisted JSON is untrusted and must not create an invalid model.
+    /// 4 - Expectations: Decoding an out-of-range hour throws the domain validation error.
     @Test
     func decodedLocalTimeValidation() {
         #expect(throws: ValidationError.invalidLocalTime(hour: 99, minute: 0)) {

@@ -4,7 +4,10 @@ import HomewardCore
 
 @MainActor
 protocol HomewardNotificationHandling: AnyObject {
-    func handleNotificationAction(_ identifier: String)
+    func handleNotificationAction(
+        _ identifier: String,
+        context: WarningActionContext?
+    )
 }
 
 @MainActor
@@ -19,6 +22,9 @@ final class HomewardNotificationService {
     static let startClosingAction = "HOMEWARD_START_CLOSING"
     static let extendAction = "HOMEWARD_EXTEND_TEN"
     static let warningCategory = "HOMEWARD_WARNING"
+    private static let warningIdentifierPrefix = "homeward-warning-"
+    nonisolated private static let warningCutoffKey =
+        "homeward-warning-cutoff"
 
     private let center: UNUserNotificationCenter
     private let responseRouter = NotificationResponseRouter()
@@ -83,6 +89,7 @@ final class HomewardNotificationService {
             )
             content.categoryIdentifier = Self.warningCategory
             content.interruptionLevel = .active
+            content.userInfo = Self.warningUserInfo(cutoff: cutoff)
 
             let components = Calendar.autoupdatingCurrent.dateComponents(
                 [.year, .month, .day, .hour, .minute, .second],
@@ -93,12 +100,30 @@ final class HomewardNotificationService {
                 repeats: false
             )
             let request = UNNotificationRequest(
-                identifier: "homeward-warning-\(minutes)-\(cutoff.timeIntervalSince1970)",
+                identifier: Self.warningIdentifierPrefix
+                    + "\(minutes)-\(cutoff.timeIntervalSince1970)",
                 content: content,
                 trigger: trigger
             )
             try await center.add(request)
         }
+    }
+
+    nonisolated static func warningUserInfo(
+        cutoff: Date
+    ) -> [AnyHashable: Any] {
+        [warningCutoffKey: cutoff.timeIntervalSince1970]
+    }
+
+    nonisolated static func warningActionContext(
+        from userInfo: [AnyHashable: Any]
+    ) -> WarningActionContext? {
+        guard let timestamp = userInfo[warningCutoffKey] as? TimeInterval else {
+            return nil
+        }
+        return WarningActionContext(
+            cutoff: Date(timeIntervalSince1970: timestamp)
+        )
     }
 
     func postStatus(title: String, body: String) async throws {
@@ -116,11 +141,17 @@ final class HomewardNotificationService {
 
     func removeWarnings() async {
         let pending = await center.pendingNotificationRequests()
-        let identifiers = pending
-            .map(\.identifier)
-            .filter { $0.hasPrefix("homeward-warning-") }
-        center.removePendingNotificationRequests(withIdentifiers: identifiers)
-        center.removeDeliveredNotifications(withIdentifiers: identifiers)
+        let delivered = await center.deliveredNotifications()
+        let identifiers = Set(
+            pending.map(\.identifier) + delivered.map(\.request.identifier)
+        )
+            .filter { $0.hasPrefix(Self.warningIdentifierPrefix) }
+        center.removePendingNotificationRequests(
+            withIdentifiers: Array(identifiers)
+        )
+        center.removeDeliveredNotifications(
+            withIdentifiers: Array(identifiers)
+        )
     }
 
     private func registerCategories(includeExtension: Bool) {
@@ -172,8 +203,8 @@ final class HomewardNotificationService {
 }
 
 // UNUserNotificationCenterDelegate is called from framework-managed threads.
-// The router carries only a weak main-actor handler and copies the Sendable
-// action identifier before crossing to MainActor.
+// The router carries only a weak main-actor handler and copies Sendable action
+// data before crossing to MainActor.
 private final class NotificationResponseRouter: NSObject,
     UNUserNotificationCenterDelegate,
     @unchecked Sendable
@@ -185,8 +216,14 @@ private final class NotificationResponseRouter: NSObject,
         didReceive response: UNNotificationResponse
     ) async {
         let identifier = response.actionIdentifier
+        let context = HomewardNotificationService.warningActionContext(
+            from: response.notification.request.content.userInfo
+        )
         await MainActor.run { [weak self] in
-            self?.handler?.handleNotificationAction(identifier)
+            self?.handler?.handleNotificationAction(
+                identifier,
+                context: context
+            )
         }
     }
 

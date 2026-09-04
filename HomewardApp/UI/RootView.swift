@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject var navigation: HomewardNavigationState
     @State private var confirmReset = false
 
     var body: some View {
@@ -13,7 +14,7 @@ struct RootView: View {
             recoveryView
         case .ready:
             if model.isOnboardingComplete {
-                ManagementView(model: model)
+                ManagementView(model: model, navigation: navigation)
             } else {
                 OnboardingView(model: model)
             }

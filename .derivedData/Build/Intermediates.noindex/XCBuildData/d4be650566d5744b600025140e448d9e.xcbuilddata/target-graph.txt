@@ -1,8 +1,0 @@
-Target dependency graph (4 targets)
-Target 'HomewardUITests' in project 'Homeward'
-➜ Explicit dependency on target 'Homeward' in project 'Homeward'
-Target 'Homeward' in project 'Homeward'
-➜ Explicit dependency on target 'HomewardCore' in project 'HomewardCore'
-Target 'HomewardCore' in project 'HomewardCore'
-➜ Explicit dependency on target 'HomewardCore' in project 'HomewardCore'
-Target 'HomewardCore' in project 'HomewardCore' (no dependencies)

@@ -9,6 +9,12 @@ destination="platform=macOS,arch=arm64"
 verification_marker="$repository_root/.build/verified-release.env"
 
 cd "$repository_root"
+rm -f "$verification_marker"
+
+[[ "$(uname -m)" == "arm64" ]] || {
+  printf 'Homeward verification requires an Apple Silicon host.\n' >&2
+  exit 1
+}
 
 stop_repository_test_instances() {
   local pattern="$repository_root/.*/Homeward.app/Contents/MacOS/Homeward"
@@ -39,6 +45,14 @@ command -v xcodegen >/dev/null || {
   printf 'xcodegen is required. Install it with: brew install xcodegen\n' >&2
   exit 1
 }
+
+xcode_version="$(xcodebuild -version | awk 'NR == 1 { print $2 }')"
+IFS=. read -r xcode_major xcode_minor _ <<<"$xcode_version"
+if (( xcode_major < 16 || (xcode_major == 16 && xcode_minor < 4) )); then
+  printf 'Xcode 16.4 or later is required; found %s.\n' \
+    "$xcode_version" >&2
+  exit 1
+fi
 
 required_xcodegen_version="2.46.0"
 actual_xcodegen_version="$(xcodegen version | awk '{print $2}')"
@@ -93,6 +107,7 @@ xcodebuild \
   test
 
 if [[ "${RUN_UI_TESTS:-1}" == "1" ]]; then
+  stop_repository_test_instances
   xcodebuild \
     -project "$project" \
     -scheme HomewardUI \
@@ -149,8 +164,9 @@ plist="$app/Contents/Info.plist"
 }
 version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")"
 build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")"
-[[ -n "$version" && -n "$build" ]] || {
-  printf 'Release app version metadata is missing.\n' >&2
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ &&
+   "$build" =~ ^[1-9][0-9]*$ ]] || {
+  printf 'Release app version metadata is invalid.\n' >&2
   exit 1
 }
 if /usr/bin/find "$app" -iname '*fixture*' -print -quit | /usr/bin/grep -q .; then

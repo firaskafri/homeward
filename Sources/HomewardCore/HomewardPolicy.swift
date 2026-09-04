@@ -11,4 +11,7 @@ public enum HomewardPolicy {
     public static let noteUndoDuration: TimeInterval = 10
     public static let extensionDurationsMinutes = [10, 15, 30]
     public static let gentleShortcutExtensionMinutes = 10
+    public static let customCutoffDefaultLeadTime: TimeInterval = 60 * 60
+    public static let nextLocalMidnightFallbackInterval: TimeInterval =
+        24 * 60 * 60
 }

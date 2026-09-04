@@ -16,14 +16,14 @@ public struct HomewardConfiguration: Codable, Equatable, Sendable {
 
     public static let currentSchemaVersion = 1
 
-    public var schemaVersion: Int
+    public private(set) var schemaVersion: Int
     public var schedule: WeeklySchedule
     public var selectedApplications: [SelectedApplication]
     public var closeMode: CloseMode
     public var warningPreferences: WarningPreferences
     public var gentleShortcutExtensionEnabled: Bool
-    public var overrides: [ScheduleOverride]
-    public var consumedGentleExtensionIntervalIDs: Set<String>
+    public private(set) var overrides: [ScheduleOverride]
+    public private(set) var consumedGentleExtensionIntervalIDs: Set<String>
     public var onboardingScheduleConfirmed: Bool
     public var completedOnboarding: Bool
 
@@ -61,6 +61,7 @@ public struct HomewardConfiguration: Codable, Equatable, Sendable {
             throw ConfigurationError.unsupportedSchemaVersion(schemaVersion)
         }
         try schedule.validate()
+        try selectedApplications.forEach { try $0.validate() }
 
         let keys = selectedApplications.map(\.stableSelectionKey)
         guard Set(keys).count == keys.count else {
@@ -79,6 +80,15 @@ public struct HomewardConfiguration: Codable, Equatable, Sendable {
         }
 
         try overrides.forEach { try $0.validate() }
+        let overrideIDs = overrides.map(\.id)
+        guard Set(overrideIDs).count == overrideIDs.count else {
+            throw ConfigurationError.duplicateOverride
+        }
+        guard consumedGentleExtensionIntervalIDs.allSatisfy({
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) else {
+            throw ValidationError.invalidIntervalIdentifier
+        }
     }
 
     public mutating func replaceActiveAvailabilityOverrides(
@@ -117,6 +127,28 @@ public struct HomewardConfiguration: Codable, Equatable, Sendable {
 
     public mutating func clearForceEscalationPause() {
         overrides.removeAll { $0.kind == .forceEscalationPaused }
+    }
+
+    public mutating func markGentleExtensionConsumed(
+        in intervalID: String
+    ) throws {
+        guard !intervalID.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ).isEmpty else {
+            throw ValidationError.invalidIntervalIdentifier
+        }
+        consumedGentleExtensionIntervalIDs.insert(intervalID)
+    }
+
+    public mutating func clearGentleExtensionConsumption() {
+        consumedGentleExtensionIntervalIDs.removeAll()
+    }
+
+    @discardableResult
+    public mutating func removeExpiredOverrides(at date: Date) -> Bool {
+        let previousCount = overrides.count
+        overrides.removeAll { $0.expiresAt <= date }
+        return overrides.count != previousCount
     }
 
     public init(from decoder: Decoder) throws {
@@ -165,8 +197,8 @@ public struct NotesDocument: Codable, Equatable, Sendable {
 
     public static let currentSchemaVersion = 1
 
-    public var schemaVersion: Int
-    public var notes: [TomorrowNote]
+    public private(set) var schemaVersion: Int
+    public private(set) var notes: [TomorrowNote]
 
     public init(
         schemaVersion: Int = Self.currentSchemaVersion,
@@ -177,18 +209,26 @@ public struct NotesDocument: Codable, Equatable, Sendable {
         }
         self.schemaVersion = schemaVersion
         self.notes = notes.sorted(by: Self.noteOrder)
+        try validate()
     }
 
-    public mutating func append(_ note: TomorrowNote) {
+    public mutating func append(_ note: TomorrowNote) throws {
+        try note.validate()
+        guard !notes.contains(where: { $0.id == note.id }) else {
+            throw ConfigurationError.duplicateNote
+        }
         notes.append(note)
         notes.sort(by: Self.noteOrder)
     }
 
-    public mutating func markPresented(id: UUID, in intervalID: String) {
+    public mutating func markPresented(
+        id: UUID,
+        in intervalID: String
+    ) throws {
         guard let index = notes.firstIndex(where: { $0.id == id }) else {
-            return
+            throw ConfigurationError.noteNotFound(id)
         }
-        notes[index].markPresented(in: intervalID)
+        try notes[index].markPresented(in: intervalID)
     }
 
     @discardableResult
@@ -231,5 +271,7 @@ public enum ConfigurationError: Error, Equatable, Sendable {
     case duplicateApplicationSelection
     case duplicateApplicationIdentifier
     case protectedApplicationSelection(String)
+    case duplicateOverride
     case duplicateNote
+    case noteNotFound(UUID)
 }

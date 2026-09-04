@@ -1,6 +1,0 @@
-Target dependency graph (3 targets)
-Target 'Homeward' in project 'Homeward'
-➜ Explicit dependency on target 'HomewardCore' in project 'HomewardCore'
-Target 'HomewardCore' in project 'HomewardCore'
-➜ Explicit dependency on target 'HomewardCore' in project 'HomewardCore'
-Target 'HomewardCore' in project 'HomewardCore' (no dependencies)

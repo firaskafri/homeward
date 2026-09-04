@@ -66,6 +66,36 @@ public struct EnforcementTarget: Equatable, Sendable {
     }
 }
 
+public struct EnforcementIdentity: Equatable, Sendable {
+    public let targetID: ProcessSessionID
+    public let selectionID: UUID
+    public let schedule: WeeklySchedule
+    public let blockedIntervalID: String
+
+    public init(
+        target: EnforcementTarget,
+        schedule: WeeklySchedule,
+        blockedIntervalID: String
+    ) {
+        targetID = target.id
+        selectionID = target.selectionID
+        self.schedule = schedule
+        self.blockedIntervalID = blockedIntervalID
+    }
+
+    public func isCurrent(
+        schedule: WeeklySchedule,
+        blockedIntervalID: String,
+        targets: [EnforcementTarget]
+    ) -> Bool {
+        self.schedule == schedule
+            && self.blockedIntervalID == blockedIntervalID
+            && targets.contains {
+                $0.id == targetID && $0.selectionID == selectionID
+            }
+    }
+}
+
 public struct EnforcementSession: Equatable, Sendable {
     public static let firmGracePeriod = HomewardPolicy.firmGracePeriod
 
@@ -97,7 +127,8 @@ public struct EnforcementPlanner: Sendable {
         runningApplications: [RunningApplicationSnapshot]
     ) -> [EnforcementTarget] {
         var targets: [EnforcementTarget] = []
-        for selection in selections where !selection.isProtected {
+        for selection in selections
+        where selection.isResolvable && !selection.isProtected {
             for process in runningApplications where matches(selection: selection, process: process) {
                 guard let target = try? EnforcementTarget(
                     selectionID: selection.id,
@@ -144,6 +175,8 @@ public struct EnforcementPlanner: Sendable {
         return session.targets.values.compactMap { target in
             guard now >= forceDeadline,
                   let selection = selectionsByID[target.selectionID],
+                  selection.isResolvable,
+                  !selection.isProtected,
                   let liveProcess = runningBySessionID[target.id],
                   liveProcess == target.process,
                   matches(selection: selection, process: liveProcess)

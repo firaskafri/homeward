@@ -7,30 +7,68 @@ struct OnboardingView: View {
     @State private var showPreview = false
 
     private let stepTitles = [
-        "When is work available?",
-        "Which apps belong to work?",
-        "How should apps close?",
+        "Set your work window",
+        "Choose your work apps",
+        "Choose a closing style",
         "Keep Homeward ready",
-        "Ready",
+        "Review and begin",
+    ]
+
+    private let stepSubtitles = [
+        "Define the weekly threshold between work time and personal time.",
+        "Only the apps you select will be managed by Homeward.",
+        "Start gently, or opt into stronger enforcement with clear safeguards.",
+        "Choose which background conveniences you want to enable.",
+        "Confirm the essentials, then preview or start Homeward.",
+    ]
+
+    private let stepSymbols = [
+        "calendar.badge.clock",
+        "square.grid.2x2",
+        "power",
+        "checklist",
+        "checkmark.seal",
     ]
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Step \(currentStep + 1) of \(stepTitles.count)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(stepTitles[currentStep])
-                    .font(.largeTitle.bold())
-                    .accessibilityAddTraits(.isHeader)
-                if currentStep == 0 {
-                    Text("Bring your Mac home. Leave work at work.")
-                        .font(.title3)
-                    Text("Homeward closes the work apps you choose when your workday ends and keeps them closed until your next work window.")
-                        .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .center, spacing: 14) {
+                    Image(systemName: stepSymbols[currentStep])
+                        .font(.title2)
+                        .foregroundStyle(HomewardTone.rest.color)
+                        .frame(width: 38, height: 38)
+                        .background(
+                            HomewardTone.rest.color.opacity(0.12),
+                            in: RoundedRectangle(cornerRadius: 10)
+                        )
+                        .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("STEP \(currentStep + 1) OF \(stepTitles.count)")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text(stepTitles[currentStep])
+                            .font(.largeTitle.bold())
+                            .accessibilityAddTraits(.isHeader)
+                    }
                 }
+
+                Text(stepSubtitles[currentStep])
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                ProgressView(
+                    value: Double(currentStep + 1),
+                    total: Double(stepTitles.count)
+                )
+                .accessibilityLabel("Setup progress")
+                .accessibilityValue(
+                    "Step \(currentStep + 1) of \(stepTitles.count)"
+                )
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: 860, alignment: .leading)
             .padding(24)
 
             Divider()
@@ -39,6 +77,7 @@ struct OnboardingView: View {
                 InlineErrorView(message: error) {
                     model.clearError()
                 }
+                .frame(maxWidth: 860)
                 .padding(.horizontal, 24)
                 .padding(.top, 12)
             }
@@ -64,37 +103,19 @@ struct OnboardingView: View {
 
             Divider()
 
-            HStack {
-                Button("Back") {
-                    step = max(0, currentStep - 1)
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    footerStatus
+                    Spacer()
+                    onboardingActions
                 }
-                .disabled(currentStep == 0)
-
-                Spacer()
-
-                if currentStep == stepTitles.count - 1 {
-                    Button("Test Setup…") {
-                        showPreview = true
-                    }
-                    Button(startButtonTitle) {
-                        Task { await model.completeOnboarding() }
-                    }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(model.configuration.selectedApplications.isEmpty)
-                    .accessibilityIdentifier("onboarding.start")
-                } else {
-                    Button("Continue") {
-                        step = min(stepTitles.count - 1, currentStep + 1)
-                    }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(
-                        (currentStep == 0
-                            && !model.configuration.onboardingScheduleConfirmed)
-                            || (currentStep == 1
-                                && model.configuration.selectedApplications.isEmpty)
-                    )
+                VStack(alignment: .leading, spacing: 12) {
+                    footerStatus
+                    onboardingActions
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                 }
             }
+            .frame(maxWidth: 860)
             .padding(16)
         }
         .frame(minWidth: 680, minHeight: 560)
@@ -109,21 +130,94 @@ struct OnboardingView: View {
         .accessibilityIdentifier("onboarding.step.\(currentStep + 1)")
     }
 
+    @ViewBuilder
+    private var footerStatus: some View {
+        switch currentStep {
+        case 0 where !model.configuration.onboardingScheduleConfirmed:
+            Label("Save and confirm the schedule to continue", systemImage: "circle.dashed")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        case 1 where model.configuration.selectedApplications.isEmpty:
+            Label("Choose at least one work app to continue", systemImage: "circle.dashed")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        case _ where currentStep == stepTitles.count - 1:
+            Label("Setup stays editable after you start", systemImage: "checkmark.circle")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        default:
+            EmptyView()
+        }
+    }
+
+    private var onboardingActions: some View {
+        HStack {
+            Button("Back") {
+                step = max(0, currentStep - 1)
+            }
+            .disabled(currentStep == 0)
+
+            if currentStep == stepTitles.count - 1 {
+                Button("Test Setup…") {
+                    showPreview = true
+                }
+                Button(startButtonTitle) {
+                    Task { await model.completeOnboarding() }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(
+                    !model.configuration.onboardingScheduleConfirmed
+                        || model.configuration.selectedApplications.isEmpty
+                )
+                .accessibilityIdentifier("onboarding.start")
+            } else {
+                Button("Continue") {
+                    step = min(stepTitles.count - 1, currentStep + 1)
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(
+                    (currentStep == 0
+                        && !model.configuration.onboardingScheduleConfirmed)
+                        || (currentStep == 1
+                            && model.configuration.selectedApplications.isEmpty)
+                )
+            }
+        }
+    }
+
     private var currentStep: Int {
         min(max(step, 0), stepTitles.count - 1)
     }
 
     private var permissionStep: some View {
         Form {
-            Section("Start at Login") {
-                Text("Homeward must be running to apply the schedule after login.")
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("The essentials are already in place", systemImage: "checkmark.shield")
+                        .font(.title2.bold())
+                    Text(
+                        "These conveniences improve reliability and awareness. "
+                            + "Neither one grants Homeward access to your content."
+                    )
                     .foregroundStyle(.secondary)
-                HStack {
-                    Text(loginSummary)
-                    Spacer()
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                .accessibilityElement(children: .combine)
+            }
+
+            Section("Recommended") {
+                readinessRow(
+                    title: "Start at Login",
+                    detail: "Keeps your schedule active after you sign in.",
+                    status: loginSummary,
+                    symbol: model.loginItemStatus == .enabled
+                        ? "checkmark.circle.fill"
+                        : "exclamationmark.circle",
+                    tone: model.loginItemStatus == .enabled ? .ready : .attention
+                ) {
                     switch model.loginItemStatus {
                     case .enabled:
-                        Label("Enabled", systemImage: "checkmark.circle")
+                        EmptyView()
                     case .notRegistered:
                         Button("Enable Start at Login") {
                             model.enableStartAtLogin()
@@ -136,12 +230,16 @@ struct OnboardingView: View {
                 }
             }
 
-            Section("Notifications") {
-                Text("Notifications provide wind-down and status messages. App closing still works without them.")
-                    .foregroundStyle(.secondary)
-                HStack {
-                    Text(notificationSummary)
-                    Spacer()
+            Section("Optional") {
+                readinessRow(
+                    title: "Notifications",
+                    detail: "Shows wind-down and status messages. Closing works without them.",
+                    status: notificationSummary,
+                    symbol: model.notificationStatus == .authorized
+                        ? "checkmark.circle.fill"
+                        : "bell.slash",
+                    tone: model.notificationStatus == .authorized ? .ready : .neutral
+                ) {
                     if model.notificationStatus == .notDetermined {
                         Button("Enable Notifications") {
                             Task { await model.requestNotificationPermission() }
@@ -154,7 +252,7 @@ struct OnboardingView: View {
                             Task { await model.refreshSystemStatuses() }
                         }
                     } else {
-                        Label("Enabled", systemImage: "checkmark.circle")
+                        EmptyView()
                     }
                 }
                 if model.notificationStatus == .denied {
@@ -165,46 +263,188 @@ struct OnboardingView: View {
             }
 
             Section {
-                Text("Homeward does not require Accessibility, Screen Recording, administrator access, or an account.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                Label(
+                    "No Accessibility, Screen Recording, administrator access, or account required.",
+                    systemImage: "lock.shield"
+                )
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
         .formStyle(.grouped)
     }
 
+    private func readinessRow<Actions: View>(
+        title: String,
+        detail: String,
+        status: String,
+        symbol: String,
+        tone: HomewardTone,
+        @ViewBuilder actions: () -> Actions
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) {
+                    readinessIdentity(title: title, detail: detail)
+                    Spacer(minLength: 16)
+                    HomewardStatusLabel(
+                        title: status,
+                        symbol: symbol,
+                        tone: tone
+                    )
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    readinessIdentity(title: title, detail: detail)
+                    HomewardStatusLabel(
+                        title: status,
+                        symbol: symbol,
+                        tone: tone
+                    )
+                }
+            }
+            HStack {
+                actions()
+            }
+        }
+    }
+
+    private func readinessIdentity(title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.headline)
+            Text(detail)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     private var readyStep: some View {
         Form {
-            Section("Schedule") {
-                LabeledContent("Scheduled-hour days") {
-                    Text("\(scheduledDayCount)")
-                }
-            }
-            Section("Work Apps") {
-                LabeledContent("Selected") {
-                    Text("\(model.configuration.selectedApplications.count)")
-                }
-            }
-            Section("Closing") {
-                LabeledContent("Mode") {
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Ready to cross the threshold", systemImage: "house")
+                        .font(.title2.bold())
+                        .accessibilityAddTraits(.isHeader)
                     Text(
-                        SchedulePresentation.closeModeName(
-                            model.configuration.closeMode
-                        )
+                        "Homeward will begin following this setup only after you choose "
+                            + "the start button below."
                     )
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
+                .accessibilityElement(children: .combine)
             }
+
+            Section("Required") {
+                reviewRow(
+                    title: "Weekly schedule",
+                    value: "\(scheduledDayCount) days with scheduled hours",
+                    isReady: model.configuration.onboardingScheduleConfirmed,
+                    notReadyLabel: "Required"
+                )
+                reviewRow(
+                    title: "Work apps",
+                    value: selectedApplicationSummary,
+                    isReady: !model.configuration.selectedApplications.isEmpty,
+                    notReadyLabel: "Required"
+                )
+                reviewRow(
+                    title: "Closing style",
+                    value: SchedulePresentation.closeModeName(
+                        model.configuration.closeMode
+                    ),
+                    isReady: true
+                )
+            }
+
+            Section("Readiness") {
+                reviewRow(
+                    title: "Start at Login · Recommended",
+                    value: loginSummary,
+                    isReady: model.loginItemStatus == .enabled,
+                    notReadyLabel: "Recommended"
+                )
+                reviewRow(
+                    title: "Notifications · Optional",
+                    value: notificationSummary,
+                    isReady: model.notificationStatus == .authorized,
+                    notReadyLabel: "Optional"
+                )
+            }
+
             if !model.resolvedSchedule.isAvailable {
-                Section {
+                Section("Starts immediately") {
                     Label(
-                        "The current time is blocked. Starting Homeward will begin closing selected work apps.",
-                        systemImage: "exclamationmark.triangle"
+                        "Work is currently closed. Starting Homeward will begin the "
+                            + "selected \(SchedulePresentation.closeModeName(model.configuration.closeMode).lowercased()) flow.",
+                        systemImage: "exclamationmark.triangle.fill"
                     )
                     .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func reviewRow(
+        title: String,
+        value: String,
+        isReady: Bool,
+        notReadyLabel: String = "Not enabled"
+    ) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.headline)
+                    Text(value)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 16)
+                readinessMark(
+                    isReady: isReady,
+                    notReadyLabel: notReadyLabel
+                )
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text(title)
+                    .font(.headline)
+                Text(value)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                readinessMark(
+                    isReady: isReady,
+                    notReadyLabel: notReadyLabel
+                )
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func readinessMark(
+        isReady: Bool,
+        notReadyLabel: String
+    ) -> some View {
+        HomewardStatusLabel(
+            title: isReady ? "Ready" : notReadyLabel,
+            symbol: isReady ? "checkmark.circle.fill" : "circle",
+            tone: isReady ? .ready : .attention
+        )
+    }
+
+    private var selectedApplicationSummary: String {
+        let applications = model.configuration.selectedApplications
+        guard !applications.isEmpty else {
+            return "No apps selected"
+        }
+        if applications.count <= 3 {
+            return applications.map(\.displayName).joined(separator: ", ")
+        }
+        return "\(applications.count) apps selected"
     }
 
     private var startButtonTitle: String {
@@ -252,50 +492,96 @@ private struct PreviewView: View {
     @State private var selectionID: UUID?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Test Setup")
-                .font(.title2.bold())
-            Text("The preview requests a normal quit. It never force-quits.")
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Preview the handoff", systemImage: "play.circle")
+                    .font(.title2.bold())
+                    .accessibilityAddTraits(.isHeader)
+                Text(
+                    "Choose a harmless app and open it first. "
+                        + "The preview requests a normal quit and never force-quits."
+                )
                 .foregroundStyle(.secondary)
-
-            Picker("Application", selection: $selectionID) {
-                Text("Choose an app").tag(UUID?.none)
-                ForEach(model.configuration.selectedApplications) { application in
-                    Text(application.displayName).tag(Optional(application.id))
-                }
+                .fixedSize(horizontal: false, vertical: true)
             }
 
-            Label(statusText, systemImage: statusSymbol)
-                .accessibilityIdentifier("preview.status")
+            GroupBox("Application") {
+                Picker("Application", selection: $selectionID) {
+                    Text("Choose an app").tag(UUID?.none)
+                    ForEach(model.configuration.selectedApplications) { application in
+                        Text(application.displayName).tag(Optional(application.id))
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
-            HStack {
-                Button("End Preview") {
-                    model.endPreview()
-                    dismiss()
-                }
-                .keyboardShortcut(.cancelAction)
-                if case .needsAttention = model.previewState {
-                    Button("Show App") {
-                        model.showPreviewApplication()
+            HomewardCard {
+                HStack(alignment: .top, spacing: HomewardSpacing.medium) {
+                    Image(systemName: statusSymbol)
+                        .font(.title3)
+                        .foregroundStyle(statusColor)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(statusTitle)
+                            .font(.headline)
+                        Text(statusText)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                Spacer()
-                Button("Run Preview") {
-                    guard let selectionID else {
-                        return
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("preview.status")
+
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    Button("End Preview") {
+                        model.endPreview()
+                        dismiss()
                     }
-                    model.startPreview(selectionID: selectionID)
+                    .keyboardShortcut(.cancelAction)
+                    if case .needsAttention = model.previewState {
+                        Button("Show App") {
+                            model.showPreviewApplication()
+                        }
+                    }
+                    Spacer()
+                    runPreviewButton
                 }
-                .disabled(selectionID == nil || previewIsRunning)
-                .keyboardShortcut(.defaultAction)
+                VStack(alignment: .leading, spacing: 10) {
+                    runPreviewButton
+                    if case .needsAttention = model.previewState {
+                        Button("Show App") {
+                            model.showPreviewApplication()
+                        }
+                    }
+                    Button("End Preview") {
+                        model.endPreview()
+                        dismiss()
+                    }
+                    .keyboardShortcut(.cancelAction)
+                }
             }
         }
-        .padding(20)
-        .frame(minWidth: 440, minHeight: 280)
+        .padding(24)
+        .frame(minWidth: 460, minHeight: 320)
         .onDisappear {
             model.endPreview()
         }
         .accessibilityIdentifier("preview.view")
+    }
+
+    private var runPreviewButton: some View {
+        Button("Run Preview") {
+            guard let selectionID else {
+                return
+            }
+            model.startPreview(selectionID: selectionID)
+        }
+        .disabled(selectionID == nil || previewIsRunning)
+        .keyboardShortcut(.defaultAction)
     }
 
     private var previewIsRunning: Bool {
@@ -304,6 +590,36 @@ private struct PreviewView: View {
             false
         case .waitingForFirstExit, .waitingForRelaunch, .waitingForSecondExit:
             true
+        }
+    }
+
+    private var statusTitle: String {
+        switch model.previewState {
+        case .idle:
+            "Ready to test"
+        case .waitingForFirstExit:
+            "Closing normally"
+        case .waitingForRelaunch:
+            "First close complete"
+        case .waitingForSecondExit:
+            "Relaunch detected"
+        case .needsAttention:
+            "App needs attention"
+        case .complete:
+            "Preview complete"
+        }
+    }
+
+    private var statusColor: Color {
+        switch model.previewState {
+        case .complete:
+            .green
+        case .needsAttention:
+            .orange
+        case .idle:
+            .secondary
+        case .waitingForFirstExit, .waitingForRelaunch, .waitingForSecondExit:
+            .accentColor
         }
     }
 

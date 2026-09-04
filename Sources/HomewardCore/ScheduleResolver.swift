@@ -226,11 +226,36 @@ public struct ScheduleResolver: Sendable {
         return intervals.first(where: { $0.start > date })?.start
     }
 
+    public func nextRefreshDate(
+        for schedule: ResolvedSchedule,
+        after date: Date,
+        warnings: WarningPreferences
+    ) -> Date? {
+        guard let transition = schedule.nextTransition,
+              transition.date > date else {
+            return nil
+        }
+        guard transition.cause == .workWindowEnds else {
+            return transition.date
+        }
+        return warnings.enabledOffsets
+            .map { transition.date.addingTimeInterval(-$0) }
+            .filter { $0 > date }
+            .min() ?? transition.date
+    }
+
     public func blockedIntervalID(
         for schedule: WeeklySchedule,
+        overrides: [ScheduleOverride],
         at date: Date,
         calendar: Calendar
     ) -> String {
+        if let blockingOverride = activeBlockingOverride(
+            in: overrides,
+            at: date
+        ) {
+            return "override-\(blockingOverride.id.uuidString)"
+        }
         let intervals = intervals(for: schedule, around: date, calendar: calendar)
         let current = intervals.first(where: { $0.contains(date) })
         let blockedStart = current?.end
@@ -247,14 +272,30 @@ public struct ScheduleResolver: Sendable {
 
     public func forcePauseExpiry(
         for schedule: WeeklySchedule,
+        overrides: [ScheduleOverride],
         at date: Date,
         calendar: Calendar
     ) -> Date {
-        nextWindowStart(
+        if let blockingOverride = activeBlockingOverride(
+            in: overrides,
+            at: date
+        ) {
+            return blockingOverride.expiresAt
+        }
+        return nextWindowStart(
             for: schedule,
             afterCurrentIntervalAt: date,
             calendar: calendar
         ) ?? Date.distantFuture
+    }
+
+    private func activeBlockingOverride(
+        in overrides: [ScheduleOverride],
+        at date: Date
+    ) -> ScheduleOverride? {
+        overrides
+            .filter { $0.isActive(at: date) && $0.effect == .block }
+            .max(by: { $0.effectiveAt < $1.effectiveAt })
     }
 
     private func isInsideWarningPeriod(

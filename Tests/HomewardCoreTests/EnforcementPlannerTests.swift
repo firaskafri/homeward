@@ -87,30 +87,103 @@ struct EnforcementPlannerTests {
         #expect(targets.isEmpty)
     }
 
+    /// 1 - Name: Unresolved selection fails open.
+    /// 2 - Description: Excludes a selected application whose persisted bundle can no longer be resolved.
+    /// 3 - Assumptions: A stale bundle identity must be reselected before enforcement can safely resume.
+    /// 4 - Expectations: The planner creates no normal-quit or force-quit target.
+    @Test
+    func unresolvedSelectionFailsOpen() throws {
+        let selection = SelectedApplication(
+            bundleIdentifier: "com.example.editor",
+            bundlePath: "/Applications/Editor.app",
+            displayName: "Editor",
+            isResolvable: false
+        )
+        let running = process(
+            pid: 10,
+            bundleIdentifier: "com.example.editor",
+            path: "/Applications/Editor.app"
+        )
+
+        let targets = EnforcementPlanner().targets(
+            selections: [selection],
+            runningApplications: [running]
+        )
+        let craftedTarget = try EnforcementTarget(
+            selectionID: selection.id,
+            process: running
+        )
+        let forceEligible = EnforcementPlanner().forceEligibleTargetIDs(
+            session: EnforcementSession(
+                mode: .firm,
+                startedAt: Date(timeIntervalSince1970: 0),
+                targets: [craftedTarget]
+            ),
+            at: Date(timeIntervalSince1970: 60),
+            schedule: ResolvedSchedule(
+                phase: .workClosed,
+                isAvailable: false,
+                activeBaseInterval: nil,
+                activeOverride: nil,
+                nextTransition: nil,
+                nextAvailability: nil
+            ),
+            currentSelections: [selection],
+            currentlyRunning: [running]
+        )
+
+        #expect(targets.isEmpty)
+        #expect(forceEligible.isEmpty)
+    }
+
     /// 1 - Name: Protected selection fails open.
     /// 2 - Description: Revalidates protected identity at the termination-planning boundary.
     /// 3 - Assumptions: Persisted or in-memory policy may be corrupted outside the normal picker.
     /// 4 - Expectations: Finder never becomes a normal or forced termination target.
     @Test
-    func protectedSelectionFailsOpen() {
+    func protectedSelectionFailsOpen() throws {
         let selection = SelectedApplication(
             bundleIdentifier: "com.apple.finder",
             bundlePath: "/System/Library/CoreServices/Finder.app",
             displayName: "Finder"
         )
+        let running = process(
+            pid: 10,
+            bundleIdentifier: "com.apple.finder",
+            path: "/System/Library/CoreServices/Finder.app"
+        )
 
         let targets = EnforcementPlanner().targets(
             selections: [selection],
-            runningApplications: [
-                process(
-                    pid: 10,
-                    bundleIdentifier: "com.apple.finder",
-                    path: "/System/Library/CoreServices/Finder.app"
-                ),
-            ]
+            runningApplications: [running]
+        )
+        let craftedTarget = try EnforcementTarget(
+            selectionID: selection.id,
+            process: running
+        )
+        let session = EnforcementSession(
+            mode: .firm,
+            startedAt: Date(timeIntervalSince1970: 0),
+            targets: [craftedTarget]
+        )
+        let blocked = ResolvedSchedule(
+            phase: .workClosed,
+            isAvailable: false,
+            activeBaseInterval: nil,
+            activeOverride: nil,
+            nextTransition: nil,
+            nextAvailability: nil
+        )
+        let forceEligible = EnforcementPlanner().forceEligibleTargetIDs(
+            session: session,
+            at: Date(timeIntervalSince1970: 60),
+            schedule: blocked,
+            currentSelections: [selection],
+            currentlyRunning: [running]
         )
 
         #expect(targets.isEmpty)
+        #expect(forceEligible.isEmpty)
     }
 
     /// 1 - Name: Firm force eligibility.
@@ -271,6 +344,69 @@ struct EnforcementPlannerTests {
         #expect(availableResult.isEmpty)
         #expect(deselectedResult.isEmpty)
         #expect(replacedProcessResult.isEmpty)
+    }
+
+    /// 1 - Name: Enforcement identity invalidation.
+    /// 2 - Description: Invalidates active enforcement when schedule, blocked interval, or process generation changes.
+    /// 3 - Assumptions: A PID can be reused and schedule edits can preserve the same apparent availability.
+    /// 4 - Expectations: Only the exact target under the exact originating policy remains current.
+    @Test
+    func enforcementIdentityInvalidation() throws {
+        let selection = SelectedApplication(
+            bundleIdentifier: "com.example.editor",
+            bundlePath: "/Applications/Editor.app",
+            displayName: "Editor"
+        )
+        let running = process(
+            pid: 10,
+            bundleIdentifier: "com.example.editor",
+            path: "/Applications/Editor.app"
+        )
+        let target = try #require(EnforcementPlanner().targets(
+            selections: [selection],
+            runningApplications: [running]
+        ).first)
+        let schedule = try WeeklySchedule.defaultWorkWeek()
+        let identity = EnforcementIdentity(
+            target: target,
+            schedule: schedule,
+            blockedIntervalID: "blocked-a"
+        )
+        var changedRules = schedule.rules
+        changedRules[.wednesday] = .availableAllDay
+        let changedSchedule = try WeeklySchedule(rules: changedRules)
+        let reusedPID = RunningApplicationSnapshot(
+            processIdentifier: running.processIdentifier,
+            bundleIdentifier: running.bundleIdentifier,
+            bundlePath: running.bundlePath,
+            displayName: running.displayName,
+            launchedAt: running.launchedAt?.addingTimeInterval(1)
+        )
+        let replacementTarget = try #require(EnforcementPlanner().targets(
+            selections: [selection],
+            runningApplications: [reusedPID]
+        ).first)
+
+        #expect(identity.isCurrent(
+            schedule: schedule,
+            blockedIntervalID: "blocked-a",
+            targets: [target]
+        ))
+        #expect(!identity.isCurrent(
+            schedule: changedSchedule,
+            blockedIntervalID: "blocked-a",
+            targets: [target]
+        ))
+        #expect(!identity.isCurrent(
+            schedule: schedule,
+            blockedIntervalID: "blocked-b",
+            targets: [target]
+        ))
+        #expect(!identity.isCurrent(
+            schedule: schedule,
+            blockedIntervalID: "blocked-a",
+            targets: [replacementTarget]
+        ))
     }
 
     /// 1 - Name: Countdown announcement milestones.

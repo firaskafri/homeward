@@ -44,7 +44,8 @@ final class PlatformIntegrationTests: XCTestCase {
         )
 
         XCTAssertEqual(observer.processIdentifier, application.processIdentifier)
-        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 2)
+        let observedAt = try XCTUnwrap(observer.observedAt)
+        XCTAssertLessThan(observedAt.timeIntervalSince(startedAt), 2)
     }
 
     /// 1 - Name: Normal termination fixture.
@@ -204,6 +205,7 @@ private final class FixtureLaunchObserver: NSObject {
     private let expectation: XCTestExpectation
     private let expectedBundlePath: String
     private(set) var processIdentifier: Int32?
+    private(set) var observedAt: Date?
 
     init(
         expectation: XCTestExpectation,
@@ -220,11 +222,13 @@ private final class FixtureLaunchObserver: NSObject {
         ] as? NSRunningApplication,
               application.bundleIdentifier == FixturePolicy.bundleIdentifier,
               application.bundleURL?.standardizedFileURL.path
-                == expectedBundlePath
+                == expectedBundlePath,
+              processIdentifier == nil
         else {
             return
         }
         processIdentifier = application.processIdentifier
+        observedAt = Date()
         expectation.fulfill()
     }
 }

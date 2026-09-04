@@ -11,7 +11,9 @@ final class BlockedLaunchPanelController: NSWindowController {
     ) {
         let panel = HomewardPanelFactory.make(
             title: "Work App Closed",
-            size: NSSize(width: 420, height: 220),
+            size: NSSize(width: 560, height: 360),
+            minimumSize: NSSize(width: 480, height: 300),
+            resizable: true,
             floatsAutomatically: true
         )
         let view = BlockedLaunchView(
@@ -33,47 +35,117 @@ final class BlockedLaunchPanelController: NSWindowController {
         window?.center()
         window?.orderFrontRegardless()
     }
+
+    var isVisible: Bool {
+        window?.isVisible == true
+            && window?.occlusionState.contains(.visible) == true
+    }
 }
 
 private struct BlockedLaunchView: View {
     @ObservedObject var model: AppModel
+    @State private var isApplyingExtension = false
     let applicationName: String
     let availabilityText: String
     let close: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("\(applicationName) is off for now")
-                .font(.title2.bold())
-            Text(availabilityText)
-                .foregroundStyle(.secondary)
-            Text("Homeward closes selected apps immediately after they open during blocked hours.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            HStack {
-                Button("Save a Thought…") {
-                    close()
-                    model.showNoteCapture()
-                }
-                if model.configuration.closeMode == .gentle,
-                   model.configuration.gentleShortcutExtensionEnabled {
-                    Button(
-                        "Make All Work Apps Available for "
-                            + "\(HomewardPolicy.gentleShortcutExtensionMinutes) Minutes…"
-                    ) {
-                        close()
-                        Task { await model.useGentleShortcutExtension() }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                HomewardPanelHeader(
+                    title: "\(applicationName) stayed closed",
+                    message: "Homeward noticed this app open outside your work schedule and closed it.",
+                    systemImage: "lock.shield.fill",
+                    tone: .rest
+                )
+
+                HomewardCard(padding: HomewardSpacing.medium) {
+                    VStack(alignment: .leading, spacing: HomewardSpacing.medium) {
+                        Label(availabilityText, systemImage: "calendar.badge.clock")
+                            .font(.headline)
+                            .accessibilityElement(children: .combine)
+
+                        Divider()
+
+                        Text(
+                            "Opening the app again while work is blocked will close it again. "
+                                + "Your weekly schedule has not changed."
+                        )
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                Spacer()
-                Button("Close") {
-                    close()
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if let error = model.lastError {
+                    InlineErrorView(message: error) {
+                        model.clearError()
+                    }
                 }
-                .keyboardShortcut(.cancelAction)
+
+                if model.canUseGentleShortcutExtension {
+                    Button {
+                        applyGentleExtension()
+                    } label: {
+                        if isApplyingExtension {
+                            HStack(spacing: 6) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("Updating Availability…")
+                            }
+                        } else {
+                            Text(
+                                "Allow All Work Apps for "
+                                    + "\(HomewardPolicy.gentleShortcutExtensionMinutes) Minutes"
+                            )
+                        }
+                    }
+                    .disabled(isApplyingExtension)
+                    .accessibilityHint(
+                        "Temporarily changes availability for all selected work apps"
+                    )
+                }
+
+                Divider()
+
+                HStack {
+                    Button("Save a Thought…") {
+                        close()
+                        model.showNoteCapture()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityHint(
+                        "Closes this message and opens a note editor"
+                    )
+
+                    Spacer()
+
+                    Button("Close") {
+                        close()
+                    }
+                    .keyboardShortcut(.cancelAction)
+                    .accessibilityHint("Leaves the current schedule unchanged")
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .scrollIndicators(.visible)
+        .frame(minWidth: 460, minHeight: 280)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("blockedLaunch.panel")
+    }
+
+    private func applyGentleExtension() {
+        model.clearError()
+        isApplyingExtension = true
+        Task { @MainActor in
+            await model.useGentleShortcutExtension()
+            isApplyingExtension = false
+            if model.lastError == nil {
+                close()
             }
         }
-        .padding(20)
-        .frame(minWidth: 400, minHeight: 200)
-        .accessibilityIdentifier("blockedLaunch.panel")
     }
 }

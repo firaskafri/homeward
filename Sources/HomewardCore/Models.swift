@@ -105,7 +105,11 @@ public struct WeeklySchedule: Codable, Equatable, Sendable {
                 guard end < start else {
                     throw ValidationError.invalidOvernightWindow(weekday)
                 }
-                let nextWeekday = Weekday(rawValue: weekday.rawValue % 7 + 1)!
+                guard let nextWeekday = Weekday(
+                    rawValue: weekday.rawValue % 7 + 1
+                ) else {
+                    throw ValidationError.incompleteWeek
+                }
                 if case .blockedAllDay = rules[nextWeekday] {
                     throw ValidationError.overnightConflictsWithBlockedDay(
                         source: weekday,
@@ -155,6 +159,24 @@ public struct WarningPreferences: Codable, Equatable, Sendable {
             offsets.append(Self.fiveMinuteOffset)
         }
         return offsets.sorted(by: >)
+    }
+}
+
+public struct WarningActionContext: Equatable, Sendable {
+    public let cutoff: Date
+
+    public init(cutoff: Date) {
+        self.cutoff = cutoff
+    }
+
+    public func isCurrent(
+        for schedule: ResolvedSchedule,
+        at date: Date
+    ) -> Bool {
+        date < cutoff
+            && schedule.isAvailable
+            && schedule.nextTransition
+                == ScheduleTransition(date: cutoff, cause: .workWindowEnds)
     }
 }
 
@@ -229,6 +251,16 @@ public struct ScheduleOverride: Codable, Equatable, Identifiable, Sendable {
         guard validEffect else {
             throw ValidationError.invalidOverrideEffect(kind: kind, effect: effect)
         }
+        let trimmedIntervalID = relatedIntervalID?.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        if kind == .forceEscalationPaused {
+            guard trimmedIntervalID?.isEmpty == false else {
+                throw ValidationError.invalidOverrideInterval(kind)
+            }
+        } else if relatedIntervalID != nil {
+            throw ValidationError.invalidOverrideInterval(kind)
+        }
     }
 
     public init(from decoder: Decoder) throws {
@@ -298,6 +330,21 @@ public struct SelectedApplication: Codable, Equatable, Identifiable, Sendable {
         bundleIdentifier.map(Self.protectedBundleIdentifiers.contains) ?? false
     }
 
+    public func validate() throws {
+        let identifier = bundleIdentifier?.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard identifier == nil || identifier?.isEmpty == false,
+              !bundlePath.trimmingCharacters(
+                  in: .whitespacesAndNewlines
+              ).isEmpty,
+              !displayName.trimmingCharacters(
+                  in: .whitespacesAndNewlines
+              ).isEmpty else {
+            throw ValidationError.invalidApplicationSelection(id)
+        }
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let isResolvable: Bool
@@ -328,6 +375,7 @@ public struct SelectedApplication: Codable, Equatable, Identifiable, Sendable {
             ),
             isResolvable: isResolvable
         )
+        try validate()
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -381,9 +429,20 @@ public struct TomorrowNote: Codable, Equatable, Identifiable, Sendable {
         guard text.count <= Self.maximumCharacterCount else {
             throw ValidationError.noteTooLong(maximum: Self.maximumCharacterCount)
         }
+        if let lastPresentedIntervalID,
+           lastPresentedIntervalID.trimmingCharacters(
+               in: .whitespacesAndNewlines
+           ).isEmpty {
+            throw ValidationError.invalidIntervalIdentifier
+        }
     }
 
-    public mutating func markPresented(in intervalID: String) {
+    public mutating func markPresented(in intervalID: String) throws {
+        guard !intervalID.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ).isEmpty else {
+            throw ValidationError.invalidIntervalIdentifier
+        }
         lastPresentedIntervalID = intervalID
     }
 
@@ -410,6 +469,9 @@ public enum ValidationError: Error, Equatable, Sendable {
     case overnightConflictsWithBlockedDay(source: Weekday, destination: Weekday)
     case invalidOverrideRange
     case invalidOverrideEffect(kind: OverrideKind, effect: AvailabilityEffect)
+    case invalidOverrideInterval(OverrideKind)
+    case invalidApplicationSelection(UUID)
+    case invalidIntervalIdentifier
     case emptyNote
     case noteRequiresTrimming
     case noteTooLong(maximum: Int)

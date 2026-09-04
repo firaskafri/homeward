@@ -11,6 +11,7 @@ struct ScheduleEditorView: View {
     @State private var pendingSchedule: WeeklySchedule?
     @State private var showImmediateCloseConfirmation = false
     @State private var lastSavedScheduleWasConfirmed: Bool
+    @State private var showsCopyTools = false
 
     init(
         model: AppModel,
@@ -27,68 +28,101 @@ struct ScheduleEditorView: View {
     var body: some View {
         Form {
             Section {
-                Text("Choose when work apps are available. Homeward follows this Mac’s current time zone.")
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Set your work window", systemImage: "calendar.badge.clock")
+                        .font(.title2.bold())
+                        .accessibilityAddTraits(.isHeader)
+                    Text(
+                        "Selected work apps stay available during these hours and "
+                            + "close outside them. Times follow this Mac’s current time zone."
+                    )
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.vertical, 4)
+                .accessibilityElement(children: .combine)
             }
 
-            Section("Weekly schedule") {
+            Section("This week") {
+                Text(weeklySummary)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel("Weekly schedule: \(weeklySummary)")
+            }
+
+            Section {
                 ForEach(orderedWeekdays, id: \.self) { weekday in
                     DayRuleRow(
                         weekday: weekday,
                         rule: ruleBinding(for: weekday)
                     )
                 }
+            } header: {
+                Text("Daily availability")
+            } footer: {
+                Text("Overnight hours belong to the day on which they begin.")
             }
 
-            Section("Copy hours") {
-                HStack {
-                    Picker("Source day", selection: $copySource) {
-                        ForEach(orderedWeekdays, id: \.self) { weekday in
-                            Text(weekdayDisplayName(weekday)).tag(weekday)
+            Section {
+                DisclosureGroup(
+                    "Copy hours to another day",
+                    isExpanded: $showsCopyTools
+                ) {
+                    ViewThatFits(in: .horizontal) {
+                        HStack {
+                            copySourcePicker
+                            Spacer()
+                            copyDestinationMenu
+                        }
+                        VStack(alignment: .leading, spacing: 10) {
+                            copySourcePicker
+                            copyDestinationMenu
                         }
                     }
-                    Menu("Copy to…") {
-                        ForEach(
-                            orderedWeekdays.filter { $0 != copySource },
-                            id: \.self
-                        ) { weekday in
-                            Button(weekdayDisplayName(weekday)) {
-                                if let sourceRule = rules[copySource] {
-                                    rules[weekday] = sourceRule
-                                    if requiresOnboardingConfirmation {
-                                        model.markOnboardingScheduleDirty()
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    .padding(.top, 8)
+                }
+            }
+
+            if requiresOnboardingConfirmation {
+                Section {
+                    HomewardStatusLabel(
+                        title: model.configuration.onboardingScheduleConfirmed
+                            ? "Schedule confirmed"
+                            : "Save this schedule to continue",
+                        symbol: model.configuration.onboardingScheduleConfirmed
+                            ? "checkmark.circle.fill"
+                            : "circle.dashed",
+                        tone: model.configuration.onboardingScheduleConfirmed
+                            ? .ready
+                            : .attention
+                    )
+                    .accessibilityElement(children: .combine)
                 }
             }
 
             if let validationMessage {
                 Section {
-                    Label(validationMessage, systemImage: "exclamationmark.triangle")
+                    Label(validationMessage, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("schedule.validation")
                 }
             }
 
-            HStack {
-                Spacer()
-                Button("Reset Draft") {
-                    rules = model.configuration.schedule.rules
-                    validationMessage = nil
-                    if requiresOnboardingConfirmation,
-                       lastSavedScheduleWasConfirmed {
-                        model.restoreOnboardingScheduleConfirmation()
+            Section {
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        saveStatus
+                        Spacer()
+                        scheduleActions
+                    }
+                    VStack(alignment: .leading, spacing: 12) {
+                        saveStatus
+                        scheduleActions
+                            .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                 }
-                Button("Save Schedule") {
-                    save()
-                }
-                .keyboardShortcut("s", modifiers: .command)
-                .disabled(isSaving)
-                .accessibilityIdentifier("schedule.save")
             }
         }
         .formStyle(.grouped)
@@ -110,6 +144,130 @@ struct ScheduleEditorView: View {
             Text("This schedule makes the current time blocked. Homeward will begin the configured closing flow.")
         }
         .accessibilityIdentifier("schedule.view")
+    }
+
+    private var copySourcePicker: some View {
+        Picker("Copy from", selection: $copySource) {
+            ForEach(orderedWeekdays, id: \.self) { weekday in
+                Text(weekdayDisplayName(weekday)).tag(weekday)
+            }
+        }
+        .fixedSize()
+    }
+
+    private var copyDestinationMenu: some View {
+        Menu("Copy to…") {
+            ForEach(
+                orderedWeekdays.filter { $0 != copySource },
+                id: \.self
+            ) { weekday in
+                Button(weekdayDisplayName(weekday)) {
+                    if let sourceRule = rules[copySource] {
+                        rules[weekday] = sourceRule
+                        validationMessage = nil
+                        if requiresOnboardingConfirmation {
+                            model.markOnboardingScheduleDirty()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var saveStatus: some View {
+        if rules == model.configuration.schedule.rules {
+            HomewardStatusLabel(
+                title: "Saved",
+                symbol: "checkmark.circle",
+                tone: .neutral
+            )
+        } else {
+            HomewardStatusLabel(
+                title: "Unsaved changes",
+                symbol: "circle.fill",
+                tone: .attention
+            )
+        }
+    }
+
+    private var scheduleActions: some View {
+        HStack {
+            Button("Reset Draft") {
+                rules = model.configuration.schedule.rules
+                validationMessage = nil
+                if requiresOnboardingConfirmation,
+                   lastSavedScheduleWasConfirmed {
+                    model.restoreOnboardingScheduleConfirmation()
+                }
+            }
+            Button {
+                save()
+            } label: {
+                if isSaving {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Saving…")
+                    }
+                } else {
+                    Text(requiresOnboardingConfirmation ? "Save & Confirm" : "Save Schedule")
+                }
+            }
+            .keyboardShortcut("s", modifiers: .command)
+            .disabled(isSaving)
+            .accessibilityIdentifier("schedule.save")
+        }
+    }
+
+    private var weeklySummary: String {
+        var groups: [(weekdays: [Weekday], rule: DayRule)] = []
+        for weekday in orderedWeekdays {
+            let rule = rules[weekday] ?? .blockedAllDay
+            if let lastIndex = groups.indices.last,
+               groups[lastIndex].rule == rule {
+                groups[lastIndex].weekdays.append(weekday)
+            } else {
+                groups.append(([weekday], rule))
+            }
+        }
+        return groups.map { group in
+            "\(weekdayRangeName(group.weekdays)) · \(ruleSummary(group.rule))"
+        }
+        .joined(separator: "   •   ")
+    }
+
+    private func weekdayRangeName(_ weekdays: [Weekday]) -> String {
+        guard let first = weekdays.first else {
+            return ""
+        }
+        guard let last = weekdays.last, first != last else {
+            return shortWeekdayDisplayName(first)
+        }
+        return "\(shortWeekdayDisplayName(first))–\(shortWeekdayDisplayName(last))"
+    }
+
+    private func ruleSummary(_ rule: DayRule) -> String {
+        switch rule {
+        case let .scheduled(start, end, endsNextDay):
+            let suffix = endsNextDay ? " next day" : ""
+            return "\(formattedTime(start))–\(formattedTime(end))\(suffix)"
+        case .availableAllDay:
+            return "Available all day"
+        case .blockedAllDay:
+            return "Closed"
+        }
+    }
+
+    private func formattedTime(_ time: LocalTime) -> String {
+        let date = Calendar.autoupdatingCurrent.date(
+            from: DateComponents(
+                calendar: .autoupdatingCurrent,
+                hour: time.hour,
+                minute: time.minute
+            )
+        ) ?? Date()
+        return date.formatted(date: .omitted, time: .shortened)
     }
 
     private var orderedWeekdays: [Weekday] {
@@ -195,42 +353,97 @@ private struct DayRuleRow: View {
     @Binding var rule: DayRule
 
     var body: some View {
-        LabeledContent(weekdayName) {
-            HStack {
-                Picker("Mode", selection: modeBinding) {
-                    ForEach(Mode.allCases) { mode in
-                        Text(mode.rawValue).tag(mode)
+        VStack(alignment: .leading, spacing: 10) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 16) {
+                    Text(weekdayName)
+                        .font(.headline)
+                        .frame(minWidth: 92, alignment: .leading)
+                    Spacer()
+                    modePicker
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(weekdayName)
+                        .font(.headline)
+                    modePicker
+                }
+            }
+
+            if case .scheduled = rule {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) {
+                        Color.clear
+                            .frame(width: 98, height: 1)
+                            .accessibilityHidden(true)
+                        timeControls
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        timeControls
                     }
                 }
-                .labelsHidden()
-                .frame(width: 150)
-                .accessibilityLabel("\(weekdayName) mode")
-
-                if case .scheduled = rule {
-                    DatePicker(
-                        "From",
-                        selection: timeBinding(isStart: true),
-                        displayedComponents: .hourAndMinute
-                    )
-                    .labelsHidden()
-                    .accessibilityLabel("\(weekdayName) start time")
-                    Text("to")
-                        .foregroundStyle(.secondary)
-                    DatePicker(
-                        "Until",
-                        selection: timeBinding(isStart: false),
-                        displayedComponents: .hourAndMinute
-                    )
-                    .labelsHidden()
-                    .accessibilityLabel("\(weekdayName) end time")
-                    Toggle("Next day", isOn: nextDayBinding)
-                        .toggleStyle(.checkbox)
-                        .accessibilityLabel("\(weekdayName) ends next day")
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) {
+                        Color.clear
+                            .frame(width: 98, height: 1)
+                            .accessibilityHidden(true)
+                        modeDescriptionText
+                    }
+                    modeDescriptionText
                 }
             }
         }
+        .padding(.vertical, 4)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("schedule.day.\(weekday.rawValue)")
+    }
+
+    private var modePicker: some View {
+        Picker("\(weekdayName) availability", selection: modeBinding) {
+            ForEach(Mode.allCases) { mode in
+                Text(mode.rawValue).tag(mode)
+            }
+        }
+        .labelsHidden()
+        .frame(minWidth: 156, idealWidth: 168)
+        .accessibilityLabel("\(weekdayName) mode")
+    }
+
+    @ViewBuilder
+    private var timeControls: some View {
+        DatePicker(
+            "From",
+            selection: timeBinding(isStart: true),
+            displayedComponents: .hourAndMinute
+        )
+        .accessibilityLabel("\(weekdayName) start time")
+        DatePicker(
+            "to",
+            selection: timeBinding(isStart: false),
+            displayedComponents: .hourAndMinute
+        )
+        .accessibilityLabel("\(weekdayName) end time")
+        Toggle("Ends next day", isOn: nextDayBinding)
+            .toggleStyle(.checkbox)
+            .accessibilityLabel("\(weekdayName) ends next day")
+    }
+
+    private var modeDescription: String {
+        switch rule {
+        case .scheduled:
+            return ""
+        case .availableAllDay:
+            return "Work apps remain available for the full day."
+        case .blockedAllDay:
+            return "Work apps remain closed for the full day."
+        }
+    }
+
+    private var modeDescriptionText: some View {
+        Text(modeDescription)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var weekdayName: String {
@@ -313,9 +526,13 @@ private struct DayRuleRow: View {
     }
 
     private func referenceDate(hour: Int, minute: Int) -> Date {
-        Calendar.current.date(
+        let calendar = Calendar.current
+        let fallback = calendar.startOfDay(
+            for: Date(timeIntervalSinceReferenceDate: 0)
+        )
+        return calendar.date(
             from: DateComponents(year: 2001, month: 1, day: 1, hour: hour, minute: minute)
-        )!
+        ) ?? fallback
     }
 }
 
@@ -323,4 +540,10 @@ private func weekdayDisplayName(_ weekday: Weekday) -> String {
     var calendar = Calendar.autoupdatingCurrent
     calendar.locale = Locale.autoupdatingCurrent
     return calendar.weekdaySymbols[weekday.rawValue - 1]
+}
+
+private func shortWeekdayDisplayName(_ weekday: Weekday) -> String {
+    var calendar = Calendar.autoupdatingCurrent
+    calendar.locale = Locale.autoupdatingCurrent
+    return calendar.shortWeekdaySymbols[weekday.rawValue - 1]
 }

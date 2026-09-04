@@ -12,7 +12,9 @@ final class ClosingPanelController: NSWindowController, NSWindowDelegate {
         let hostingController = NSHostingController(rootView: content)
         let panel = HomewardPanelFactory.make(
             title: "Closing Work Apps",
-            size: NSSize(width: 440, height: 320),
+            size: NSSize(width: 560, height: 440),
+            minimumSize: NSSize(width: 480, height: 320),
+            resizable: true,
             floatsAutomatically: true
         )
         panel.contentViewController = hostingController
@@ -44,8 +46,14 @@ final class ClosingPanelController: NSWindowController, NSWindowDelegate {
         }
     }
 
+    func windowWillClose(_ notification: Notification) {
+        restorePreviousApplication()
+    }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        guard model.closingRows.contains(where: { $0.status == .countingDown }) else {
+        guard model.closingRows.contains(where: {
+            $0.status == .countingDown
+        }) else {
             return true
         }
         Task {
@@ -54,10 +62,6 @@ final class ClosingPanelController: NSWindowController, NSWindowDelegate {
             restorePreviousApplication()
         }
         return false
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        restorePreviousApplication()
     }
 
     private func restorePreviousApplication() {
@@ -70,96 +74,190 @@ private struct ClosingPanelView: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Closing work apps")
-                    .font(.title2.bold())
-                Text(summary)
-                    .foregroundStyle(.secondary)
-            }
+        VStack(alignment: .leading, spacing: 20) {
+            HomewardPanelHeader(
+                title: "Closing work apps",
+                message: summary,
+                systemImage: "moon.stars.fill",
+                tone: .rest
+            )
 
-            ScrollView {
-                LazyVStack(spacing: 10) {
-                    ForEach(model.closingRows) { row in
-                        closingRow(row)
-                    }
+            if let error = model.lastError {
+                InlineErrorView(message: error) {
+                    model.clearError()
                 }
             }
 
-            HStack {
-                if model.configuration.closeMode == .firm {
-                    Button(stopButtonTitle) {
-                        Task { await model.stopForceQuit() }
-                    }
-                    .accessibilityIdentifier("closing.stopForce")
-                    Button("Change Today Only…") {
-                        Task {
-                            await model.stopForceQuit()
-                            model.showTodayChangePanel()
+            Group {
+                if model.closingRows.isEmpty {
+                    ContentUnavailableView(
+                        "No apps are closing",
+                        systemImage: "checkmark.circle",
+                        description: Text("The closing flow is complete.")
+                    )
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 10) {
+                            ForEach(model.closingRows) { row in
+                                closingRow(row)
+                            }
                         }
                     }
+                    .scrollIndicators(.visible)
                 }
-                Spacer()
-                Button(hideButtonTitle) {
-                    model.hideClosingPanel()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Divider()
+
+                if hasActiveCountdown {
+                    Label(
+                        "Hiding this window also stops force quit for this blocked period.",
+                        systemImage: "hand.raised"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityElement(children: .combine)
                 }
-                .keyboardShortcut(.cancelAction)
+
+                HStack {
+                    if model.configuration.closeMode == .firm {
+                        Button(stopButtonTitle) {
+                            Task { await model.stopForceQuit() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityHint(
+                            "Pauses force quitting for the current blocked period"
+                        )
+                        .accessibilityIdentifier("closing.stopForce")
+
+                        Button("Change Today Only…") {
+                            Task {
+                                await model.stopForceQuit()
+                                model.hideClosingPanel()
+                                model.showTodayChangePanel()
+                            }
+                        }
+                        .accessibilityHint(
+                            "Stops force quitting before opening today-only options"
+                        )
+                    }
+
+                    Spacer()
+
+                    Button(hasActiveCountdown ? "Stop Force Quit & Hide" : "Hide") {
+                        if hasActiveCountdown {
+                            Task {
+                                await model.stopForceQuit()
+                                model.hideClosingPanel()
+                            }
+                        } else {
+                            model.hideClosingPanel()
+                        }
+                    }
+                    .keyboardShortcut(.cancelAction)
+                    .accessibilityHint(hideButtonHint)
+                }
             }
         }
-        .padding(20)
-        .frame(minWidth: 420, minHeight: 240)
+        .padding(24)
+        .frame(minWidth: 460, minHeight: 300)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("closing.panel")
     }
 
     private var summary: String {
-        let unresolved = model.closingRows.count
-        return unresolved == 1
-            ? "1 work app is in the closing flow."
-            : "\(unresolved) work apps are in the closing flow."
+        let count = model.closingRows.count
+        let apps = count == 1 ? "1 work app" : "\(count) work apps"
+        if model.configuration.closeMode == .firm, hasActiveCountdown {
+            return "\(apps) remain open. Homeward will force quit them when their countdowns end; unsaved changes may be lost."
+        }
+        if model.configuration.closeMode == .firm {
+            return "\(apps) remain in the firm closing flow. Review each app’s status below."
+        }
+        return "\(apps) remain open. Homeward is waiting for them to quit normally."
     }
 
     private var stopButtonTitle: String {
         model.closingRows.count == 1 ? "Stop Force Quit" : "Stop All Force Quits"
     }
 
-    private var hideButtonTitle: String {
+    private var hasActiveCountdown: Bool {
         model.closingRows.contains(where: { $0.status == .countingDown })
-            ? "Stop Force Quit and Hide"
-            : "Hide"
+    }
+
+    private var hideButtonHint: String {
+        hasActiveCountdown
+            ? "Stops force quitting before hiding this window"
+            : "Hides this window"
     }
 
     @ViewBuilder
     private func closingRow(_ row: AppModel.ClosingRow) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: symbol(for: row.status))
-                .frame(width: 24)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(row.applicationName)
-                    .font(.headline)
-                Text(statusText(for: row))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if row.status == .needsAttention || row.status == .forceFailed {
-                Button("Show \(row.applicationName)") {
-                    model.bringForward(sessionID: row.id)
+        HomewardCard(padding: HomewardSpacing.medium) {
+            VStack(alignment: .leading, spacing: HomewardSpacing.medium) {
+                HStack(alignment: .top, spacing: HomewardSpacing.medium) {
+                    Image(systemName: symbol(for: row.status))
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(tone(for: row.status).color)
+                        .frame(width: 32, height: 32)
+                        .background(
+                            tone(for: row.status).color.opacity(0.12),
+                            in: RoundedRectangle(
+                                cornerRadius: HomewardMetrics.compactCornerRadius,
+                                style: .continuous
+                            )
+                        )
+                        .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: HomewardSpacing.xSmall) {
+                        Text(row.applicationName)
+                            .font(.headline)
+                        Text(statusText(for: row))
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: HomewardSpacing.medium)
+
+                    if row.status == .countingDown, let seconds = row.secondsRemaining {
+                        HomewardStatusLabel(
+                            title: "\(seconds)s",
+                            symbol: "timer",
+                            tone: .attention
+                        )
+                        .accessibilityLabel("\(seconds) seconds remaining")
+                    }
                 }
-                .accessibilityIdentifier("closing.show.\(row.id)")
-            }
-            if model.configuration.closeMode == .gentle,
-               row.status == .needsAttention {
-                Button("Leave Open This Time") {
-                    model.leaveOpen(sessionID: row.id)
+
+                if row.status == .needsAttention || row.status == .forceFailed {
+                    HStack {
+                        Spacer()
+                        Button("Show \(row.applicationName)") {
+                            model.bringForward(sessionID: row.id)
+                        }
+                        .accessibilityHint("Brings the application to the front")
+                        .accessibilityIdentifier("closing.show.\(row.id)")
+
+                        if model.configuration.closeMode == .gentle,
+                           row.status == .needsAttention {
+                            Button("Leave Open This Time") {
+                                model.leaveOpen(sessionID: row.id)
+                            }
+                            .accessibilityHint(
+                                "Exempts this application until it closes"
+                            )
+                            .accessibilityIdentifier("closing.leaveOpen.\(row.id)")
+                        }
+                    }
                 }
-                .accessibilityIdentifier("closing.leaveOpen.\(row.id)")
             }
         }
-        .padding(10)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
         .accessibilityElement(children: .contain)
+        .accessibilityLabel(row.applicationName)
+        .accessibilityValue(statusText(for: row))
         .accessibilityIdentifier("closing.row.\(row.id)")
     }
 
@@ -178,18 +276,31 @@ private struct ClosingPanelView: View {
         }
     }
 
+    private func tone(for status: AppModel.ClosingRow.Status) -> HomewardTone {
+        switch status {
+        case .requestingNormalQuit:
+            .neutral
+        case .countingDown, .needsAttention:
+            .attention
+        case .forcePaused:
+            .rest
+        case .forceFailed:
+            .critical
+        }
+    }
+
     private func statusText(for row: AppModel.ClosingRow) -> String {
         switch row.status {
         case .requestingNormalQuit:
             "Waiting for the app to quit normally"
         case .countingDown:
-            "Force quit in \(row.secondsRemaining ?? 0) seconds"
+            "Force quit is scheduled; unsaved changes may be lost"
         case .needsAttention:
             "The app needs your attention before it can quit"
         case .forcePaused:
-            "Force quit is paused"
+            "Force quitting is paused for this blocked period"
         case .forceFailed:
-            "Force quit did not close the app"
+            "Force quit did not close the app; open it to review"
         }
     }
 }

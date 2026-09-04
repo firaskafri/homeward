@@ -15,17 +15,24 @@ struct OverviewView: View {
     @State private var showEndWorkConfirmation = false
     @State private var activeSheet: ActiveSheet?
     @State private var showTakeDayOffConfirmation = false
+    @State private var detailsAreExpanded = false
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                stateHeader
-                healthSection
+            VStack(alignment: .leading, spacing: HomewardSpacing.xLarge) {
+                stateHero
+                if let lastError = model.lastError {
+                    errorCard(lastError)
+                }
+                readinessSection
                 actionSection
                 detailsSection
             }
-            .padding(24)
+            .padding(HomewardSpacing.xLarge)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: HomewardMetrics.contentMaxWidth)
+            .frame(maxWidth: .infinity)
         }
         .navigationTitle("Overview")
         .confirmationDialog(
@@ -69,140 +76,416 @@ struct OverviewView: View {
         .accessibilityIdentifier("overview.view")
     }
 
-    private var stateHeader: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label(stateTitle, systemImage: stateSymbol)
-                .font(.largeTitle.bold())
-            Text(transitionText)
-                .font(.title3)
-                .foregroundStyle(.secondary)
+    private var stateHero: some View {
+        HomewardCard(padding: HomewardSpacing.xLarge) {
+            VStack(alignment: .leading, spacing: HomewardSpacing.large) {
+                HStack(alignment: .top, spacing: HomewardSpacing.large) {
+                    ZStack {
+                        Circle()
+                            .fill(stateTone.color.opacity(0.14))
+                        Image(systemName: stateSymbol)
+                            .font(.system(size: 24, weight: .semibold))
+                            .foregroundStyle(stateTone.color)
+                    }
+                    .frame(width: 52, height: 52)
+                    .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: HomewardSpacing.xSmall) {
+                        Text("TODAY")
+                            .font(.caption.weight(.semibold))
+                            .tracking(0.8)
+                            .foregroundStyle(.secondary)
+                        Text(stateTitle)
+                            .font(.system(.largeTitle, design: .rounded, weight: .semibold))
+                            .foregroundStyle(.primary)
+                        Text(stateDescription)
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("overview.state")
+
+                    Spacer(minLength: HomewardSpacing.medium)
+
+                    HomewardStatusLabel(
+                        title: stateBadgeTitle,
+                        symbol: stateSymbol,
+                        tone: stateTone
+                    )
+                }
+
+                Divider()
+
+                HStack(alignment: .center, spacing: HomewardSpacing.xLarge) {
+                    HomewardApplicationSummary(
+                        applications: model.configuration.selectedApplications
+                    )
+
+                    Spacer(minLength: HomewardSpacing.large)
+
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("NEXT TRANSITION")
+                            .font(.caption2.weight(.semibold))
+                            .tracking(0.6)
+                            .foregroundStyle(.secondary)
+                        Text(transitionText)
+                            .font(.callout.weight(.medium))
+                            .multilineTextAlignment(.trailing)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
         }
+        .overlay {
+            RoundedRectangle(
+                cornerRadius: HomewardMetrics.cardCornerRadius,
+                style: .continuous
+            )
+            .strokeBorder(
+                stateTone.color.opacity(colorSchemeContrast == .increased ? 0.7 : 0.3),
+                lineWidth: colorSchemeContrast == .increased ? 2 : 1
+            )
+        }
+    }
+
+    private var readinessSection: some View {
+        VStack(alignment: .leading, spacing: HomewardSpacing.medium) {
+            Text("Readiness")
+                .font(.title3.weight(.semibold))
+
+            LazyVGrid(
+                columns: [
+                    GridItem(
+                        .adaptive(minimum: 190, maximum: 280),
+                        spacing: HomewardSpacing.medium
+                    ),
+                ],
+                alignment: .leading,
+                spacing: HomewardSpacing.medium
+            ) {
+                readinessCard(
+                    title: "Start at Login",
+                    status: loginReadiness.status,
+                    detail: loginReadiness.detail,
+                    symbol: "power",
+                    tone: loginReadiness.tone
+                )
+                readinessCard(
+                    title: "Notifications",
+                    status: notificationReadiness.status,
+                    detail: notificationReadiness.detail,
+                    symbol: "bell",
+                    tone: notificationReadiness.tone
+                )
+                readinessCard(
+                    title: "Work Apps",
+                    status: applicationReadiness.status,
+                    detail: applicationReadiness.detail,
+                    symbol: "square.grid.2x2",
+                    tone: applicationReadiness.tone
+                )
+            }
+        }
+    }
+
+    private func readinessCard(
+        title: String,
+        status: String,
+        detail: String,
+        symbol: String,
+        tone: HomewardTone
+    ) -> some View {
+        HomewardCard(padding: HomewardSpacing.medium) {
+            VStack(alignment: .leading, spacing: HomewardSpacing.small) {
+                HStack {
+                    Image(systemName: symbol)
+                        .foregroundStyle(tone.color)
+                        .accessibilityHidden(true)
+                    Spacer()
+                    HomewardStatusLabel(
+                        title: status,
+                        symbol: tone == .ready
+                            ? "checkmark.circle.fill"
+                            : "exclamationmark.circle.fill",
+                        tone: tone
+                    )
+                }
+                Text(title)
+                    .font(.headline)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading)
         .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("overview.state")
+    }
+
+    private var actionSection: some View {
+        VStack(alignment: .leading, spacing: HomewardSpacing.medium) {
+            Text("Actions")
+                .font(.title3.weight(.semibold))
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: HomewardSpacing.small) {
+                    actionControls
+                }
+                VStack(alignment: .leading, spacing: HomewardSpacing.small) {
+                    actionControls
+                }
+            }
+        }
     }
 
     @ViewBuilder
-    private var healthSection: some View {
-        if model.loginItemStatus != .enabled {
-            warning("Start at Login is not enabled. Homeward works only while it is open.")
+    private var actionControls: some View {
+        primaryAction
+
+        changeTodayMenu
+
+        if model.forceEscalationPaused {
+            Button("Resume Firm Closing…") {
+                Task { await model.resumeFirmClosing() }
+            }
         }
-        if model.notificationStatus != .authorized {
-            warning("Wind-down notifications are off. App closing still works.")
+
+        if model.resolvedSchedule.isAvailable,
+           model.resolvedSchedule.phase != .temporarilyExtended,
+           !model.visibleNotes.isEmpty {
+            Button("Review Saved Thoughts (\(model.visibleNotes.count))…") {
+                activeSheet = .notesReview
+            }
         }
-        if let lastError = model.lastError {
-            HStack {
-                warning(lastError)
+    }
+
+    @ViewBuilder
+    private var primaryAction: some View {
+        if model.resolvedSchedule.isAvailable {
+            Button("End Work Now…") {
+                showEndWorkConfirmation = true
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(stateTone.color)
+            .controlSize(.large)
+            .accessibilityIdentifier("overview.endWork")
+        } else {
+            Button("Save a Thought…") {
+                activeSheet = .noteCapture
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(stateTone.color)
+            .controlSize(.large)
+            .accessibilityIdentifier("overview.saveThought")
+        }
+    }
+
+    private var changeTodayMenu: some View {
+        Menu("Change Today Only…") {
+            if model.canExtendToday {
+                ForEach(
+                    HomewardPolicy.extensionDurationsMinutes,
+                    id: \.self
+                ) { minutes in
+                    Button("Extend by \(minutes) Minutes") {
+                        Task { await model.createExtension(minutes: minutes) }
+                    }
+                }
+            }
+            Button("Choose Another Cutoff…") {
+                activeSheet = .customCutoff
+            }
+            if !model.resolvedSchedule.isAvailable {
+                Button("Make Work Available Now") {
+                    Task { await model.makeWorkAvailableNow() }
+                }
+            }
+            Button("Take Today Off…") {
+                showTakeDayOffConfirmation = true
+            }
+            if model.hasAvailabilityOverride {
+                Divider()
+                Button("Return to Weekly Schedule") {
+                    Task { await model.returnToWeeklySchedule() }
+                }
+            }
+        }
+        .controlSize(.large)
+        .accessibilityIdentifier("overview.changeToday")
+    }
+
+    private var detailsSection: some View {
+        HomewardCard {
+            DisclosureGroup(isExpanded: $detailsAreExpanded) {
+                Grid(
+                    alignment: .leading,
+                    horizontalSpacing: HomewardSpacing.xLarge,
+                    verticalSpacing: HomewardSpacing.medium
+                ) {
+                    detailRow(
+                        title: "Work apps",
+                        value: "\(model.configuration.selectedApplications.count)"
+                    )
+                    detailRow(
+                        title: "Closing mode",
+                        value: SchedulePresentation.closeModeName(
+                            model.configuration.closeMode
+                        )
+                    )
+                    detailRow(title: "Warnings", value: warningSummary)
+                    if let activeOverride = model.resolvedSchedule.activeOverride {
+                        detailRow(
+                            title: "Today only",
+                            value: "\(SchedulePresentation.overrideName(activeOverride.kind)) until "
+                                + activeOverride.expiresAt.formatted(
+                                    date: .abbreviated,
+                                    time: .shortened
+                                )
+                        )
+                    }
+                    if !model.closingRows.isEmpty {
+                        detailRow(
+                            title: "Closing apps",
+                            value: "\(model.closingRows.count)"
+                        )
+                    }
+                }
+                .padding(.top, HomewardSpacing.medium)
+            } label: {
+                Label("Schedule details", systemImage: "list.bullet.rectangle")
+                    .font(.headline)
+            }
+        }
+        .accessibilityIdentifier("overview.details")
+    }
+
+    private func detailRow(title: String, value: String) -> some View {
+        GridRow {
+            Text(title)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private func errorCard(_ message: String) -> some View {
+        HomewardCard {
+            HStack(alignment: .firstTextBaseline, spacing: HomewardSpacing.medium) {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(HomewardTone.critical.color)
                 Spacer()
                 Button("Dismiss") {
                     model.clearError()
                 }
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("inline.error")
     }
 
-    private var actionSection: some View {
-        HStack {
-            if model.resolvedSchedule.isAvailable {
-                Button("End Work Now…") {
-                    showEndWorkConfirmation = true
-                }
-                .accessibilityIdentifier("overview.endWork")
-            } else {
-                Button("Save a Thought…") {
-                    activeSheet = .noteCapture
-                }
-                .accessibilityIdentifier("overview.saveThought")
-            }
-
-            Menu("Change Today Only…") {
-                if model.canExtendToday {
-                    ForEach(
-                        HomewardPolicy.extensionDurationsMinutes,
-                        id: \.self
-                    ) { minutes in
-                        Button("Extend by \(minutes) Minutes") {
-                            Task { await model.createExtension(minutes: minutes) }
-                        }
-                    }
-                }
-                Button("Choose Another Cutoff…") {
-                    activeSheet = .customCutoff
-                }
-                if !model.resolvedSchedule.isAvailable {
-                    Button("Make Work Available Now") {
-                        Task { await model.makeWorkAvailableNow() }
-                    }
-                }
-                Button("Take Today Off…") {
-                    showTakeDayOffConfirmation = true
-                }
-                if model.hasAvailabilityOverride {
-                    Divider()
-                    Button("Return to Weekly Schedule") {
-                        Task { await model.returnToWeeklySchedule() }
-                    }
-                }
-            }
-            .accessibilityIdentifier("overview.changeToday")
-
-            if model.forceEscalationPaused {
-                Button("Resume Firm Closing…") {
-                    Task { await model.resumeFirmClosing() }
-                }
-            }
-
-            if model.resolvedSchedule.isAvailable,
-               model.resolvedSchedule.phase != .temporarilyExtended,
-               !model.visibleNotes.isEmpty {
-                Button("Review Saved Thoughts (\(model.visibleNotes.count))…") {
-                    activeSheet = .notesReview
-                }
-            }
+    private var stateDescription: String {
+        if !model.closingRows.isEmpty {
+            let count = model.closingRows.count
+            return count == 1
+                ? "One selected app is completing its closing flow."
+                : "\(count) selected apps are completing their closing flow."
+        }
+        return switch model.resolvedSchedule.phase {
+        case .workAvailable:
+            "Selected apps are available during this work window."
+        case .windingDown:
+            "Your work window is ending soon."
+        case .workClosed:
+            "Selected apps are unavailable so you can step away."
+        case .temporarilyExtended:
+            "A today-only extension is currently active."
         }
     }
 
-    private var detailsSection: some View {
-        Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 10) {
-            GridRow {
-                Text("Work apps")
-                    .foregroundStyle(.secondary)
-                Text("\(model.configuration.selectedApplications.count)")
-            }
-            GridRow {
-                Text("Closing mode")
-                    .foregroundStyle(.secondary)
-                Text(
-                    SchedulePresentation.closeModeName(
-                        model.configuration.closeMode
-                    )
-                )
-            }
-            GridRow {
-                Text("Warnings")
-                    .foregroundStyle(.secondary)
-                Text(warningSummary)
-            }
-            if let activeOverride = model.resolvedSchedule.activeOverride {
-                GridRow {
-                    Text("Today only")
-                        .foregroundStyle(.secondary)
-                    Text(
-                        "\(SchedulePresentation.overrideName(activeOverride.kind)) until "
-                            + activeOverride.expiresAt.formatted(
-                                date: .abbreviated,
-                                time: .shortened
-                            )
-                    )
-                }
-            }
-            if !model.closingRows.isEmpty {
-                GridRow {
-                    Text("Closing apps")
-                        .foregroundStyle(.secondary)
-                    Text("\(model.closingRows.count)")
-                }
-            }
+    private var stateBadgeTitle: String {
+        if !model.closingRows.isEmpty {
+            return "Closing"
         }
+        return switch model.resolvedSchedule.phase {
+        case .workAvailable:
+            "Available"
+        case .windingDown:
+            "Ending soon"
+        case .workClosed:
+            "Protected"
+        case .temporarilyExtended:
+            "Extended"
+        }
+    }
+
+    private var stateTone: HomewardTone {
+        if !model.closingRows.isEmpty {
+            return .attention
+        }
+        return switch model.resolvedSchedule.phase {
+        case .workAvailable:
+            .ready
+        case .windingDown, .temporarilyExtended:
+            .attention
+        case .workClosed:
+            .rest
+        }
+    }
+
+    private var loginReadiness: (status: String, detail: String, tone: HomewardTone) {
+        switch model.loginItemStatus {
+        case .enabled:
+            ("Ready", "Homeward starts automatically when you log in.", .ready)
+        case .notRegistered:
+            ("Off", "Homeward works only while it is open.", .attention)
+        case .requiresApproval:
+            ("Approval required", "Allow Homeward in Login Items.", .attention)
+        case .notFound:
+            ("Unavailable", "Start at Login could not be found.", .attention)
+        }
+    }
+
+    private var notificationReadiness: (
+        status: String,
+        detail: String,
+        tone: HomewardTone
+    ) {
+        switch model.notificationStatus {
+        case .authorized:
+            ("Ready", "Wind-down notices are enabled.", .ready)
+        case .notDetermined:
+            ("Not requested", "Wind-down notifications are off.", .attention)
+        case .denied:
+            ("Off", "App closing still works without notifications.", .attention)
+        case .unavailable:
+            ("Unavailable", "Notifications cannot be checked right now.", .attention)
+        }
+    }
+
+    private var applicationReadiness: (
+        status: String,
+        detail: String,
+        tone: HomewardTone
+    ) {
+        let applications = model.configuration.selectedApplications
+        let unresolvedCount = applications.count(where: { !$0.isResolvable })
+        if applications.isEmpty {
+            return ("Needs setup", "Choose at least one work app.", .attention)
+        }
+        if unresolvedCount > 0 {
+            let detail = unresolvedCount == 1
+                ? "One app needs to be selected again."
+                : "\(unresolvedCount) apps need to be selected again."
+            return ("Needs attention", detail, .attention)
+        }
+        return (
+            "Ready",
+            applications.count == 1
+                ? "One work app is selected."
+                : "\(applications.count) work apps are selected.",
+            .ready
+        )
     }
 
     private var stateTitle: String {
@@ -213,13 +496,16 @@ struct OverviewView: View {
     }
 
     private var stateSymbol: String {
-        switch model.resolvedSchedule.phase {
+        if !model.closingRows.isEmpty {
+            return "power"
+        }
+        return switch model.resolvedSchedule.phase {
         case .workAvailable:
-            "checkmark.circle"
+            "checkmark.circle.fill"
         case .windingDown:
-            "clock"
+            "clock.fill"
         case .workClosed:
-            model.closingRows.isEmpty ? "house" : "power"
+            "moon.stars.fill"
         case .temporarilyExtended:
             "clock.badge.plus"
         }
@@ -238,12 +524,6 @@ struct OverviewView: View {
             values.append("5 min")
         }
         return values.isEmpty ? "Off" : values.joined(separator: ", ")
-    }
-
-    private func warning(_ message: String) -> some View {
-        Label(message, systemImage: "exclamationmark.triangle")
-            .foregroundStyle(.orange)
-            .accessibilityElement(children: .combine)
     }
 }
 
@@ -277,7 +557,9 @@ final class CustomCutoffPanelController: NSWindowController {
 
 struct CustomCutoffView: View {
     @ObservedObject var model: AppModel
-    @State private var cutoff = Date().addingTimeInterval(60 * 60)
+    @State private var cutoff: Date
+    private let earliestCutoff: Date
+    private let latestCutoff: Date
     let onClose: () -> Void
 
     init(model: AppModel, onClose: @escaping () -> Void) {
@@ -289,9 +571,18 @@ struct CustomCutoffView: View {
             byAdding: .day,
             value: 1,
             to: calendar.startOfDay(for: now)
-        ) ?? now.addingTimeInterval(24 * 60 * 60)
+        ) ?? now.addingTimeInterval(
+            HomewardPolicy.nextLocalMidnightFallbackInterval
+        )
+        earliestCutoff = now
+        latestCutoff = midnight
         _cutoff = State(
-            initialValue: min(now.addingTimeInterval(60 * 60), midnight)
+            initialValue: min(
+                now.addingTimeInterval(
+                    HomewardPolicy.customCutoffDefaultLeadTime
+                ),
+                midnight
+            )
         )
     }
 
@@ -302,7 +593,7 @@ struct CustomCutoffView: View {
             DatePicker(
                 "Work apps available until",
                 selection: $cutoff,
-                in: Date()...maximumCutoff
+                in: earliestCutoff...latestCutoff
             )
             Text(cutoff.formatted(date: .abbreviated, time: .shortened))
                 .foregroundStyle(.secondary)
@@ -329,14 +620,6 @@ struct CustomCutoffView: View {
         .accessibilityIdentifier("today.customCutoff")
     }
 
-    private var maximumCutoff: Date {
-        let calendar = Calendar.autoupdatingCurrent
-        return calendar.date(
-            byAdding: .day,
-            value: 1,
-            to: calendar.startOfDay(for: Date())
-        ) ?? Date().addingTimeInterval(24 * 60 * 60)
-    }
 }
 
 @MainActor

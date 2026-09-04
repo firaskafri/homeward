@@ -7,9 +7,27 @@ struct GeneralSettingsView: View {
     @State private var confirmResetSetup = false
     @State private var confirmResetNotes = false
     @State private var confirmTurnOff = false
+    @State private var showsPrivacyDetails = false
+    @State private var showsAboutDetails = false
 
     var body: some View {
         Form {
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Keep Homeward ready", systemImage: "checklist")
+                        .font(.title2.bold())
+                        .accessibilityAddTraits(.isHeader)
+                    Text(
+                        "Homeward needs to be running to enforce your schedule. "
+                            + "Notifications are helpful, but optional."
+                    )
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.vertical, 4)
+                .accessibilityElement(children: .combine)
+            }
+
             if let error = model.lastError {
                 Section {
                     InlineErrorView(message: error) {
@@ -17,33 +35,69 @@ struct GeneralSettingsView: View {
                     }
                 }
             }
-            Section("Start at Login") {
-                LabeledContent("Status") {
-                    Text(loginStatusText)
-                        .foregroundStyle(loginStatusHealthy ? Color.secondary : Color.orange)
+
+            Section {
+                readinessRow(
+                    title: "Start at Login",
+                    detail: "Restores your schedule after you sign in.",
+                    requirement: "Recommended",
+                    status: loginStatusText,
+                    symbol: loginStatusHealthy
+                        ? "checkmark.circle.fill"
+                        : "exclamationmark.circle",
+                    tone: loginStatusHealthy ? .ready : .attention
+                )
+
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        loginItemActions
+                        Spacer()
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        loginItemActions
+                    }
                 }
-                HStack {
-                    loginItemActions
-                }
-                Text("Homeward works only while it is running. Start at Login restores enforcement after your next login.")
+                Text("Homeward works only while it is running.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
+            } header: {
+                Text("Recommended readiness")
             }
 
-            Section("Notifications") {
-                LabeledContent("Status") {
-                    Text(notificationStatusText)
-                        .foregroundStyle(notificationStatusHealthy ? Color.secondary : Color.orange)
+            Section {
+                readinessRow(
+                    title: "Notifications",
+                    detail: "Shows wind-down and status messages.",
+                    requirement: "Optional",
+                    status: notificationStatusText,
+                    symbol: notificationStatusHealthy
+                        ? "checkmark.circle.fill"
+                        : "bell.slash",
+                    tone: notificationStatusHealthy ? .ready : .neutral
+                )
+
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        notificationActions
+                        Spacer()
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        notificationActions
+                    }
                 }
-                notificationActions
-                Text("Notifications provide wind-down and status messages. App closing still works when notifications are off.")
+                Text("App closing still works when notifications are off.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 if model.notificationStatus == .denied {
-                    Text("In System Settings, choose Notifications, then Homeward.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                    Label(
+                        "In System Settings, choose Notifications, then Homeward.",
+                        systemImage: "gear"
+                    )
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
                 }
+            } header: {
+                Text("Optional readiness")
             }
 
             Section("Menu Bar") {
@@ -53,29 +107,75 @@ struct GeneralSettingsView: View {
                 )
             }
 
-            Section("Privacy") {
-                Text("Schedules, app selections, and saved thoughts remain on this Mac. Homeward does not read documents, window titles, browser history, terminal commands, or AI conversations.")
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("About") {
-                LabeledContent("Version") {
-                    Text(version)
+            Section {
+                DisclosureGroup(
+                    "Privacy & permissions",
+                    isExpanded: $showsPrivacyDetails
+                ) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label(
+                            "Schedules, app selections, and saved thoughts remain on this Mac.",
+                            systemImage: "internaldrive"
+                        )
+                        Label(
+                            "No Accessibility, Screen Recording, administrator access, or account is required.",
+                            systemImage: "lock.shield"
+                        )
+                        Text(
+                            "Homeward does not read documents, window titles, browser history, "
+                                + "terminal commands, or AI conversations."
+                        )
+                        .foregroundStyle(.secondary)
+                    }
+                    .font(.callout)
+                    .padding(.top, 8)
                 }
-                Text("Bundle identifier: \(bundleIdentifier)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             Section {
-                Button("Reset Setup…", role: .destructive) {
-                    confirmResetSetup = true
+                DisclosureGroup(
+                    "About Homeward",
+                    isExpanded: $showsAboutDetails
+                ) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        LabeledContent("Version") {
+                            Text(version)
+                        }
+                        LabeledContent("Bundle identifier") {
+                            Text(bundleIdentifier)
+                                .textSelection(.enabled)
+                        }
+                    }
+                    .padding(.top, 8)
                 }
-                Button("Reset Saved Thoughts…", role: .destructive) {
-                    confirmResetNotes = true
+            }
+
+            Section("Reset & turn off") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Button("Reset Setup…", role: .destructive) {
+                        confirmResetSetup = true
+                    }
+                    Text("Clear your schedule, work apps, and closing preferences.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                Button("Turn Off Homeward…", role: .destructive) {
-                    confirmTurnOff = true
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Button("Reset Saved Thoughts…", role: .destructive) {
+                        confirmResetNotes = true
+                    }
+                    Text("Delete every thought saved for a future work window.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Button("Turn Off Homeward…", role: .destructive) {
+                        confirmTurnOff = true
+                    }
+                    Text("Disable Start at Login and quit Homeward.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -115,6 +215,63 @@ struct GeneralSettingsView: View {
             Text("Homeward will cancel pending force quits, disable Start at Login, and quit. Apps already asked to quit may still close. Settings and saved thoughts remain.")
         }
         .accessibilityIdentifier("general.settings")
+    }
+
+    private func readinessRow(
+        title: String,
+        detail: String,
+        requirement: String,
+        status: String,
+        symbol: String,
+        tone: HomewardTone
+    ) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 16) {
+                readinessIdentity(
+                    title: title,
+                    detail: detail,
+                    requirement: requirement
+                )
+                Spacer(minLength: 16)
+                HomewardStatusLabel(
+                    title: status,
+                    symbol: symbol,
+                    tone: tone
+                )
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                readinessIdentity(
+                    title: title,
+                    detail: detail,
+                    requirement: requirement
+                )
+                HomewardStatusLabel(
+                    title: status,
+                    symbol: symbol,
+                    tone: tone
+                )
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func readinessIdentity(
+        title: String,
+        detail: String,
+        requirement: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(.headline)
+                Text(requirement)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text(detail)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private var loginStatusText: String {

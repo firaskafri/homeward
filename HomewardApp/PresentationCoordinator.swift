@@ -2,8 +2,14 @@ import Foundation
 
 @MainActor
 final class PresentationCoordinator {
+    private struct BlockedLaunchIdentity: Equatable {
+        let applicationName: String
+        let availabilityText: String
+    }
+
     private var closingPanel: ClosingPanelController?
     private var blockedLaunchPanel: BlockedLaunchPanelController?
+    private var blockedLaunchIdentity: BlockedLaunchIdentity?
     private var noteCapturePanel: NoteCapturePanelController?
     private var notesPanel: NotesPanelController?
     private var customCutoffPanel: CustomCutoffPanelController?
@@ -29,15 +35,31 @@ final class PresentationCoordinator {
         applicationName: String,
         availabilityText: String
     ) {
+        let identity = BlockedLaunchIdentity(
+            applicationName: applicationName,
+            availabilityText: availabilityText
+        )
+        if blockedLaunchPanel?.isVisible == true,
+           blockedLaunchIdentity == identity {
+            blockedLaunchPanel?.show()
+            return
+        }
+
+        blockedLaunchPanel?.close()
         blockedLaunchPanel = BlockedLaunchPanelController(
             model: model,
             applicationName: applicationName,
             availabilityText: availabilityText
         )
+        blockedLaunchIdentity = identity
         blockedLaunchPanel?.show()
     }
 
     func showNoteCapture(model: AppModel) {
+        if noteCapturePanel?.isVisible == true {
+            noteCapturePanel?.show()
+            return
+        }
         noteCapturePanel = NoteCapturePanelController(model: model)
         noteCapturePanel?.show()
     }
@@ -50,11 +72,19 @@ final class PresentationCoordinator {
     }
 
     func showCustomCutoff(model: AppModel) {
+        if customCutoffPanel?.window?.isVisible == true {
+            customCutoffPanel?.show()
+            return
+        }
         customCutoffPanel = CustomCutoffPanelController(model: model)
         customCutoffPanel?.show()
     }
 
     func showTodayChange(model: AppModel) {
+        if todayChangePanel?.window?.isVisible == true {
+            todayChangePanel?.show()
+            return
+        }
         todayChangePanel = TodayChangePanelController(model: model)
         todayChangePanel?.show()
     }

@@ -1,4 +1,0 @@
-module HomewardCore {
-header "HomewardCore-Swift.h"
-export *
-}

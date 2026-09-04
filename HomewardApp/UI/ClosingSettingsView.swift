@@ -7,6 +7,22 @@ struct ClosingSettingsView: View {
 
     var body: some View {
         Form {
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Choose how work apps close", systemImage: "power")
+                        .font(.title2.bold())
+                        .accessibilityAddTraits(.isHeader)
+                    Text(
+                        "Both modes ask apps to quit normally first. "
+                            + "Only Firm Close can force-quit after a visible safety countdown."
+                    )
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.vertical, 4)
+                .accessibilityElement(children: .combine)
+            }
+
             if let error = model.lastError {
                 Section {
                     InlineErrorView(message: error) {
@@ -14,6 +30,7 @@ struct ClosingSettingsView: View {
                     }
                 }
             }
+
             Section("Closing behavior") {
                 Picker("Mode", selection: modeBinding) {
                     Text("Gentle Close").tag(CloseMode.gentle)
@@ -22,28 +39,39 @@ struct ClosingSettingsView: View {
                 .pickerStyle(.radioGroup)
                 .accessibilityIdentifier("closing.mode")
 
-                if model.configuration.closeMode == .gentle {
-                    Text("Requests a normal quit and never force-quits.")
-                        .foregroundStyle(.secondary)
-                } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 12) {
+                        gentleComparison
+                        firmComparison
+                    }
+                    VStack(spacing: 12) {
+                        gentleComparison
+                        firmComparison
+                    }
+                }
+
+                if model.configuration.closeMode == .firm {
                     Label(
-                        "Homeward asks apps to quit normally, shows a full "
-                            + "\(Int(HomewardPolicy.firmGracePeriod))-second countdown, "
-                            + "then may force-quit apps still running. Unsaved changes can be lost.",
-                        systemImage: "exclamationmark.triangle"
+                        "Unsaved changes can be lost if an app reaches force quit.",
+                        systemImage: "exclamationmark.triangle.fill"
                     )
+                    .font(.callout)
                     .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
-            Section("Wind-down") {
+            Section {
+                Text("Give yourself notice before the work window ends.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
                 Toggle(
                     "15-minute warning",
-                    isOn: warningBinding(\.fifteenMinuteWarningEnabled)
+                    isOn: warningBinding(.fifteenMinute)
                 )
                 Toggle(
                     "5-minute warning",
-                    isOn: warningBinding(\.fiveMinuteWarningEnabled)
+                    isOn: warningBinding(.fiveMinute)
                 )
                 Toggle(
                     "Allow one \(HomewardPolicy.gentleShortcutExtensionMinutes)-minute Gentle extension",
@@ -61,15 +89,29 @@ struct ClosingSettingsView: View {
                     )
                 )
                 .disabled(model.configuration.closeMode == .firm)
+                if model.configuration.closeMode == .firm {
+                    Text("Gentle extensions are unavailable while Firm Close is selected.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Wind-down")
+            } footer: {
+                Text("Warnings require notification permission. Closing still works without it.")
             }
 
-            Section {
-                Text(
-                    "Firm Close never shortens the "
-                        + "\(Int(HomewardPolicy.firmGracePeriod))-second grace. "
-                        + "Stop Force Quit pauses force escalation for the current "
-                        + "blocked interval without making work apps available."
+            Section("Firm safety controls") {
+                Label(
+                    "A full \(Int(HomewardPolicy.firmGracePeriod))-second countdown always appears before force quit.",
+                    systemImage: "timer"
                 )
+                Label(
+                    "Stop Force Quit pauses escalation for the current blocked interval. "
+                        + "It does not make work apps available.",
+                    systemImage: "hand.raised"
+                )
+                .fixedSize(horizontal: false, vertical: true)
+                Text("These safeguards cannot be shortened or bypassed.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -94,6 +136,80 @@ struct ClosingSettingsView: View {
         .accessibilityIdentifier("closing.settings")
     }
 
+    private var gentleComparison: some View {
+        closingModeCard(
+            title: "Gentle Close",
+            symbol: "leaf",
+            badge: "Recommended",
+            details: [
+                "Requests a normal quit",
+                "Never force-quits",
+                "Leaves blocked apps open if they need attention",
+            ],
+            isSelected: model.configuration.closeMode == .gentle,
+            isCaution: false
+        )
+    }
+
+    private var firmComparison: some View {
+        closingModeCard(
+            title: "Firm Close",
+            symbol: "shield.lefthalf.filled",
+            badge: "Higher enforcement",
+            details: [
+                "Requests a normal quit first",
+                "Shows a \(Int(HomewardPolicy.firmGracePeriod))-second countdown",
+                "May force-quit apps still running",
+            ],
+            isSelected: model.configuration.closeMode == .firm,
+            isCaution: true
+        )
+    }
+
+    private func closingModeCard(
+        title: String,
+        symbol: String,
+        badge: String,
+        details: [String],
+        isSelected: Bool,
+        isCaution: Bool
+    ) -> some View {
+        HomewardCard(padding: HomewardSpacing.medium) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label(title, systemImage: symbol)
+                        .font(.headline)
+                    Spacer(minLength: 8)
+                    HomewardStatusLabel(
+                        title: isSelected ? "Selected" : badge,
+                        symbol: isSelected ? "checkmark.circle.fill" : "info.circle",
+                        tone: isSelected ? .ready : (isCaution ? .attention : .neutral)
+                    )
+                }
+                ForEach(details, id: \.self) { detail in
+                    Label(detail, systemImage: "checkmark")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay {
+            RoundedRectangle(
+                cornerRadius: HomewardMetrics.cardCornerRadius,
+                style: .continuous
+            )
+                .stroke(
+                    isSelected
+                        ? Color.accentColor
+                        : Color.clear,
+                    lineWidth: isSelected ? 1.5 : 0
+                )
+        }
+        .accessibilityElement(children: .combine)
+    }
+
     private var modeBinding: Binding<CloseMode> {
         Binding(
             get: { model.configuration.closeMode },
@@ -108,14 +224,21 @@ struct ClosingSettingsView: View {
     }
 
     private func warningBinding(
-        _ keyPath: WritableKeyPath<WarningPreferences, Bool>
+        _ option: AppModel.WarningOption
     ) -> Binding<Bool> {
         Binding(
-            get: { model.configuration.warningPreferences[keyPath: keyPath] },
+            get: {
+                switch option {
+                case .fifteenMinute:
+                    model.configuration.warningPreferences
+                        .fifteenMinuteWarningEnabled
+                case .fiveMinute:
+                    model.configuration.warningPreferences
+                        .fiveMinuteWarningEnabled
+                }
+            },
             set: { value in
-                var preferences = model.configuration.warningPreferences
-                preferences[keyPath: keyPath] = value
-                Task { await model.setWarningPreferences(preferences) }
+                Task { await model.setWarning(option, enabled: value) }
             }
         )
     }

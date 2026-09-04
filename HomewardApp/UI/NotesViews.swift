@@ -7,7 +7,8 @@ final class NotesPanelController: NSWindowController {
     init(model: AppModel) {
         let panel = HomewardPanelFactory.make(
             title: "Saved Thoughts",
-            size: NSSize(width: 560, height: 420),
+            size: NSSize(width: 620, height: 500),
+            minimumSize: NSSize(width: 520, height: 360),
             resizable: true,
             floatsAutomatically: true
         )
@@ -35,7 +36,9 @@ final class NoteCapturePanelController: NSWindowController {
     init(model: AppModel) {
         let panel = HomewardPanelFactory.make(
             title: "Save a Thought",
-            size: NSSize(width: 440, height: 280)
+            size: NSSize(width: 520, height: 380),
+            minimumSize: NSSize(width: 440, height: 320),
+            resizable: true
         )
         let view = NoteCaptureView(
             model: model,
@@ -55,6 +58,11 @@ final class NoteCapturePanelController: NSWindowController {
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
+
+    var isVisible: Bool {
+        window?.isVisible == true
+            && window?.occlusionState.contains(.visible) == true
+    }
 }
 
 struct NoteCaptureView: View {
@@ -70,51 +78,107 @@ struct NoteCaptureView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Save a thought for later")
-                .font(.title2.bold())
-            Text("Existing thoughts stay hidden while work is closed.")
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 20) {
+            HomewardPanelHeader(
+                title: "Save a thought for later",
+                message: "Homeward will keep this thought out of sight until work is available again.",
+                systemImage: "note.text.badge.plus",
+                tone: .rest
+            )
 
-            TextEditor(text: $text)
-                .font(.body)
-                .frame(minHeight: 120)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(.separator)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Thought")
+                    .font(.headline)
+
+                ZStack(alignment: .topLeading) {
+                    if text.isEmpty {
+                        Text("What do you want to remember?")
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 11)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+
+                    TextEditor(text: $text)
+                        .font(.body)
+                        .scrollContentBackground(.hidden)
+                        .padding(5)
+                        .focused($editorFocused)
+                        .accessibilityLabel("Thought")
+                        .accessibilityHint(
+                            "Enter up to \(TomorrowNote.maximumCharacterCount) characters"
+                        )
+                        .accessibilityIdentifier("notes.editor")
                 }
-                .focused($editorFocused)
-                .accessibilityLabel("What do you want to remember?")
-                .accessibilityIdentifier("notes.editor")
+                .frame(minHeight: 140)
+                .background(
+                    Color(nsColor: .textBackgroundColor),
+                    in: RoundedRectangle(cornerRadius: 8)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(
+                            remainingCharacters < 0
+                                ? Color.red
+                                : Color(nsColor: .separatorColor)
+                        )
+                }
+            }
 
             if let error = model.lastError {
-                Label(error, systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.red)
-                    .accessibilityIdentifier("notes.error")
+                InlineErrorView(message: error) {
+                    model.clearError()
+                }
+                .accessibilityIdentifier("notes.error")
             }
 
             HStack {
                 Text("\(remainingCharacters) characters remaining")
                     .font(.caption)
+                    .monospacedDigit()
                     .foregroundStyle(remainingCharacters < 0 ? .red : .secondary)
+                    .accessibilityLabel(
+                        remainingCharacters >= 0
+                            ? "\(remainingCharacters) characters remaining"
+                            : "\(-remainingCharacters) characters over the limit"
+                    )
+
                 Spacer()
+
                 Button("Cancel") {
                     onClose()
                 }
                 .keyboardShortcut(.cancelAction)
-                Button("Save") {
+
+                Button {
                     save()
+                } label: {
+                    if isSaving {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Saving…")
+                        }
+                    } else {
+                        Text("Save")
+                    }
                 }
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(!canSave || isSaving)
+                .buttonStyle(.borderedProminent)
+                .accessibilityHint("Saves this thought for your next available work period")
                 .accessibilityIdentifier("notes.save")
             }
         }
-        .padding(20)
-        .frame(minWidth: 420, minHeight: 260)
+        .padding(24)
+        .frame(minWidth: 420, minHeight: 300)
         .onAppear {
-            editorFocused = true
+            Task { @MainActor in
+                editorFocused = true
+            }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("notes.capture")
     }
 
@@ -153,37 +217,62 @@ struct NotesReviewView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Saved thoughts")
-                .font(.title2.bold())
+        VStack(alignment: .leading, spacing: 20) {
+            HomewardPanelHeader(
+                title: "Saved thoughts",
+                message: reviewSummary,
+                systemImage: "note.text",
+                tone: .rest
+            )
+
+            if let error = model.lastError {
+                InlineErrorView(message: error) {
+                    model.clearError()
+                }
+            }
 
             if model.visibleNotes.isEmpty {
                 ContentUnavailableView(
                     "No saved thoughts",
-                    systemImage: "note.text"
+                    systemImage: "note.text",
+                    description: Text(
+                        "New thoughts saved while work is closed will appear here."
+                    )
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(model.visibleNotes) { note in
                     noteRow(note)
                 }
+                .listStyle(.inset)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
             if let recentlyCompleted {
-                HStack {
-                    Text("Thought marked done")
-                    Button("Undo") {
-                        undoTask?.cancel()
-                        Task {
-                            if await model.restoreNote(recentlyCompleted) {
-                                self.recentlyCompleted = nil
+                HomewardCard(padding: HomewardSpacing.small) {
+                    HStack(spacing: HomewardSpacing.small) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(HomewardTone.ready.color)
+                            .accessibilityHidden(true)
+                        Text("Thought marked done.")
+                            .font(.callout)
+                        Button("Undo") {
+                            undoTask?.cancel()
+                            Task {
+                                if await model.restoreNote(recentlyCompleted) {
+                                    self.recentlyCompleted = nil
+                                }
                             }
                         }
+                        .keyboardShortcut("z", modifiers: .command)
                     }
-                    .keyboardShortcut("z", modifiers: .command)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("notes.undo")
             }
+
+            Divider()
 
             HStack {
                 Spacer()
@@ -193,8 +282,8 @@ struct NotesReviewView: View {
                 .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(20)
-        .frame(minWidth: 520, minHeight: 380)
+        .padding(24)
+        .frame(minWidth: 500, minHeight: 340)
         .onDisappear {
             undoTask?.cancel()
             recentlyCompleted = nil
@@ -220,16 +309,29 @@ struct NotesReviewView: View {
         .accessibilityIdentifier("notes.review")
     }
 
+    private var reviewSummary: String {
+        let count = model.visibleNotes.count
+        return count == 1
+            ? "1 thought is ready to review. Keep it for later, mark it done, or delete it."
+            : "\(count) thoughts are ready to review. Keep them for later, mark them done, or delete them."
+    }
+
     @ViewBuilder
     private func noteRow(_ note: TomorrowNote) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(note.createdAt.formatted(date: .abbreviated, time: .shortened))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 10) {
+            Label(
+                note.createdAt.formatted(date: .abbreviated, time: .shortened),
+                systemImage: "clock"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
             Text(note.text)
+                .font(.body)
                 .textSelection(.enabled)
+
             HStack {
-                Button("Keep") {
+                Button("Keep for Later") {
                     Task {
                         await model.keepNote(
                             id: note.id,
@@ -244,9 +346,13 @@ struct NotesReviewView: View {
                     pendingDelete = note
                 }
             }
+            .controlSize(.small)
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
         .accessibilityElement(children: .contain)
+        .accessibilityLabel(
+            "Thought from \(note.createdAt.formatted(date: .abbreviated, time: .shortened))"
+        )
         .accessibilityIdentifier("notes.row.\(note.id.uuidString)")
     }
 
