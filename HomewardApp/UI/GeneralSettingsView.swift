@@ -58,6 +58,15 @@ struct GeneralSettingsView: View {
                 Text("Homeward works only while it is running.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                if case .outsideApplications = model.installationLocationStatus {
+                    Text(
+                        "Move Homeward to the Applications folder yourself, then choose Check Again. Homeward will not move or delete itself."
+                    )
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("settings.installationReason")
+                }
             } header: {
                 Text("Recommended readiness")
             }
@@ -135,7 +144,10 @@ struct GeneralSettingsView: View {
                 ) {
                     VStack(alignment: .leading, spacing: HomewardSpacing.small) {
                         LabeledContent("Version") {
-                            Text(version)
+                            Text(shortVersion)
+                        }
+                        LabeledContent("Build") {
+                            Text(buildVersion)
                         }
                         LabeledContent("Bundle identifier") {
                             Text(bundleIdentifier)
@@ -144,6 +156,31 @@ struct GeneralSettingsView: View {
                     }
                     .padding(.top, HomewardSpacing.small)
                 }
+            }
+
+            Section("Help & updates") {
+                Link("Download Homeward…", destination: SupportLinks.download)
+                Link("Release Notes…", destination: SupportLinks.releaseNotes)
+                Link("Support…", destination: SupportLinks.support)
+                Link("Privacy…", destination: SupportLinks.privacy)
+                Text(
+                    "Updates are manual in version 0.1.0. Download the latest release, quit Homeward, and replace the copy in Applications."
+                )
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section("Removal & data") {
+                Text(
+                    "To remove Homeward, turn it off, quit it, then move Homeward from Applications to the Trash."
+                )
+                Text(
+                    "To delete local data, use Reset Setup and Reset Saved Thoughts before removing the app."
+                )
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             Section("Reset & turn off") {
@@ -197,7 +234,7 @@ struct GeneralSettingsView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This cannot be undone.")
+            Text("This permanently deletes every saved thought. This cannot be undone.")
         }
         .confirmationDialog(
             "Turn off Homeward?",
@@ -271,7 +308,16 @@ struct GeneralSettingsView: View {
     }
 
     private var loginReadiness: ReadinessPresentation {
-        .login(
+        if case .outsideApplications = model.installationLocationStatus {
+            return ReadinessPresentation(
+                status: "Move to Applications",
+                detail:
+                    "Start at Login is unavailable until Homeward is in the Applications folder.",
+                symbol: "folder.badge.questionmark",
+                tone: .attention
+            )
+        }
+        return .login(
             model.loginItemStatus,
             readyTitle: "Enabled",
             unhealthySymbol: "exclamationmark.circle"
@@ -280,6 +326,20 @@ struct GeneralSettingsView: View {
 
     @ViewBuilder
     private var loginItemActions: some View {
+        if case .outsideApplications = model.installationLocationStatus {
+            if model.loginItemStatus == .enabled
+                || model.loginItemStatus == .requiresApproval {
+                Button("Disable") {
+                    model.disableStartAtLogin()
+                }
+            }
+            Button("Show in Finder") {
+                model.showInstallationInFinder()
+            }
+            Button("Check Again") {
+                Task { await model.refreshSystemStatuses() }
+            }
+        } else {
         switch model.loginItemStatus {
         case .enabled:
             Button("Disable") {
@@ -300,6 +360,7 @@ struct GeneralSettingsView: View {
             Button("Check Again") {
                 Task { await model.refreshSystemStatuses() }
             }
+        }
         }
     }
 
@@ -333,16 +394,33 @@ struct GeneralSettingsView: View {
         }
     }
 
-    private var version: String {
-        let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
+    private var shortVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
             as? String ?? "Unknown"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion")
+    }
+
+    private var buildVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion")
             as? String ?? "Unknown"
-        return "\(short) (\(build))"
     }
 
     private var bundleIdentifier: String {
         Bundle.main.bundleIdentifier ?? "Unavailable"
     }
 
+}
+
+private enum SupportLinks {
+    static let download = URL(
+        string: "https://github.com/firaskafri/homeward/releases/latest"
+    )!
+    static let releaseNotes = URL(
+        string: "https://github.com/firaskafri/homeward/releases"
+    )!
+    static let support = URL(
+        string: "https://github.com/firaskafri/homeward/issues"
+    )!
+    static let privacy = URL(
+        string: "https://github.com/firaskafri/homeward/blob/main/docs/PRIVACY.md"
+    )!
 }

@@ -33,9 +33,9 @@ final class ApplicationCatalog {
         self.workspace = workspace
     }
 
-    func discover() async -> [CatalogApplication] {
+    func discover() async throws -> [CatalogApplication] {
         let runningURLs = workspace.runningApplications.compactMap(\.bundleURL)
-        let discoveredURLs = await Self.discoverApplicationURLs()
+        let discoveredURLs = try await Self.discoverApplicationURLs()
         var uniqueByPath: [String: URL] = [:]
         for url in discoveredURLs + runningURLs {
             let standardized = url.standardizedFileURL
@@ -119,7 +119,9 @@ final class ApplicationCatalog {
         )
     }
 
-    private nonisolated static func discoverApplicationURLs() async -> [URL] {
+    private nonisolated static func discoverApplicationURLs() async throws
+        -> [URL]
+    {
         let fileManager = FileManager()
         let homeApplications = fileManager.homeDirectoryForCurrentUser
             .appendingPathComponent("Applications", isDirectory: true)
@@ -132,17 +134,17 @@ final class ApplicationCatalog {
             ),
             homeApplications,
         ]
-        return roots.flatMap { root -> [URL] in
-            guard let contents = try? fileManager.contentsOfDirectory(
+        var applications: [URL] = []
+        for root in roots where fileManager.fileExists(atPath: root.path) {
+            let contents = try fileManager.contentsOfDirectory(
                 at: root,
                 includingPropertiesForKeys: [.isApplicationKey],
                 options: [.skipsHiddenFiles]
-            ) else {
-                return []
-            }
-            return contents.filter {
+            )
+            applications.append(contentsOf: contents.filter {
                 $0.pathExtension.lowercased() == "app"
-            }
+            })
         }
+        return applications
     }
 }

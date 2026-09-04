@@ -9,25 +9,29 @@ struct OnboardingView: View {
         case completedEssentials
 
         func isSatisfied(by model: AppModel) -> Bool {
-            switch self {
+            let hasResolvableApplication =
+                model.configuration.selectedApplications.contains {
+                    $0.isResolvable && !$0.isProtected
+                }
+            return switch self {
             case .none:
                 true
             case .confirmedSchedule:
                 model.configuration.onboardingScheduleConfirmed
             case .selectedApplications:
-                !model.configuration.selectedApplications.isEmpty
+                hasResolvableApplication
             case .completedEssentials:
                 model.configuration.onboardingScheduleConfirmed
-                    && !model.configuration.selectedApplications.isEmpty
+                    && hasResolvableApplication
             }
         }
 
         var prompt: String? {
-            switch self {
+            return switch self {
             case .confirmedSchedule:
                 "Save and confirm the schedule to continue"
             case .selectedApplications:
-                "Choose at least one work app to continue"
+                "Choose at least one available work app to continue"
             case .none, .completedEssentials:
                 nil
             }
@@ -138,7 +142,8 @@ struct OnboardingView: View {
 
             Divider()
 
-            if let error = model.lastError {
+            if currentStep == .readiness || currentStep == .review,
+               let error = model.lastError {
                 InlineErrorView(message: error) {
                     model.clearError()
                 }
@@ -407,7 +412,9 @@ struct OnboardingView: View {
                 reviewRow(
                     title: "Work apps",
                     value: selectedApplicationSummary,
-                    isReady: !model.configuration.selectedApplications.isEmpty,
+                    isReady: model.configuration.selectedApplications.contains {
+                        $0.isResolvable && !$0.isProtected
+                    },
                     notReadyLabel: "Required"
                 )
                 reviewRow(
@@ -607,7 +614,9 @@ private struct PreviewView: View {
             GroupBox("Application") {
                 Picker("Application", selection: $selectionID) {
                     Text("Choose an app").tag(UUID?.none)
-                    ForEach(model.configuration.selectedApplications) { application in
+                    ForEach(model.configuration.selectedApplications.filter {
+                        $0.isResolvable && !$0.isProtected
+                    }) { application in
                         Text(application.displayName).tag(Optional(application.id))
                     }
                 }

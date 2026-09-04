@@ -64,6 +64,7 @@ struct AppModelTests {
         let model = try AppModel(
             repository: HomewardRepository(directoryURL: fixture.directoryURL)
         )
+        await model.start()
         await model.setSchedule(model.configuration.schedule)
         await model.addApplication(SelectedApplication(
             bundleIdentifier: "com.example.missing",
@@ -130,6 +131,7 @@ struct AppModelTests {
             ),
             nowProvider: { now }
         )
+        await model.start()
         let cutoff = now.addingTimeInterval(30)
 
         await model.chooseCutoff(cutoff)
@@ -154,6 +156,7 @@ struct AppModelTests {
             repository: HomewardRepository(directoryURL: fixture.directoryURL),
             nowProvider: { now }
         )
+        await model.start()
 
         let succeeded = await model.chooseCutoff(now)
         #expect(!succeeded)
@@ -180,6 +183,7 @@ struct AppModelTests {
             repository: HomewardRepository(directoryURL: fixture.directoryURL),
             nowProvider: { now }
         )
+        await model.start()
         let rules = Dictionary(
             uniqueKeysWithValues: Weekday.allCases.map {
                 ($0, DayRule.availableAllDay)
@@ -201,6 +205,43 @@ struct AppModelTests {
         #expect(endWorkOverride.expiresAt == expectedExpiry)
     }
 
+    /// 1 - Name: Immediate-close schedule preview.
+    /// 2 - Description: Evaluates a blocked replacement schedule using the model clock.
+    /// 3 - Assumptions: A completed setup uses the default available Monday noon schedule.
+    /// 4 - Expectations: Replacing it with an all-blocked week requires confirmation.
+    @Test
+    func scheduleChangeDetectsImmediateClose() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let calendar = Calendar.autoupdatingCurrent
+        let now = try #require(calendar.date(from: DateComponents(
+            year: 2026,
+            month: 9,
+            day: 7,
+            hour: 12
+        )))
+        let repository = HomewardRepository(directoryURL: fixture.directoryURL)
+        var configuration = try HomewardConfiguration.initial()
+        configuration.onboardingScheduleConfirmed = true
+        configuration.completedOnboarding = true
+        _ = try await repository.saveConfiguration(configuration)
+        let model = try AppModel(
+            repository: repository,
+            nowProvider: { now },
+            catalogDiscoverer: { [] }
+        )
+        await model.start()
+        let blockedRules = Dictionary(
+            uniqueKeysWithValues: Weekday.allCases.map {
+                ($0, DayRule.blockedAllDay)
+            }
+        )
+
+        #expect(model.scheduleChangeRequiresImmediateClose(
+            try WeeklySchedule(rules: blockedRules)
+        ))
+    }
+
     /// 1 - Name: Stop Force Quit runtime latch.
     /// 2 - Description: Applies the safety action before relying on persistence.
     /// 3 - Assumptions: No running targets are required to create the blocked-interval pause.
@@ -212,6 +253,7 @@ struct AppModelTests {
         let model = try AppModel(repository: HomewardRepository(
             directoryURL: fixture.directoryURL
         ))
+        await model.start()
 
         await model.stopForceQuit()
 
@@ -236,6 +278,7 @@ struct AppModelTests {
                 try await saveGate.save(configuration)
             }
         )
+        await model.start()
         let pendingSave = Task { @MainActor in
             await model.setWarning(.fifteenMinute, enabled: false)
         }
@@ -271,6 +314,7 @@ struct AppModelTests {
                 try await saveGate.save(configuration)
             }
         )
+        await model.start()
         let firstUpdate = Task { @MainActor in
             await model.setWarning(.fifteenMinute, enabled: false)
         }
@@ -305,6 +349,7 @@ struct AppModelTests {
         let model = try AppModel(repository: HomewardRepository(
             directoryURL: fixture.directoryURL
         ))
+        await model.start()
 
         await model.stopForceQuit()
 
@@ -326,6 +371,7 @@ struct AppModelTests {
         let model = try AppModel(repository: HomewardRepository(
             directoryURL: fixture.directoryURL
         ))
+        await model.start()
         await model.stopForceQuit()
         await model.createExtension(minutes: 10)
 
@@ -347,6 +393,7 @@ struct AppModelTests {
         let model = try AppModel(repository: HomewardRepository(
             directoryURL: fixture.directoryURL
         ))
+        await model.start()
         let finder = SelectedApplication(
             bundleIdentifier: "com.apple.finder",
             bundlePath: "/System/Library/CoreServices/Finder.app",
@@ -370,6 +417,7 @@ struct AppModelTests {
         let model = try AppModel(repository: HomewardRepository(
             directoryURL: fixture.directoryURL
         ))
+        await model.start()
 
         await model.createExtension(minutes: 11)
 
@@ -401,6 +449,47 @@ struct AppModelTests {
         #expect(model.health == .configurationUnavailable)
         #expect(model.closingRows.isEmpty)
         #expect(model.lastError != nil)
+    }
+
+    /// 1 - Name: Configuration backup recovery activation.
+    /// 2 - Description: Restores a validated previous configuration after active storage becomes corrupt.
+    /// 3 - Assumptions: Runtime activation may revalidate selections only after the recovery write lock is released.
+    /// 4 - Expectations: Recovery completes without deadlock and reaches ready state.
+    @Test
+    func configurationBackupRecoveryReactivatesRuntime() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let repository = HomewardRepository(directoryURL: fixture.directoryURL)
+        let first = try HomewardConfiguration.initial()
+        var second = first
+        second.warningPreferences.fiveMinuteWarningEnabled = false
+        _ = try await repository.saveConfiguration(first)
+        _ = try await repository.saveConfiguration(second)
+        try Data("corrupt".utf8).write(
+            to: fixture.directoryURL.appendingPathComponent(
+                "configuration.json"
+            )
+        )
+        let model = try AppModel(
+            repository: repository,
+            catalogDiscoverer: { [] }
+        )
+        await model.start()
+        #expect(model.health == .configurationUnavailable)
+
+        let restored = await model.restorePreviousConfiguration()
+
+        #expect(restored)
+        #expect(model.health == .ready)
+        #expect(model.configuration.schedule == first.schedule)
+        #expect(
+            model.configuration.warningPreferences
+                == first.warningPreferences
+        )
+        #expect(
+            model.configuration.policyGeneration
+                > first.policyGeneration
+        )
     }
 
     /// 1 - Name: Initial window launch policy.
@@ -442,11 +531,17 @@ struct AppModelTests {
     @Test
     func notificationCutoffPayloadRoundTrips() {
         let cutoff = Date(timeIntervalSince1970: 1_789_000_000.25)
-        let payload = HomewardNotificationService.warningUserInfo(cutoff: cutoff)
+        let payload = HomewardNotificationService.warningUserInfo(
+            cutoff: cutoff,
+            policyGeneration: 7
+        )
 
         #expect(
             HomewardNotificationService.warningActionContext(from: payload)
-                == WarningActionContext(cutoff: cutoff)
+                == WarningActionContext(
+                    cutoff: cutoff,
+                    policyGeneration: 7
+                )
         )
         #expect(HomewardNotificationService.warningActionContext(from: [:]) == nil)
         #expect(HomewardNotificationService.warningActionContext(
@@ -484,7 +579,8 @@ struct AppModelTests {
         await model.applyNotificationAction(
             HomewardNotificationService.startClosingAction,
             context: WarningActionContext(
-                cutoff: currentCutoff.addingTimeInterval(60)
+                cutoff: currentCutoff.addingTimeInterval(60),
+                policyGeneration: model.configuration.policyGeneration
             )
         )
 
@@ -502,6 +598,7 @@ struct AppModelTests {
         let model = try AppModel(repository: HomewardRepository(
             directoryURL: fixture.directoryURL
         ))
+        await model.start()
         #expect(await !model.createExtension(minutes: 11))
 
         let succeeded = await model.setWarning(
@@ -525,6 +622,7 @@ struct AppModelTests {
             repository: HomewardRepository(directoryURL: fixture.directoryURL),
             dateByAdding: { _, _, _ in nil }
         )
+        await model.start()
 
         let succeeded = await model.createExtension(minutes: 10)
 
@@ -546,6 +644,7 @@ struct AppModelTests {
             repository: HomewardRepository(directoryURL: fixture.directoryURL),
             nowProvider: { now }
         )
+        await model.start()
         #expect(await model.chooseCutoff(now.addingTimeInterval(30 * 60)))
 
         #expect(await model.createExtension(minutes: 10))
@@ -559,8 +658,8 @@ struct AppModelTests {
 
     /// 1 - Name: Termination identity matching.
     /// 2 - Description: Distinguishes an exact process session from a reused process identifier.
-    /// 3 - Assumptions: PID-only fallback is safe only when no live session owns that PID.
-    /// 4 - Expectations: Exact sessions match; reused or live PID fallbacks do not.
+    /// 3 - Assumptions: Missing launch identity cannot prove which process generation terminated.
+    /// 4 - Expectations: Only an exact session matches; every PID-only event fails open.
     @Test
     func terminationIdentityRejectsPIDReuse() {
         let expected = ProcessSessionID(rawValue: "42-original")
@@ -587,7 +686,7 @@ struct AppModelTests {
             terminatedProcessIdentifier: 42,
             hasLiveSessionForProcessIdentifier: true
         ))
-        #expect(AppModel.terminationMatches(
+        #expect(!AppModel.terminationMatches(
             expectedSessionID: expected,
             expectedProcessIdentifier: 42,
             terminatedSessionID: nil,
@@ -610,6 +709,8 @@ struct AppModelTests {
             notesSaver: { try await gate.save($0) },
             notesResetter: { await gate.reset() }
         )
+        await model.start()
+        await waitForNotesLoad(model)
         let save = Task { @MainActor in
             await model.saveNote("Ship the follow-up")
         }
@@ -641,6 +742,7 @@ struct AppModelTests {
             repository: HomewardRepository(directoryURL: fixture.directoryURL),
             configurationSaver: { try await saveGate.save($0) }
         )
+        await model.start()
         let schedule = try WeeklySchedule.defaultWorkWeek()
         let save = Task { @MainActor in
             await model.setSchedule(schedule)
@@ -676,8 +778,8 @@ struct AppModelTests {
         }
         await Task.yield()
         gate.releaseFirstDiscovery()
-        await first.value
-        await second.value
+        _ = await first.value
+        _ = await second.value
 
         #expect(gate.discoveryCount == 2)
         #expect(model.catalog.map(\.selection.displayName) == ["Latest"])
@@ -739,6 +841,7 @@ struct AppModelTests {
         let first = Task { @MainActor in
             try await service.replaceWarnings(
                 cutoff: firstCutoff,
+                policyGeneration: 1,
                 preferences: WarningPreferences(),
                 includeExtension: false
             )
@@ -747,6 +850,7 @@ struct AppModelTests {
         let latest = Task { @MainActor in
             try await service.replaceWarnings(
                 cutoff: latestCutoff,
+                policyGeneration: 2,
                 preferences: WarningPreferences(),
                 includeExtension: false
             )
@@ -772,9 +876,8 @@ struct AppModelTests {
         let handler = NotificationHandlerSpy()
         service.start(handler: handler)
         let post = Task { @MainActor in
-            try await service.postStatus(
-                title: "Work is closed",
-                body: "No work window is scheduled."
+            try await service.post(
+                .closingComplete(nextAvailability: nil)
             )
         }
         await recorder.waitUntilFirstAddStarts()
@@ -784,6 +887,30 @@ struct AppModelTests {
         try await post.value
 
         #expect(recorder.pendingIdentifiers.isEmpty)
+    }
+
+    /// 1 - Name: Policy cleanup removes in-flight status.
+    /// 2 - Description: Runs all-owned cleanup while a typed status request is still being added.
+    /// 3 - Assumptions: Policy changes may race with notification-center completion.
+    /// 4 - Expectations: The late status observes invalidation and removes itself from pending and delivered collections.
+    @Test
+    func allOwnedCleanupInvalidatesInFlightStatus() async throws {
+        let recorder = WarningClientRecorder()
+        let service = HomewardNotificationService(client: recorder.client)
+        service.start(handler: NotificationHandlerSpy())
+        let post = Task { @MainActor in
+            try await service.post(
+                .blockedLaunch(nextAvailability: nil)
+            )
+        }
+        await recorder.waitUntilFirstAddStarts()
+
+        await service.removeAllOwned()
+        recorder.releaseFirstAdd()
+        try await post.value
+
+        #expect(recorder.pendingIdentifiers.isEmpty)
+        #expect(recorder.deliveredIdentifiers.isEmpty)
     }
 
     /// 1 - Name: Pre-onboarding notification suppression.
@@ -857,7 +984,10 @@ struct AppModelTests {
 
         await model.applyNotificationAction(
             HomewardNotificationService.startClosingAction,
-            context: WarningActionContext(cutoff: cutoff)
+            context: WarningActionContext(
+                cutoff: cutoff,
+                policyGeneration: model.configuration.policyGeneration
+            )
         )
 
         #expect(model.configuration.overrides.isEmpty)
@@ -879,28 +1009,33 @@ struct AppModelTests {
 
         try await service.replaceWarnings(
             cutoff: Date(timeIntervalSince1970: 1_789_010_000),
+            policyGeneration: 1,
             preferences: WarningPreferences(),
             includeExtension: false
         )
 
         #expect(!recorder.addedBodies.isEmpty)
-        #expect(recorder.addedBodies.allSatisfy {
-            $0.contains("Selected work apps")
-                && !$0.contains("Editor")
+        #expect(recorder.addedBodies.contains {
+            $0.hasPrefix("Finish your current thought. Work apps will close at ")
         })
+        #expect(recorder.addedBodies.allSatisfy { !$0.contains("Editor") })
     }
 
     /// 1 - Name: Notification authorization loss cleanup.
-    /// 2 - Description: Refreshes denied authorization while a warning request is present.
-    /// 3 - Assumptions: Pending warning identifiers use the Homeward warning prefix.
-    /// 4 - Expectations: Status becomes denied and all warning requests are removed.
+    /// 2 - Description: Refreshes denied authorization while owned warning and status requests are present.
+    /// 3 - Assumptions: Homeward ownership is represented by warning and status identifier prefixes.
+    /// 4 - Expectations: Status becomes denied and all owned pending and delivered requests are removed.
     @Test
     func authorizationLossRemovesWarnings() async throws {
         let fixture = AppModelFixture()
         defer { fixture.remove() }
         let recorder = WarningClientRecorder(
             authorizationStatus: .denied,
-            pendingIdentifiers: ["homeward-warning-existing"]
+            pendingIdentifiers: [
+                "homeward-warning-existing",
+                "homeward-status-existing",
+            ],
+            deliveredIdentifiers: ["homeward-status-delivered"]
         )
         let service = HomewardNotificationService(client: recorder.client)
         let model = try AppModel(
@@ -912,6 +1047,7 @@ struct AppModelTests {
 
         #expect(model.notificationStatus == .denied)
         #expect(recorder.pendingIdentifiers.isEmpty)
+        #expect(recorder.deliveredIdentifiers.isEmpty)
     }
 
     /// 1 - Name: Unknown login-item status.
@@ -933,14 +1069,19 @@ struct AppModelTests {
     /// 3 - Assumptions: Platform failure status is authoritative even when the operation throws.
     /// 4 - Expectations: Enable returns false and the model refreshes its displayed status to unavailable.
     @Test
-    func failedLoginOperationRefreshesStatus() throws {
+    func failedLoginOperationRefreshesStatus() async throws {
         let fixture = AppModelFixture()
         defer { fixture.remove() }
         let service = LoginItemService(statusProvider: { .unavailable })
         let model = try AppModel(
             repository: HomewardRepository(directoryURL: fixture.directoryURL),
-            loginItemService: service
+            catalogDiscoverer: { [] },
+            loginItemService: service,
+            installationLocationService: InstallationLocationService(
+                statusProvider: { .applications }
+            )
         )
+        await model.start()
 
         #expect(!model.enableStartAtLogin())
         #expect(model.loginItemStatus == .unavailable)
@@ -977,6 +1118,834 @@ struct AppModelTests {
         )) {
             _ = try await repository.loadConfiguration()
         }
+    }
+
+    /// 1 - Name: Startup policy mutation gate.
+    /// 2 - Description: Attempts a policy write before configuration verification completes.
+    /// 3 - Assumptions: Model construction alone does not verify the user’s persisted configuration.
+    /// 4 - Expectations: The mutation is rejected and built-in initial policy remains unchanged.
+    @Test
+    func startupRejectsPolicyMutation() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let model = try AppModel(
+            repository: HomewardRepository(directoryURL: fixture.directoryURL)
+        )
+
+        let succeeded = await model.setWarning(
+            .fifteenMinute,
+            enabled: false
+        )
+
+        #expect(!succeeded)
+        #expect(
+            model.configuration.warningPreferences
+                .fifteenMinuteWarningEnabled
+        )
+    }
+
+    /// 1 - Name: Delayed startup retry handoff.
+    /// 2 - Description: Publishes delayed startup and invokes the delegate-owned retry callback.
+    /// 3 - Assumptions: The application delegate installs one callback before exposing Retry.
+    /// 4 - Expectations: Retry returns the model to starting and requests one fresh bootstrap attempt.
+    @Test
+    func delayedStartupRetryRequestsFreshBootstrap() throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let model = try AppModel(
+            repository: HomewardRepository(directoryURL: fixture.directoryURL)
+        )
+        var retryCount = 0
+        model.installBootstrapRetryHandler {
+            retryCount += 1
+        }
+        model.markStartupDelayed()
+
+        model.retryStartup()
+
+        #expect(model.health == .starting)
+        #expect(retryCount == 1)
+    }
+
+    /// 1 - Name: Catalog discovery failure state.
+    /// 2 - Description: Starts with verified settings while application discovery throws.
+    /// 3 - Assumptions: Enforcement cannot start until selected applications are resolved successfully.
+    /// 4 - Expectations: Startup stays fail-open, reports discovery failure, and retains verified selection state.
+    @Test
+    func catalogDiscoveryFailureRetainsVerifiedSelections() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let repository = HomewardRepository(directoryURL: fixture.directoryURL)
+        var configuration = try HomewardConfiguration.initial()
+        configuration.selectedApplications = [
+            SelectedApplication(
+                bundleIdentifier: "com.example.editor",
+                bundlePath: "/Applications/Editor.app",
+                displayName: "Editor"
+            ),
+        ]
+        _ = try await repository.saveConfiguration(configuration)
+        let model = try AppModel(
+            repository: repository,
+            catalogDiscoverer: {
+                throw CatalogFixtureError.discoveryFailed
+            }
+        )
+
+        await model.start()
+
+        #expect(model.health == .applicationResolutionUnavailable)
+        #expect(model.catalogHealth == .unavailable)
+        #expect(
+            model.configuration.selectedApplications.first?.isResolvable
+                == true
+        )
+        #expect(model.closingRows.isEmpty)
+    }
+
+    /// 1 - Name: Duplicate bundle exact-path resolution.
+    /// 2 - Description: Resolves a saved bundle identifier when two discovered copies share it.
+    /// 3 - Assumptions: The saved standardized path is one of the discovered candidates.
+    /// 4 - Expectations: The exact saved copy remains resolvable without being retargeted.
+    @Test
+    func duplicateBundleUsesExactSavedPath() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let repository = HomewardRepository(directoryURL: fixture.directoryURL)
+        var configuration = try HomewardConfiguration.initial()
+        configuration.selectedApplications = [
+            SelectedApplication(
+                bundleIdentifier: "com.example.editor",
+                bundlePath: "/Applications/Editor.app",
+                displayName: "Editor"
+            ),
+        ]
+        _ = try await repository.saveConfiguration(configuration)
+        let candidates = [
+            catalogApplication(
+                named: "Editor",
+                bundleIdentifier: "com.example.editor",
+                path: "/Applications/Editor.app"
+            ),
+            catalogApplication(
+                named: "Editor Copy",
+                bundleIdentifier: "com.example.editor",
+                path: "/Users/test/Applications/Editor.app"
+            ),
+        ]
+        let model = try AppModel(
+            repository: repository,
+            catalogDiscoverer: { candidates }
+        )
+
+        await model.start()
+
+        #expect(model.health == .ready)
+        #expect(
+            model.configuration.selectedApplications.first?.bundlePath
+                == "/Applications/Editor.app"
+        )
+        #expect(
+            model.configuration.selectedApplications.first?.isResolvable
+                == true
+        )
+    }
+
+    /// 1 - Name: Duplicate bundle ambiguity fails open.
+    /// 2 - Description: Resolves a missing saved path against two discovered copies with the same bundle identifier.
+    /// 3 - Assumptions: Neither candidate has the exact saved path and no unique bundle match exists.
+    /// 4 - Expectations: The saved selection remains at its original path and becomes unresolved.
+    @Test
+    func duplicateBundleAmbiguityFailsOpen() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let repository = HomewardRepository(directoryURL: fixture.directoryURL)
+        var configuration = try HomewardConfiguration.initial()
+        configuration.selectedApplications = [
+            SelectedApplication(
+                bundleIdentifier: "com.example.editor",
+                bundlePath: "/Missing/Editor.app",
+                displayName: "Editor"
+            ),
+        ]
+        _ = try await repository.saveConfiguration(configuration)
+        let candidates = [
+            catalogApplication(
+                named: "Editor",
+                bundleIdentifier: "com.example.editor",
+                path: "/Applications/Editor.app"
+            ),
+            catalogApplication(
+                named: "Editor Copy",
+                bundleIdentifier: "com.example.editor",
+                path: "/Users/test/Applications/Editor.app"
+            ),
+        ]
+        let model = try AppModel(
+            repository: repository,
+            catalogDiscoverer: { candidates }
+        )
+
+        await model.start()
+
+        #expect(model.health == .ready)
+        #expect(
+            model.configuration.selectedApplications.first?.bundlePath
+                == "/Missing/Editor.app"
+        )
+        #expect(
+            model.configuration.selectedApplications.first?.isResolvable
+                == false
+        )
+    }
+
+    /// 1 - Name: Stale schedule draft rejection.
+    /// 2 - Description: Saves another policy field after a schedule editor captures its base revision.
+    /// 3 - Assumptions: Every successful configuration save advances the model revision.
+    /// 4 - Expectations: The stale schedule is rejected and the newer warning policy remains authoritative.
+    @Test
+    func staleScheduleDraftDoesNotOverwriteNewerPolicy() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let model = try AppModel(
+            repository: HomewardRepository(directoryURL: fixture.directoryURL),
+            catalogDiscoverer: { [] }
+        )
+        await model.start()
+        let draftRevision = model.policyRevision
+        #expect(await model.setWarning(.fiveMinute, enabled: false))
+        var rules = model.configuration.schedule.rules
+        rules[.monday] = .availableAllDay
+
+        let saved = await model.setSchedule(
+            try WeeklySchedule(rules: rules),
+            expectedRevision: draftRevision
+        )
+
+        #expect(!saved)
+        #expect(
+            !model.configuration.warningPreferences.fiveMinuteWarningEnabled
+        )
+        #expect(model.configuration.schedule.rules[.monday] != .availableAllDay)
+    }
+
+    /// 1 - Name: Stale work-app edit rejection.
+    /// 2 - Description: Adds an application from a work-app view whose base policy revision is outdated.
+    /// 3 - Assumptions: Another successful settings save occurred after the view captured its revision.
+    /// 4 - Expectations: The stale selection is not added and the newer policy remains intact.
+    @Test
+    func staleWorkAppEditDoesNotOverwriteNewerPolicy() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let model = try AppModel(
+            repository: HomewardRepository(directoryURL: fixture.directoryURL),
+            catalogDiscoverer: { [] }
+        )
+        await model.start()
+        let draftRevision = model.policyRevision
+        #expect(await model.setWarning(.fiveMinute, enabled: false))
+
+        let added = await model.addApplication(
+            SelectedApplication(
+                bundleIdentifier: "com.example.editor",
+                bundlePath: "/Applications/Editor.app",
+                displayName: "Editor"
+            ),
+            expectedRevision: draftRevision
+        )
+
+        #expect(!added)
+        #expect(model.configuration.selectedApplications.isEmpty)
+        #expect(
+            !model.configuration.warningPreferences.fiveMinuteWarningEnabled
+        )
+    }
+
+    /// 1 - Name: Commit-time immediate-close confirmation.
+    /// 2 - Description: Attempts to replace an active saved schedule with an all-closed week.
+    /// 3 - Assumptions: Setup is complete and the fixed model time is inside the saved work window.
+    /// 4 - Expectations: An unconfirmed commit is rejected and an explicitly confirmed retry succeeds.
+    @Test
+    func scheduleCommitRecomputesImmediateCloseConsequence() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = try #require(calendar.date(from: DateComponents(
+            year: 2026,
+            month: 9,
+            day: 7,
+            hour: 12
+        )))
+        let repository = HomewardRepository(directoryURL: fixture.directoryURL)
+        var configuration = try HomewardConfiguration.initial()
+        configuration.selectedApplications = [
+            SelectedApplication(
+                bundleIdentifier: "com.example.editor",
+                bundlePath: "/Applications/Editor.app",
+                displayName: "Editor"
+            ),
+        ]
+        configuration.onboardingScheduleConfirmed = true
+        configuration.completedOnboarding = true
+        _ = try await repository.saveConfiguration(configuration)
+        let candidate = catalogApplication(
+            named: "Editor",
+            bundleIdentifier: "com.example.editor",
+            path: "/Applications/Editor.app"
+        )
+        let model = try AppModel(
+            repository: repository,
+            nowProvider: { now },
+            catalogDiscoverer: { [candidate] }
+        )
+        await model.start()
+        let blocked = try WeeklySchedule(
+            rules: Dictionary(
+                uniqueKeysWithValues: Weekday.allCases.map {
+                    ($0, DayRule.blockedAllDay)
+                }
+            )
+        )
+        let revision = model.policyRevision
+
+        #expect(!(await model.setSchedule(
+            blocked,
+            expectedRevision: revision
+        )))
+        #expect(model.resolvedSchedule.isAvailable)
+        #expect(await model.setSchedule(
+            blocked,
+            expectedRevision: revision,
+            confirmsImmediateClose: true
+        ))
+        #expect(!model.resolvedSchedule.isAvailable)
+    }
+
+    /// 1 - Name: Notes load failure health.
+    /// 2 - Description: Starts enforcement successfully with corrupt notes storage.
+    /// 3 - Assumptions: Configuration and notes use independent files and empty notes is a valid document.
+    /// 4 - Expectations: Runtime becomes ready while notes report unavailable rather than empty.
+    @Test
+    func notesFailureDoesNotDelayRuntimeReadiness() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        try FileManager.default.createDirectory(
+            at: fixture.directoryURL,
+            withIntermediateDirectories: true
+        )
+        try Data("corrupt".utf8).write(
+            to: fixture.directoryURL.appendingPathComponent("notes.json")
+        )
+        let model = try AppModel(
+            repository: HomewardRepository(directoryURL: fixture.directoryURL),
+            catalogDiscoverer: { [] }
+        )
+
+        await model.start()
+        await waitForNotesLoad(model)
+
+        #expect(model.health == .ready)
+        #expect(model.notesHealth == .unavailable)
+        #expect(model.visibleNotes.isEmpty)
+    }
+
+    /// 1 - Name: Notes backup restoration.
+    /// 2 - Description: Restores the last validated notes document through repository recovery APIs.
+    /// 3 - Assumptions: A second successful save creates an explicit previous-document candidate.
+    /// 4 - Expectations: Recovery replaces active notes without changing configuration storage.
+    @Test
+    func repositoryRestoresPreviousNotes() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let repository = HomewardRepository(directoryURL: fixture.directoryURL)
+        let first = try NotesDocument(
+            notes: [TomorrowNote(text: "First")]
+        )
+        let second = try NotesDocument(
+            notes: [TomorrowNote(text: "Second")]
+        )
+        _ = try await repository.saveNotes(first)
+        _ = try await repository.saveNotes(second)
+        let candidate = try #require(
+            try await repository.notesRecoveryCandidate()
+        )
+
+        _ = try await repository.replaceNotesDuringRecovery(candidate)
+
+        #expect(try await repository.loadNotes() == first)
+    }
+
+    /// 1 - Name: Notes recovery preserves configuration.
+    /// 2 - Description: Restores a validated previous notes document after the active notes file becomes corrupt.
+    /// 3 - Assumptions: Configuration and notes have independent stores and generations.
+    /// 4 - Expectations: Thoughts recover while the app-closing policy remains byte-for-byte equivalent.
+    @Test
+    func notesRecoveryDoesNotChangeConfiguration() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let repository = HomewardRepository(directoryURL: fixture.directoryURL)
+        var configuration = try HomewardConfiguration.initial()
+        configuration.advancePolicyGeneration(after: 9)
+        _ = try await repository.saveConfiguration(configuration)
+        _ = try await repository.saveNotes(
+            NotesDocument(notes: [TomorrowNote(text: "Recover me")])
+        )
+        _ = try await repository.saveNotes(
+            NotesDocument(notes: [TomorrowNote(text: "Current")])
+        )
+        try Data("corrupt".utf8).write(
+            to: fixture.directoryURL.appendingPathComponent("notes.json")
+        )
+        let model = try AppModel(
+            repository: repository,
+            catalogDiscoverer: { [] }
+        )
+        await model.start()
+        await waitForNotesLoad(model)
+        let policyBeforeRecovery = model.configuration
+
+        #expect(model.notesRecoveryCandidateAvailable)
+        #expect(await model.restorePreviousNotes())
+        #expect(model.notes.notes.map(\.text) == ["Recover me"])
+        #expect(model.configuration == policyBeforeRecovery)
+    }
+
+    /// 1 - Name: Bounded shutdown save wait.
+    /// 2 - Description: Begins termination while a configuration save remains suspended.
+    /// 3 - Assumptions: The injected elapsed clock advances independently of wall-clock schedule time.
+    /// 4 - Expectations: Shutdown returns after its monotonic bound without cancelling the in-flight durable save.
+    @Test
+    func terminationWaitForPendingSaveIsBounded() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let saveGate = ConfigurationSaveGate()
+        let testClock = TestElapsedClock()
+        let model = try AppModel(
+            repository: HomewardRepository(directoryURL: fixture.directoryURL),
+            elapsedClock: testClock.clock,
+            configurationSaver: { try await saveGate.save($0) },
+            catalogDiscoverer: { [] }
+        )
+        await model.start()
+        let save = Task { @MainActor in
+            await model.setWarning(.fiveMinute, enabled: false)
+        }
+        await saveGate.waitUntilFirstSaveStarts()
+
+        await model.prepareForTermination()
+
+        #expect(testClock.totalSlept >= .seconds(2))
+        await saveGate.releaseFirstSave()
+        _ = await save.value
+    }
+
+    /// 1 - Name: Current notification action confirmation.
+    /// 2 - Description: Routes a generation-bound warning action through Today's shared confirmation intent.
+    /// 3 - Assumptions: The saved schedule is currently available and setup is complete.
+    /// 4 - Expectations: The action does not mutate policy until confirmation, then applies End Work Now.
+    @Test
+    func currentNotificationActionRequiresSharedConfirmation() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let calendar = Calendar.autoupdatingCurrent
+        let now = try #require(calendar.date(from: DateComponents(
+            year: 2026,
+            month: 9,
+            day: 7,
+            hour: 16,
+            minute: 50
+        )))
+        let cutoff = try #require(calendar.date(from: DateComponents(
+            year: 2026,
+            month: 9,
+            day: 7,
+            hour: 17
+        )))
+        let repository = HomewardRepository(directoryURL: fixture.directoryURL)
+        let selection = SelectedApplication(
+            bundleIdentifier: "com.example.fixture",
+            bundlePath: "/Applications/HomewardFixture.app",
+            displayName: "Private App Name"
+        )
+        var configuration = try HomewardConfiguration.initial()
+        configuration.selectedApplications = [selection]
+        configuration.onboardingScheduleConfirmed = true
+        configuration.completedOnboarding = true
+        _ = try await repository.saveConfiguration(configuration)
+        let model = try AppModel(
+            repository: repository,
+            nowProvider: { now },
+            catalogDiscoverer: {
+                [catalogApplication(
+                    named: selection.displayName,
+                    bundleIdentifier: selection.bundleIdentifier!,
+                    path: selection.bundlePath
+                )]
+            }
+        )
+        var routedDestination: HomewardRoute?
+        model.installRouteHandler { routedDestination = $0 }
+        await model.start()
+
+        await model.applyNotificationAction(
+            HomewardNotificationService.startClosingAction,
+            context: WarningActionContext(
+                cutoff: cutoff,
+                policyGeneration: model.configuration.policyGeneration
+            )
+        )
+
+        #expect(model.configuration.overrides.isEmpty)
+        #expect(model.pendingPolicyConfirmation == .endWorkNow)
+        #expect(routedDestination == .today)
+        #expect(await model.confirmPolicyAction())
+        #expect(model.configuration.overrides.contains {
+            $0.kind == .endWorkNow
+        })
+    }
+
+    /// 1 - Name: Stale and malformed notification routing.
+    /// 2 - Description: Handles warning actions from a prior generation and with missing context.
+    /// 3 - Assumptions: The stale cutoff still matches, so generation is independently validated.
+    /// 4 - Expectations: Neither action changes policy and both route to Today with a calm explanation.
+    @Test
+    func staleNotificationGenerationRoutesWithoutMutation() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let calendar = Calendar.autoupdatingCurrent
+        let now = try #require(calendar.date(from: DateComponents(
+            year: 2026,
+            month: 9,
+            day: 7,
+            hour: 16,
+            minute: 50
+        )))
+        let cutoff = try #require(calendar.date(from: DateComponents(
+            year: 2026,
+            month: 9,
+            day: 7,
+            hour: 17
+        )))
+        let repository = HomewardRepository(directoryURL: fixture.directoryURL)
+        var configuration = try HomewardConfiguration.initial()
+        configuration.selectedApplications = [
+            SelectedApplication(
+                bundleIdentifier: "com.example.fixture",
+                bundlePath: "/Applications/HomewardFixture.app",
+                displayName: "Private App Name"
+            ),
+        ]
+        configuration.onboardingScheduleConfirmed = true
+        configuration.completedOnboarding = true
+        _ = try await repository.saveConfiguration(configuration)
+        let model = try AppModel(
+            repository: repository,
+            nowProvider: { now },
+            catalogDiscoverer: {
+                [catalogApplication(
+                    named: "Private App Name",
+                    bundleIdentifier: "com.example.fixture",
+                    path: "/Applications/HomewardFixture.app"
+                )]
+            }
+        )
+        var routedDestination: HomewardRoute?
+        model.installRouteHandler { routedDestination = $0 }
+        await model.start()
+        let staleGeneration = model.configuration.policyGeneration
+        #expect(await model.setWarning(.fiveMinute, enabled: false))
+        #expect(model.configuration.policyGeneration != staleGeneration)
+
+        await model.applyNotificationAction(
+            HomewardNotificationService.startClosingAction,
+            context: WarningActionContext(
+                cutoff: cutoff,
+                policyGeneration: staleGeneration
+            )
+        )
+
+        #expect(model.configuration.overrides.isEmpty)
+        #expect(model.pendingPolicyConfirmation == nil)
+        #expect(routedDestination == .today)
+        #expect(
+            model.todayExplanation
+                == "This notification is no longer current. No changes were made."
+        )
+
+        model.clearTodayExplanation()
+        routedDestination = nil
+        await model.applyNotificationAction(
+            HomewardNotificationService.startClosingAction,
+            context: nil
+        )
+        #expect(model.configuration.overrides.isEmpty)
+        #expect(routedDestination == .today)
+        #expect(model.todayExplanation != nil)
+    }
+
+    /// 1 - Name: Generic blocked-launch notification.
+    /// 2 - Description: Builds the typed blocked-launch event for lock-screen-safe delivery.
+    /// 3 - Assumptions: Selected app identity and thought content are never event inputs.
+    /// 4 - Expectations: Approved generic title and body contain no app name, path, identifier, or thought.
+    @Test
+    func blockedLaunchNotificationIsGeneric() {
+        let event = HomewardNotificationService.StatusEvent.blockedLaunch(
+            nextAvailability: nil
+        )
+
+        #expect(event.title == "A work app was closed")
+        #expect(event.body == "No work window is scheduled.")
+        #expect(!event.title.contains("Private App Name"))
+        #expect(!event.body.contains("/Applications"))
+        #expect(!event.body.contains("com.example"))
+        #expect(!event.body.contains("secret thought"))
+    }
+
+    /// 1 - Name: All-owned notification cleanup.
+    /// 2 - Description: Removes Homeward warning and status requests from pending and delivered collections.
+    /// 3 - Assumptions: Requests owned by another subsystem do not use a Homeward identifier prefix.
+    /// 4 - Expectations: Every owned request is removed while unrelated notifications remain.
+    @Test
+    func allOwnedNotificationCleanupPreservesUnrelatedRequests() async {
+        let recorder = WarningClientRecorder(
+            pendingIdentifiers: [
+                "homeward-warning-one",
+                "homeward-status-two",
+                "other-pending",
+            ],
+            deliveredIdentifiers: [
+                "homeward-warning-three",
+                "homeward-status-four",
+                "other-delivered",
+            ]
+        )
+        let service = HomewardNotificationService(client: recorder.client)
+
+        await service.removeAllOwned()
+
+        #expect(recorder.pendingIdentifiers == ["other-pending"])
+        #expect(recorder.deliveredIdentifiers == ["other-delivered"])
+    }
+
+    /// 1 - Name: Saved-thought session concealment.
+    /// 2 - Description: Moves an available saved thought through active and inactive session states.
+    /// 3 - Assumptions: The fixed time is in a normal base work window and notes load independently.
+    /// 4 - Expectations: Count remains generic while content appears only in the active session and redacts immediately on inactivity.
+    @Test
+    func savedThoughtContentRequiresActiveBaseWindow() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let calendar = Calendar.autoupdatingCurrent
+        let now = try #require(calendar.date(from: DateComponents(
+            year: 2026,
+            month: 9,
+            day: 7,
+            hour: 12
+        )))
+        let repository = HomewardRepository(directoryURL: fixture.directoryURL)
+        _ = try await repository.saveNotes(
+            NotesDocument(notes: [TomorrowNote(text: "Private thought")])
+        )
+        let model = try AppModel(
+            repository: repository,
+            nowProvider: { now },
+            catalogDiscoverer: { [] }
+        )
+        await model.start()
+        await waitForNotesLoad(model)
+        let monitor = WorkspaceMonitor()
+
+        model.workspaceMonitor(
+            monitor,
+            sessionActiveDidChange: false
+        )
+        #expect(model.availableNotesCount == 1)
+        #expect(model.visibleNotes.isEmpty)
+
+        model.workspaceMonitor(
+            monitor,
+            sessionActiveDidChange: true
+        )
+        await Task.yield()
+        #expect(model.visibleNotes.map(\.text) == ["Private thought"])
+
+        model.workspaceMonitor(
+            monitor,
+            sessionActiveDidChange: false
+        )
+        #expect(model.visibleNotes.isEmpty)
+    }
+
+    /// 1 - Name: Outside-Applications login protection.
+    /// 2 - Description: Attempts to enable Start at Login for a copy launched outside /Applications.
+    /// 3 - Assumptions: Installation status is injected and no file move is attempted by the model.
+    /// 4 - Expectations: Registration is disabled with an explanation and Show in Finder remains available.
+    @Test
+    func outsideApplicationsDisablesStartAtLogin() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let appURL = URL(fileURLWithPath: "/Downloads/Homeward.app")
+        var didReveal = false
+        let installation = InstallationLocationService(
+            statusProvider: { .outsideApplications(appURL) },
+            reveal: { url in didReveal = url == appURL }
+        )
+        let model = try AppModel(
+            repository: HomewardRepository(directoryURL: fixture.directoryURL),
+            catalogDiscoverer: { [] },
+            installationLocationService: installation
+        )
+        await model.start()
+        await model.refreshSystemStatuses()
+
+        #expect(!model.enableStartAtLogin())
+        #expect(
+            model.lastError
+                == "Move Homeward to Applications before enabling Start at Login."
+        )
+        model.showInstallationInFinder()
+        #expect(didReveal)
+    }
+
+    /// 1 - Name: Presentation precedence and counts.
+    /// 2 - Description: Resolves recovery and Firm-pause snapshots with simultaneous passive attention.
+    /// 3 - Assumptions: Recovery and Firm safety outrank schedule, thoughts, and readiness counts.
+    /// 4 - Expectations: Titles and primary actions follow normative precedence without exposing thought content.
+    @Test
+    func presentationSnapshotUsesNormativePrecedence() throws {
+        let schedule = ScheduleResolver().resolve(
+            schedule: try WeeklySchedule.defaultWorkWeek(),
+            overrides: [],
+            at: Date(timeIntervalSince1970: 1_789_000_000),
+            calendar: .autoupdatingCurrent,
+            warnings: WarningPreferences()
+        )
+
+        let recovery = HomewardPresentationSnapshot.resolve(
+            health: .configurationUnavailable,
+            onboardingComplete: true,
+            schedule: schedule,
+            closingCount: 2,
+            forceEscalationPaused: true,
+            savedThoughtCount: 3,
+            attentionCount: 4
+        )
+        let firmPause = HomewardPresentationSnapshot.resolve(
+            health: .ready,
+            onboardingComplete: true,
+            schedule: schedule,
+            closingCount: 2,
+            forceEscalationPaused: true,
+            savedThoughtCount: 3,
+            attentionCount: 4
+        )
+
+        #expect(recovery.title == "App closing is paused")
+        #expect(recovery.primaryAction == .openRecovery)
+        #expect(firmPause.title == "Force quit is paused")
+        #expect(firmPause.primaryAction == .resumeFirmClosing)
+        #expect(firmPause.savedThoughtCount == 3)
+        #expect(!firmPause.accessibilityValue.contains("thought text"))
+    }
+
+    /// 1 - Name: Firm safety suppresses passive panels.
+    /// 2 - Description: Evaluates event-priority admission while the Firm safety surface is active.
+    /// 3 - Assumptions: Higher numeric priority represents a surface that must remain unobscured.
+    /// 4 - Expectations: Passive panels stay below save/error and Firm safety while recovery can supersede both.
+    @Test
+    func firmSafetySuppressesPassivePresentation() {
+        #expect(!PresentationCoordinator.permits(
+            .blockedLaunch,
+            over: .firmSafety
+        ))
+        #expect(!PresentationCoordinator.permits(
+            .thoughtAvailability,
+            over: .firmSafety
+        ))
+        #expect(!PresentationCoordinator.permits(
+            .blockedLaunch,
+            over: .saveOrError
+        ))
+        #expect(PresentationCoordinator.permits(
+            .recovery,
+            over: .firmSafety
+        ))
+    }
+
+    /// 1 - Name: Configuration reset preserves saved thoughts.
+    /// 2 - Description: Replaces corrupt settings with fresh setup while a valid notes document exists.
+    /// 3 - Assumptions: Configuration and notes are independent repository documents.
+    /// 4 - Expectations: Configuration recovery reaches ready state and loads the unchanged thought.
+    @Test
+    func configurationResetPreservesSavedThoughts() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let repository = HomewardRepository(directoryURL: fixture.directoryURL)
+        let note = try TomorrowNote(text: "Keep this thought")
+        _ = try await repository.saveNotes(
+            NotesDocument(notes: [note])
+        )
+        try Data("corrupt".utf8).write(
+            to: fixture.directoryURL.appendingPathComponent(
+                "configuration.json"
+            )
+        )
+        let model = try AppModel(
+            repository: repository,
+            catalogDiscoverer: { [] }
+        )
+        await model.start()
+        #expect(model.health == .configurationUnavailable)
+
+        #expect(await model.replaceWithFreshSetup())
+        await waitForNotesLoad(model)
+
+        #expect(model.health == .ready)
+        #expect(!model.configuration.completedOnboarding)
+        #expect(model.notes.notes == [note])
+    }
+
+    /// 1 - Name: Completed thought restoration.
+    /// 2 - Description: Completes one thought and restores the returned value in the same review session.
+    /// 3 - Assumptions: Completion is provisional until the review surface is dismissed or explicitly confirmed.
+    /// 4 - Expectations: Restore preserves identity and returns the thought to deterministic chronological order.
+    @Test
+    func completedThoughtCanBeRestoredInSession() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let repository = HomewardRepository(directoryURL: fixture.directoryURL)
+        let first = try TomorrowNote(
+            id: UUID(
+                uuidString: "00000000-0000-0000-0000-000000000001"
+            )!,
+            text: "First",
+            createdAt: Date(timeIntervalSince1970: 1)
+        )
+        let second = try TomorrowNote(
+            id: UUID(
+                uuidString: "00000000-0000-0000-0000-000000000002"
+            )!,
+            text: "Second",
+            createdAt: Date(timeIntervalSince1970: 2)
+        )
+        _ = try await repository.saveNotes(
+            NotesDocument(notes: [first, second])
+        )
+        let model = try AppModel(
+            repository: repository,
+            catalogDiscoverer: { [] }
+        )
+        await model.start()
+        await waitForNotesLoad(model)
+
+        let completed = try #require(
+            await model.completeNote(id: first.id)
+        )
+        #expect(model.notes.notes == [second])
+        #expect(await model.restoreNote(completed))
+
+        #expect(model.notes.notes == [first, second])
     }
 }
 
@@ -1097,16 +2066,19 @@ private final class WarningClientRecorder {
         CheckedContinuation<Void, Never>?
     private var addStartWaiters: [CheckedContinuation<Void, Never>] = []
     private(set) var pendingIdentifiers: Set<String>
+    private(set) var deliveredIdentifiers: Set<String>
     private(set) var addedBodies: [String] = []
 
     init(
         authorizationStatus:
             HomewardNotificationService.AuthorizationStatus = .authorized,
         pendingIdentifiers: Set<String> = [],
+        deliveredIdentifiers: Set<String> = [],
         suspendFirstAdd: Bool = true
     ) {
         self.authorizationStatus = authorizationStatus
         self.pendingIdentifiers = pendingIdentifiers
+        self.deliveredIdentifiers = deliveredIdentifiers
         shouldSuspendFirstAdd = suspendFirstAdd
     }
 
@@ -1120,11 +2092,15 @@ private final class WarningClientRecorder {
             pendingWarningIdentifiers: { [self] in
                 Array(pendingIdentifiers)
             },
-            deliveredWarningIdentifiers: { [] },
+            deliveredWarningIdentifiers: { [self] in
+                Array(deliveredIdentifiers)
+            },
             removePending: { [self] identifiers in
                 pendingIdentifiers.subtract(identifiers)
             },
-            removeDelivered: { _ in },
+            removeDelivered: { [self] identifiers in
+                deliveredIdentifiers.subtract(identifiers)
+            },
             setCategories: { _ in },
             setDelegate: { _ in }
         )
@@ -1195,6 +2171,67 @@ private actor ConfigurationSaveGate {
     func releaseFirstSave() {
         firstSaveContinuation?.resume()
         firstSaveContinuation = nil
+    }
+}
+
+/// 1 - Name: Catalog fixture error.
+/// 2 - Description: Represents deterministic application-discovery failure.
+/// 3 - Assumptions: Discovery failures are distinct from successful empty results.
+/// 4 - Expectations: Tests can verify fail-open catalog recovery state.
+private enum CatalogFixtureError: Error {
+    case discoveryFailed
+}
+
+/// 1 - Name: Catalog application fixture.
+/// 2 - Description: Builds a display-ready application descriptor without touching an installed app.
+/// 3 - Assumptions: Catalog reconciliation consumes immutable metadata and does not control candidates.
+/// 4 - Expectations: Tests can model duplicate bundle identifiers at distinct paths.
+@MainActor
+private func catalogApplication(
+    named name: String,
+    bundleIdentifier: String,
+    path: String
+) -> CatalogApplication {
+    CatalogApplication(
+        id: path,
+        selection: SelectedApplication(
+            bundleIdentifier: bundleIdentifier,
+            bundlePath: path,
+            displayName: name
+        ),
+        icon: NSImage(size: NSSize(width: 16, height: 16))
+    )
+}
+
+/// 1 - Name: Notes-load completion helper.
+/// 2 - Description: Waits for the independently owned notes bootstrap task to publish a terminal health state.
+/// 3 - Assumptions: Isolated test repositories complete reads without external blocking.
+/// 4 - Expectations: Tests observe available or unavailable notes state without timing sleeps.
+@MainActor
+private func waitForNotesLoad(_ model: AppModel) async {
+    while model.notesHealth == .loading {
+        await Task.yield()
+    }
+}
+
+/// 1 - Name: Deterministic elapsed clock.
+/// 2 - Description: Advances monotonic test time whenever production code requests a sleep.
+/// 3 - Assumptions: Tests execute clock access on the main actor.
+/// 4 - Expectations: Grace and shutdown bounds can be tested without wall-clock delays.
+@MainActor
+private final class TestElapsedClock {
+    private var instant = ContinuousClock().now
+    private(set) var totalSlept: Duration = .zero
+
+    var clock: ElapsedClock {
+        ElapsedClock(
+            now: { [self] in instant },
+            sleep: { [self] duration in
+                totalSlept += duration
+                instant = instant.advanced(by: duration)
+                await Task.yield()
+            }
+        )
     }
 }
 

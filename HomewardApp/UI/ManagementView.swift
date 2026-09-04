@@ -1,8 +1,11 @@
+import AppKit
 import SwiftUI
 
 struct ManagementView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var navigation: HomewardNavigationState
+    @Environment(\.accessibilityReduceTransparency)
+    private var reduceTransparency
 
     var body: some View {
         NavigationSplitView {
@@ -10,10 +13,27 @@ struct ManagementView: View {
                 sidebarHeader
 
                 List(HomewardRoute.allCases, selection: $navigation.selection) { destination in
-                    Label(destination.rawValue, systemImage: destination.symbol)
-                        .font(.body.weight(.medium))
-                        .padding(.vertical, HomewardSpacing.xSmall)
-                        .tag(destination)
+                    HStack {
+                        Label(
+                            destination.rawValue,
+                            systemImage: destination.symbol
+                        )
+                        if destination == .savedThoughts,
+                           model.availableNotesCount > 0 {
+                            Spacer()
+                            Text("\(model.availableNotesCount)")
+                                .monospacedDigit()
+                                .accessibilityLabel(
+                                    "\(model.availableNotesCount) saved thoughts"
+                                )
+                        }
+                    }
+                    .font(.body.weight(.medium))
+                    .padding(.vertical, HomewardSpacing.xSmall)
+                    .tag(destination)
+                    .accessibilityIdentifier(
+                        "navigation.\(destination.rawValue)"
+                    )
                 }
                 .listStyle(.sidebar)
                 .scrollContentBackground(.hidden)
@@ -22,7 +42,11 @@ struct ManagementView: View {
 
                 sidebarStatus
             }
-            .background(.thinMaterial)
+            .background(
+                reduceTransparency
+                    ? AnyShapeStyle(Color(nsColor: .windowBackgroundColor))
+                    : AnyShapeStyle(.thinMaterial)
+            )
             .navigationSplitViewColumnWidth(min: 184, ideal: 208, max: 240)
         } detail: {
             destinationView(navigation.selection ?? .today)
@@ -64,11 +88,14 @@ struct ManagementView: View {
     private var sidebarStatus: some View {
         VStack(alignment: .leading, spacing: HomewardSpacing.small) {
             HomewardStatusLabel(
-                title: scheduleStatus.title,
+                title: model.presentationSnapshot.title,
                 symbol: scheduleStatus.symbol,
                 tone: scheduleStatus.tone
             )
-            Text(SchedulePresentation.transitionText(for: model.resolvedSchedule))
+            Text(
+                model.presentationSnapshot.transitionText
+                    ?? "No transition is available"
+            )
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)

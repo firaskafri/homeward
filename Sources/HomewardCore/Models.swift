@@ -174,18 +174,22 @@ public struct WarningPreferences: Codable, Equatable, Sendable {
 
 public struct WarningActionContext: Equatable, Sendable {
     public let cutoff: Date
+    public let policyGeneration: UInt64
 
-    public init(cutoff: Date) {
+    public init(cutoff: Date, policyGeneration: UInt64) {
         self.cutoff = cutoff
+        self.policyGeneration = policyGeneration
     }
 
     public func isCurrent(
         for schedule: ResolvedSchedule,
+        policyGeneration currentPolicyGeneration: UInt64,
         at date: Date
     ) -> Bool {
         cutoff.timeIntervalSinceReferenceDate.isFinite
             && date.timeIntervalSinceReferenceDate.isFinite
             && date < cutoff
+            && policyGeneration == currentPolicyGeneration
             && schedule.isAvailable
             && schedule.nextTransition
                 == ScheduleTransition(date: cutoff, cause: .workWindowEnds)
@@ -470,6 +474,18 @@ public struct TomorrowNote: Codable, Equatable, Identifiable, Sendable {
             throw ValidationError.invalidIntervalIdentifier
         }
         lastPresentedIntervalID = intervalID
+    }
+
+    public mutating func restorePresentation(
+        from previousValue: TomorrowNote
+    ) throws {
+        guard id == previousValue.id,
+              text == previousValue.text,
+              createdAt == previousValue.createdAt else {
+            throw ConfigurationError.noteNotFound(previousValue.id)
+        }
+        lastPresentedIntervalID = previousValue.lastPresentedIntervalID
+        try validate()
     }
 
     public init(from decoder: Decoder) throws {

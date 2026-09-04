@@ -112,6 +112,54 @@ struct AtomicFileStoreTests {
         #expect(try await store.load() == replacement)
         #expect(try await store.loadRecoveryCandidate() == first)
     }
+
+    /// 1 - Name: Failed recovery replacement preserves readable state.
+    /// 2 - Description: Injects a failure after replacement data is staged but before the active file is exchanged.
+    /// 3 - Assumptions: Recovery staging occurs beside the active file and cleanup runs on every exit.
+    /// 4 - Expectations: The readable primary and backup remain unchanged and no staged artifact survives.
+    @Test
+    func failedRecoveryReplacementPreservesReadableState() async throws {
+        let fixture = TemporaryStoreFixture()
+        defer { fixture.remove() }
+        let initialStore = AtomicFileStore<NotesDocument>(
+            fileURL: fixture.fileURL
+        )
+        let first = try NotesDocument(notes: [TomorrowNote(text: "First")])
+        let second = try NotesDocument(notes: [TomorrowNote(text: "Second")])
+        let replacement = try NotesDocument(
+            notes: [TomorrowNote(text: "Replacement")]
+        )
+        try await initialStore.save(first)
+        try await initialStore.save(second)
+        let failingStore = AtomicFileStore<NotesDocument>(
+            fileURL: fixture.fileURL,
+            beforeRecoveryReplacement: {
+                throw StoreFixtureError.replacementInterrupted
+            }
+        )
+
+        await #expect(throws: StoreFixtureError.replacementInterrupted) {
+            try await failingStore.replaceDuringRecovery(replacement)
+        }
+
+        #expect(try await initialStore.load() == second)
+        #expect(try await initialStore.loadRecoveryCandidate() == first)
+        let files = try FileManager.default.contentsOfDirectory(
+            at: fixture.directoryURL,
+            includingPropertiesForKeys: nil
+        )
+        #expect(!files.contains {
+            $0.lastPathComponent.contains(".staged-")
+        })
+    }
+}
+
+/// 1 - Name: Atomic-store fixture error.
+/// 2 - Description: Models interruption immediately before a recovery file exchange.
+/// 3 - Assumptions: The injected hook runs only after staged data is durable.
+/// 4 - Expectations: Tests can assert transactional rollback without filesystem races.
+private enum StoreFixtureError: Error {
+    case replacementInterrupted
 }
 
 private struct TemporaryStoreFixture {

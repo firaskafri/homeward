@@ -6,6 +6,7 @@ xcuserdata/
 DerivedData/
 *.xcresult
 *.xcarchive
+*.profraw
 dist/
 .swiftpm/configuration/registries.json
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata

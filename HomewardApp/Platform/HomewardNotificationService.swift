@@ -22,9 +22,41 @@ final class HomewardNotificationService {
     static let startClosingAction = "HOMEWARD_START_CLOSING"
     static let extendAction = "HOMEWARD_EXTEND_TEN"
     static let warningCategory = "HOMEWARD_WARNING"
-    private static let warningIdentifierPrefix = "homeward-warning-"
+    nonisolated private static let warningIdentifierPrefix =
+        "homeward-warning-"
+    nonisolated private static let statusIdentifierPrefix =
+        "homeward-status-"
     nonisolated private static let warningCutoffKey =
         "homeward-warning-cutoff"
+    nonisolated private static let policyGenerationKey =
+        "homeward-policy-generation"
+
+    enum StatusEvent: Equatable {
+        case blockedLaunch(nextAvailability: Date?)
+        case closingComplete(nextAvailability: Date?)
+
+        var title: String {
+            switch self {
+            case .blockedLaunch:
+                "A work app was closed"
+            case .closingComplete:
+                "Work is closed"
+            }
+        }
+
+        var body: String {
+            switch self {
+            case let .blockedLaunch(nextAvailability):
+                nextAvailability.map {
+                    "Available \($0.formatted(date: .abbreviated, time: .shortened))."
+                } ?? "No work window is scheduled."
+            case let .closingComplete(nextAvailability):
+                nextAvailability.map {
+                    "Selected apps are unavailable until \($0.formatted(date: .abbreviated, time: .shortened))."
+                } ?? "No work window is scheduled."
+            }
+        }
+    }
 
     struct Client {
         let authorizationStatus: () async -> AuthorizationStatus
@@ -44,6 +76,7 @@ final class HomewardNotificationService {
     private var started = false
     private var lifecycleGeneration = 0
     private var warningOperation = 0
+    private var statusOperation = 0
 
     init(
         center: UNUserNotificationCenter = .current(),
@@ -132,6 +165,7 @@ final class HomewardNotificationService {
     func stop() {
         lifecycleGeneration &+= 1
         warningOperation &+= 1
+        statusOperation &+= 1
         started = false
         responseRouter.handler = nil
         client.setDelegate(nil)
@@ -147,6 +181,7 @@ final class HomewardNotificationService {
 
     func replaceWarnings(
         cutoff: Date,
+        policyGeneration: UInt64,
         preferences: HomewardCore.WarningPreferences,
         includeExtension: Bool
     ) async throws {
@@ -191,7 +226,10 @@ final class HomewardNotificationService {
             )
             content.categoryIdentifier = Self.warningCategory
             content.interruptionLevel = .active
-            content.userInfo = Self.warningUserInfo(cutoff: cutoff)
+            content.userInfo = Self.warningUserInfo(
+                cutoff: cutoff,
+                policyGeneration: policyGeneration
+            )
 
             let components = Calendar.autoupdatingCurrent.dateComponents(
                 [.year, .month, .day, .hour, .minute, .second],
@@ -224,39 +262,49 @@ final class HomewardNotificationService {
     }
 
     nonisolated static func warningUserInfo(
-        cutoff: Date
+        cutoff: Date,
+        policyGeneration: UInt64
     ) -> [AnyHashable: Any] {
-        [warningCutoffKey: cutoff.timeIntervalSince1970]
+        [
+            warningCutoffKey: cutoff.timeIntervalSince1970,
+            policyGenerationKey: String(policyGeneration),
+        ]
     }
 
     nonisolated static func warningActionContext(
         from userInfo: [AnyHashable: Any]
     ) -> WarningActionContext? {
         guard let timestamp = userInfo[warningCutoffKey] as? TimeInterval,
-              timestamp.isFinite else {
+              timestamp.isFinite,
+              let generationText = userInfo[policyGenerationKey] as? String,
+              let policyGeneration = UInt64(generationText) else {
             return nil
         }
         return WarningActionContext(
-            cutoff: Date(timeIntervalSince1970: timestamp)
+            cutoff: Date(timeIntervalSince1970: timestamp),
+            policyGeneration: policyGeneration
         )
     }
 
-    func postStatus(title: String, body: String) async throws {
+    func post(_ event: StatusEvent) async throws {
         guard started else {
             return
         }
         let generation = lifecycleGeneration
+        let operation = statusOperation
         let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
+        content.title = event.title
+        content.body = event.body
         content.interruptionLevel = .passive
         let request = UNNotificationRequest(
-            identifier: "homeward-status-\(UUID().uuidString)",
+            identifier: Self.statusIdentifierPrefix + UUID().uuidString,
             content: content,
             trigger: nil
         )
         try await client.add(request)
-        guard started, generation == lifecycleGeneration else {
+        guard started,
+              generation == lifecycleGeneration,
+              operation == statusOperation else {
             client.removePending([request.identifier])
             client.removeDelivered([request.identifier])
             return
@@ -266,6 +314,26 @@ final class HomewardNotificationService {
     func removeWarnings() async {
         warningOperation &+= 1
         _ = await removeWarnings(ifCurrent: warningOperation)
+    }
+
+    func removeAllOwned() async {
+        warningOperation &+= 1
+        statusOperation &+= 1
+        let warningOperation = warningOperation
+        let statusOperation = statusOperation
+        let pending = await client.pendingWarningIdentifiers()
+        guard warningOperation == self.warningOperation,
+              statusOperation == self.statusOperation else {
+            return
+        }
+        let delivered = await client.deliveredWarningIdentifiers()
+        guard warningOperation == self.warningOperation,
+              statusOperation == self.statusOperation else {
+            return
+        }
+        let identifiers = Set(pending + delivered).filter(Self.isOwned)
+        client.removePending(Array(identifiers))
+        client.removeDelivered(Array(identifiers))
     }
 
     private func removeWarnings(ifCurrent operation: Int) async -> Bool {
@@ -286,15 +354,22 @@ final class HomewardNotificationService {
         return true
     }
 
+    nonisolated private static func isOwned(_ identifier: String) -> Bool {
+        identifier.hasPrefix(warningIdentifierPrefix)
+            || identifier.hasPrefix(statusIdentifierPrefix)
+    }
+
     private func registerCategories(includeExtension: Bool) {
         let startClosing = UNNotificationAction(
             identifier: Self.startClosingAction,
-            title: "Start Closing Now…",
+            title: "End Work Now…",
             options: [.foreground]
         )
         let extend = UNNotificationAction(
             identifier: Self.extendAction,
-            title: "Extend \(HomewardPolicy.gentleShortcutExtensionMinutes) Minutes",
+            title:
+                "Make All Work Apps Available for "
+                + "\(HomewardPolicy.gentleShortcutExtensionMinutes) Minutes…",
             options: [.foreground]
         )
         let actions = includeExtension ? [startClosing, extend] : [startClosing]
@@ -312,7 +387,7 @@ final class HomewardNotificationService {
         cutoff: Date
     ) -> String {
         let time = cutoff.formatted(date: .omitted, time: .shortened)
-        let closingStatement = "Selected work apps become unavailable at \(time)."
+        let closingStatement = "Work apps will close at \(time)."
         return switch leadTime {
         case .fifteenMinute:
             "Finish your current thought. \(closingStatement)"

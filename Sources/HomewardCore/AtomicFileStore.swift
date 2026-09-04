@@ -12,11 +12,16 @@ public actor AtomicFileStore<Value: Codable & Sendable> {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let fileManager: FileManager
+    private let beforeRecoveryReplacement: @Sendable () throws -> Void
 
-    public init(fileURL: URL) {
+    public init(
+        fileURL: URL,
+        beforeRecoveryReplacement: @escaping @Sendable () throws -> Void = {}
+    ) {
         self.fileURL = fileURL
         self.backupURL = fileURL.appendingPathExtension(Self.backupExtension)
         self.fileManager = FileManager()
+        self.beforeRecoveryReplacement = beforeRecoveryReplacement
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -54,18 +59,30 @@ public actor AtomicFileStore<Value: Codable & Sendable> {
         try createSecureDirectoryIfNeeded(directory)
 
         let data = try encodedAndVerified(value)
+        let stagedURL = fileURL.appendingPathExtension(
+            "staged-\(UUID().uuidString)"
+        )
+        try write(data, to: stagedURL)
+        defer {
+            try? fileManager.removeItem(at: stagedURL)
+        }
+        try beforeRecoveryReplacement()
 
         if fileManager.fileExists(atPath: fileURL.path) {
+            try setOwnerOnlyFilePermissions(at: fileURL)
+            let quarantineName =
+                fileURL.lastPathComponent + "."
+                + Self.quarantinePrefix + UUID().uuidString
             try removeQuarantinedFiles()
-            let quarantineURL = fileURL
-                .appendingPathExtension(
-                    Self.quarantinePrefix + UUID().uuidString
-                )
-            try fileManager.moveItem(at: fileURL, to: quarantineURL)
-            try setOwnerOnlyFilePermissions(at: quarantineURL)
+            _ = try fileManager.replaceItemAt(
+                fileURL,
+                withItemAt: stagedURL,
+                backupItemName: quarantineName,
+                options: [.usingNewMetadataOnly]
+            )
+        } else {
+            try fileManager.moveItem(at: stagedURL, to: fileURL)
         }
-
-        try write(data, to: fileURL)
     }
 
     public func delete() throws {

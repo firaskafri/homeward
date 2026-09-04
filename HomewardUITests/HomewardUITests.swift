@@ -1,24 +1,21 @@
 import XCTest
 
 // 1 - Name: Homeward UI test file.
-// 2 - Description: Verifies first-launch setup and completed-setup reopening without interacting with real work applications.
-// 3 - Assumptions: UI tests use isolated configuration storage and never enable enforcement.
-// 4 - Expectations: Onboarding opens initially, while a completed setup stays hidden until a bounded reopen request.
+// 2 - Description: Verifies startup, recovery, readiness, and primary navigation with isolated scenario fixtures.
+// 3 - Assumptions: UI scenarios use temporary storage, inert platform adapters, and preview-only application identities.
+// 4 - Expectations: Critical states remain reachable without selecting, launching, or controlling any installed user application.
 
 /// 1 - Name: Homeward UI test suite.
-/// 2 - Description: Exercises safe first-launch and completed-setup navigation through the application UI.
-/// 3 - Assumptions: Each test controls its configuration through isolated storage.
-/// 4 - Expectations: Onboarding opens automatically and Launch Services can reopen a suppressed Today window.
+/// 2 - Description: Exercises safe launch, retry, recovery separation, installation gating, and long-content navigation.
+/// 3 - Assumptions: Each test launches one named scenario whose files and runtime adapters are isolated from user state.
+/// 4 - Expectations: Native surfaces expose the expected state while automated lifecycle control remains fixture-only.
 @MainActor
 final class HomewardUITests: XCTestCase {
-    private var storageDirectory: URL?
+    private var fixture: IsolatedApplicationFixture?
 
     override func tearDown() async throws {
-        if let storageDirectory,
-           FileManager.default.fileExists(atPath: storageDirectory.path) {
-            try FileManager.default.removeItem(at: storageDirectory)
-        }
-        storageDirectory = nil
+        try fixture?.remove()
+        fixture = nil
     }
 
     /// 1 - Name: First-launch onboarding.
@@ -26,88 +23,192 @@ final class HomewardUITests: XCTestCase {
     /// 3 - Assumptions: Storage is empty and the standard defaults override starts setup at step one.
     /// 4 - Expectations: Homeward exposes its status item and opens the first onboarding step.
     func testFirstLaunchShowsOnboarding() throws {
-        let app = try launchIsolatedApp(resetOnboardingStep: true)
+        let app = try launch(.firstLaunch)
         defer { app.terminate() }
 
         let statusItem = app.menuBars.statusItems.firstMatch
-        XCTAssertTrue(statusItem.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            statusItem.waitForExistence(timeout: UITestPolicy.launchTimeout)
+        )
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: UITestPolicy.launchTimeout))
         XCTAssertTrue(
             app.descendants(matching: .any)["onboarding.step.1"]
-                .waitForExistence(timeout: 5)
+                .waitForExistence(timeout: UITestPolicy.launchTimeout)
         )
     }
 
     /// 1 - Name: Completed-setup reopen.
-    /// 2 - Description: Launches a deterministic completed setup, proves its Today window is suppressed, and requests a reopen.
+    /// 2 - Description: Launches a completed setup and sends a bounded Launch Services reopen request.
     /// 3 - Assumptions: Preview-only application identities cannot match or close a real running process.
-    /// 4 - Expectations: No window exists before reopening, then Launch Services makes Today reachable.
+    /// 4 - Expectations: The window starts suppressed and reopening makes Today reachable.
     func testCompletedSetupReopensToday() throws {
-        let app = try launchIsolatedApp(configurationFixture: "configuration")
+        let app = try launch(.completedSetup)
         defer { app.terminate() }
 
         let window = app.windows.firstMatch
-        let statusItem = app.menuBars.statusItems.firstMatch
-        XCTAssertTrue(statusItem.waitForExistence(timeout: 5))
-        let ready = expectation(
-            for: NSPredicate(
-                format: "label == %@",
-                "Homeward, Work is closed"
-            ),
-            evaluatedWith: statusItem
-        )
-        wait(for: [ready], timeout: 5)
         XCTAssertFalse(window.waitForExistence(timeout: 1))
-        try reopenHomeward()
+        let statusItem = app.menuBars.statusItems.firstMatch
+        XCTAssertTrue(
+            statusItem.waitForExistence(timeout: UITestPolicy.launchTimeout)
+        )
+        try reopenHomeward(app)
 
-        XCTAssertTrue(window.waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            window.waitForExistence(timeout: UITestPolicy.launchTimeout)
+        )
         XCTAssertTrue(
             app.descendants(matching: .any)["overview.view"]
-                .waitForExistence(timeout: 5)
+                .waitForExistence(timeout: UITestPolicy.launchTimeout)
         )
     }
 
-    private func launchIsolatedApp(
-        configurationFixture: String? = nil,
-        resetOnboardingStep: Bool = false
-    ) throws -> XCUIApplication {
-        let app = XCUIApplication()
-        app.terminate()
-        let directory = FileManager.default
-            .temporaryDirectory
-            .appendingPathComponent("HomewardUITests-\(UUID().uuidString)")
-        storageDirectory = directory
-        if let configurationFixture {
-            try FileManager.default.createDirectory(
-                at: directory,
-                withIntermediateDirectories: true
-            )
-            let bundle = Bundle(for: Self.self)
-            guard let fixtureURL = bundle.url(
-                forResource: configurationFixture,
-                withExtension: "json"
-            ) else {
-                throw FixtureError.missingConfiguration
-            }
-            try FileManager.default.copyItem(
-                at: fixtureURL,
-                to: directory.appendingPathComponent("configuration.json")
-            )
-        }
-        if resetOnboardingStep {
-            app.launchArguments += [
-                "-\(UITestPolicy.onboardingStepPreference)",
-                "0",
-            ]
-        }
-        app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
-        app.launchEnvironment["HOMEWARD_STORAGE_DIRECTORY"] = directory.path
-        app.launchEnvironment[UITestPolicy.runtimeIsolationEnvironment] = "1"
-        app.launch()
-        return app
+    /// 1 - Name: Delayed-startup retry.
+    /// 2 - Description: Holds the first isolated catalog scan past the startup threshold and retries bootstrap.
+    /// 3 - Assumptions: The scenario fixture releases subsequent catalog scans without touching installed applications.
+    /// 4 - Expectations: Homeward states that closing has not started, offers Retry, and reaches onboarding after retry.
+    func testDelayedStartupExplainsSafetyAndRetries() throws {
+        let app = try launch(.delayedStartupRetry)
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["startup.delayed"]
+                .waitForExistence(timeout: UITestPolicy.launchTimeout)
+        )
+        XCTAssertTrue(
+            app.staticTexts[
+                "This is taking longer than expected. App closing has not started."
+            ].exists
+        )
+        let retry = app.buttons["Retry"]
+        XCTAssertTrue(retry.exists)
+        retry.click()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["onboarding.step.1"]
+                .waitForExistence(timeout: UITestPolicy.launchTimeout)
+        )
     }
 
-    private func reopenHomeward() throws {
+    /// 1 - Name: Configuration-recovery isolation.
+    /// 2 - Description: Launches with corrupt settings through an isolated storage scenario.
+    /// 3 - Assumptions: No configuration can be trusted and no catalog application can be controlled.
+    /// 4 - Expectations: Recovery supersedes schedule UI and exposes only settings-recovery actions.
+    func testConfigurationRecoverySupersedesScheduleState() throws {
+        let app = try launch(.configurationRecovery)
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["recovery.view"]
+                .waitForExistence(timeout: UITestPolicy.launchTimeout)
+        )
+        XCTAssertTrue(app.staticTexts["App closing is paused"].exists)
+        XCTAssertTrue(app.buttons["Retry"].exists)
+        XCTAssertTrue(app.buttons["Restore Previous Settings…"].exists)
+        XCTAssertTrue(app.buttons["Reset Setup…"].exists)
+        XCTAssertFalse(app.staticTexts["Work available"].exists)
+        XCTAssertFalse(app.staticTexts["Work is closed"].exists)
+    }
+
+    /// 1 - Name: Notes-recovery isolation.
+    /// 2 - Description: Opens Saved Thoughts with valid completed settings and corrupt notes storage.
+    /// 3 - Assumptions: The all-day fixture keeps thought review eligible while catalog and system integrations remain inert.
+    /// 4 - Expectations: Runtime stays ready and Saved Thoughts offers notes-only recovery instead of configuration recovery.
+    func testNotesRecoveryRemainsSeparateFromConfiguration() throws {
+        let app = try launch(.notesRecovery)
+        defer { app.terminate() }
+        try reopenHomeward(app)
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["management.window"]
+                .waitForExistence(timeout: UITestPolicy.launchTimeout)
+        )
+        app.descendants(matching: .any)["navigation.Saved Thoughts"].click()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["notes.review"]
+                .waitForExistence(timeout: UITestPolicy.launchTimeout)
+        )
+        XCTAssertTrue(
+            app.staticTexts["Saved thoughts are unavailable"].exists
+        )
+        XCTAssertTrue(app.buttons["Retry"].exists)
+        XCTAssertTrue(app.buttons["Reset Saved Thoughts…"].exists)
+        XCTAssertFalse(
+            app.buttons["Restore Previous Settings…"].exists
+        )
+    }
+
+    /// 1 - Name: Installation-location login gating.
+    /// 2 - Description: Opens Settings with the isolated outside-Applications installation scenario.
+    /// 3 - Assumptions: Login-item and Finder adapters are inert and no action button is invoked.
+    /// 4 - Expectations: Start at Login is replaced by move guidance, Show in Finder, and Check Again.
+    func testOutsideApplicationsShowsStartAtLoginGate() throws {
+        let app = try launch(.outsideApplications)
+        defer { app.terminate() }
+        try reopenHomeward(app)
+        app.activate()
+        app.typeKey(",", modifierFlags: .command)
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["general.settings"]
+                .waitForExistence(timeout: UITestPolicy.launchTimeout)
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["settings.installationReason"]
+                .exists
+        )
+        XCTAssertTrue(app.buttons["Show in Finder"].exists)
+        XCTAssertTrue(app.buttons["Check Again"].exists)
+    }
+
+    /// 1 - Name: Long-content destination reachability.
+    /// 2 - Description: Navigates the primary management destinations with a deliberately long preview-only application name.
+    /// 3 - Assumptions: The standard application window uses its minimum supported layout and no picker action is invoked.
+    /// 4 - Expectations: Today, Schedule, Work Apps, Closing, and Saved Thoughts remain reachable.
+    func testLongContentKeepsPrimaryDestinationsReachable() throws {
+        let app = try launch(.longContent)
+        defer { app.terminate() }
+        try reopenHomeward(app)
+
+        let destinations: [(String, String)] = [
+            ("Today", "overview.view"),
+            ("Schedule", "schedule.view"),
+            ("Work Apps", "apps.view"),
+            ("Closing & Warnings", "closing.settings"),
+            ("Saved Thoughts", "notes.review"),
+        ]
+        for (label, identifier) in destinations {
+            app.descendants(matching: .any)["navigation.\(label)"].click()
+            XCTAssertTrue(
+                app.descendants(matching: .any)[identifier]
+                    .waitForExistence(timeout: UITestPolicy.navigationTimeout),
+                "\(label) was not reachable."
+            )
+        }
+
+        app.descendants(matching: .any)["navigation.Work Apps"].click()
+        XCTAssertTrue(
+            app.staticTexts["A Deliberately Long Work Application Name"]
+                .waitForExistence(timeout: UITestPolicy.navigationTimeout)
+        )
+    }
+
+    private func launch(
+        _ scenario: IsolatedApplicationFixture.Scenario
+    ) throws -> XCUIApplication {
+        let fixture = try IsolatedApplicationFixture(
+            scenario: scenario,
+            bundle: Bundle(for: Self.self)
+        )
+        self.fixture = fixture
+        return fixture.launch()
+    }
+
+    private func reopenHomeward(_ app: XCUIApplication) throws {
+        XCTAssertTrue(
+            app.menuBars.statusItems.firstMatch
+                .waitForExistence(timeout: UITestPolicy.launchTimeout)
+        )
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = ["-b", "com.firaskafri.homeward"]
@@ -126,16 +227,161 @@ final class HomewardUITests: XCTestCase {
             throw FixtureError.reopenFailed(process.terminationStatus)
         }
     }
+
+}
+
+/// 1 - Name: Isolated UI application fixture.
+/// 2 - Description: Maps named UI scenarios to temporary repository files and inert runtime adapters.
+/// 3 - Assumptions: Bundled JSON resources contain preview-only identities and the application enforces UI-test isolation.
+/// 4 - Expectations: Every launch receives unique storage and one scenario value, then removes all generated files.
+@MainActor
+private final class IsolatedApplicationFixture {
+    enum Scenario {
+        case firstLaunch
+        case completedSetup
+        case delayedStartupRetry
+        case configurationRecovery
+        case notesRecovery
+        case outsideApplications
+        case longContent
+
+        var configurationResource: String? {
+            switch self {
+            case .firstLaunch, .delayedStartupRetry:
+                nil
+            case .completedSetup, .outsideApplications:
+                "configuration"
+            case .configurationRecovery:
+                "corrupt"
+            case .notesRecovery, .longContent:
+                "configuration-available"
+            }
+        }
+
+        var notesResource: String? {
+            switch self {
+            case .notesRecovery:
+                "corrupt"
+            default:
+                nil
+            }
+        }
+
+        var runtimeValue: String {
+            switch self {
+            case .delayedStartupRetry:
+                "delayedStartupRetry"
+            case .outsideApplications:
+                "outsideApplications"
+            default:
+                "standard"
+            }
+        }
+
+        var resetsOnboardingStep: Bool {
+            self == .firstLaunch || self == .delayedStartupRetry
+        }
+    }
+
+    private let scenario: Scenario
+    private let directory: URL
+
+    init(scenario: Scenario, bundle: Bundle) throws {
+        self.scenario = scenario
+        directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("HomewardUITests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        try Self.copy(
+            resource: scenario.configurationResource,
+            to: "configuration.json",
+            bundle: bundle,
+            directory: directory
+        )
+        try Self.copy(
+            resource: scenario.notesResource,
+            to: "notes.json",
+            bundle: bundle,
+            directory: directory
+        )
+    }
+
+    func launch() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.terminate()
+        waitForTermination(of: app)
+        if scenario.resetsOnboardingStep {
+            app.launchArguments += [
+                "-\(UITestPolicy.onboardingStepPreference)",
+                "0",
+            ]
+        }
+        app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+        app.launchEnvironment["HOMEWARD_STORAGE_DIRECTORY"] = directory.path
+        app.launchEnvironment[UITestPolicy.runtimeIsolationEnvironment] = "1"
+        app.launchEnvironment[UITestPolicy.scenarioEnvironment] =
+            scenario.runtimeValue
+        app.launch()
+        application = app
+        return app
+    }
+
+    func remove() throws {
+        if let application {
+            application.terminate()
+            waitForTermination(of: application)
+        }
+        if FileManager.default.fileExists(atPath: directory.path) {
+            try FileManager.default.removeItem(at: directory)
+        }
+    }
+
+    private var application: XCUIApplication?
+
+    private func waitForTermination(of app: XCUIApplication) {
+        let deadline = Date().addingTimeInterval(
+            UITestPolicy.processTerminationTimeout
+        )
+        while app.state != .notRunning && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+    }
+
+    private static func copy(
+        resource: String?,
+        to destination: String,
+        bundle: Bundle,
+        directory: URL
+    ) throws {
+        guard let resource else {
+            return
+        }
+        guard let resourceURL = bundle.url(
+            forResource: resource,
+            withExtension: "json"
+        ) else {
+            throw FixtureError.missingResource(resource)
+        }
+        try FileManager.default.copyItem(
+            at: resourceURL,
+            to: directory.appendingPathComponent(destination)
+        )
+    }
 }
 
 private enum FixtureError: Error {
-    case missingConfiguration
+    case missingResource(String)
     case reopenFailed(Int32)
     case reopenTimedOut
 }
 
 private enum UITestPolicy {
+    static let launchTimeout: TimeInterval = 15
+    static let navigationTimeout: TimeInterval = 5
     static let onboardingStepPreference = "onboardingStep"
     static let runtimeIsolationEnvironment = "HOMEWARD_UI_TESTING"
+    static let scenarioEnvironment = "HOMEWARD_UI_TEST_SCENARIO"
     static let processTerminationTimeout: TimeInterval = 5
 }

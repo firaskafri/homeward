@@ -12,16 +12,30 @@ struct TodayView: View {
     }
 
     @ObservedObject var model: AppModel
-    @State private var showEndWorkConfirmation = false
     @State private var activeSheet: ActiveSheet?
     @State private var showTakeDayOffConfirmation = false
     @State private var detailsAreExpanded = false
+    @FocusState private var primaryActionFocused: Bool
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: HomewardSpacing.xLarge) {
                 stateHero
+                if let explanation = model.todayExplanation {
+                    HomewardCard {
+                        HStack(alignment: .top) {
+                            Text(explanation)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer()
+                            Button("Dismiss") {
+                                model.clearTodayExplanation()
+                            }
+                        }
+                    }
+                    .accessibilityIdentifier("overview.explanation")
+                }
                 if let lastError = model.lastError {
                     InlineErrorView(message: lastError) {
                         model.clearError()
@@ -38,15 +52,26 @@ struct TodayView: View {
         }
         .navigationTitle("Today")
         .confirmationDialog(
-            "End work now?",
-            isPresented: $showEndWorkConfirmation
+            model.pendingPolicyConfirmation?.title ?? "",
+            isPresented: Binding(
+                get: { model.pendingPolicyConfirmation != nil },
+                set: { if !$0 { model.cancelPolicyConfirmation() } }
+            )
         ) {
-            Button("End Work Now", role: .destructive) {
-                Task { await model.endWorkNow() }
+            if let intent = model.pendingPolicyConfirmation {
+                Button(
+                    intent.actionTitle
+                ) {
+                    Task { await model.confirmPolicyAction() }
+                }
             }
-            Button("Cancel", role: .cancel) {}
+            Button("Cancel", role: .cancel) {
+                model.cancelPolicyConfirmation()
+            }
         } message: {
-            Text("Homeward will begin the configured closing flow for selected work apps.")
+            if let intent = model.pendingPolicyConfirmation {
+                Text(intent.message(closeMode: model.configuration.closeMode))
+            }
         }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
@@ -76,66 +101,46 @@ struct TodayView: View {
             Text("Homeward will apply the configured closing behavior now and keep work apps unavailable through today.")
         }
         .accessibilityIdentifier("overview.view")
+        .onChange(of: model.isSessionActive) { _, isActive in
+            if !isActive {
+                activeSheet = nil
+            }
+        }
+        .onAppear {
+            primaryActionFocused = true
+        }
     }
 
     private var stateHero: some View {
         HomewardCard(padding: HomewardSpacing.xLarge) {
             VStack(alignment: .leading, spacing: HomewardSpacing.large) {
-                HStack(alignment: .top, spacing: HomewardSpacing.large) {
-                    ZStack {
-                        Circle()
-                            .fill(stateTone.color.opacity(0.14))
-                        Image(systemName: stateSymbol)
-                            .font(.system(size: 24, weight: .semibold))
-                            .foregroundStyle(stateTone.color)
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: HomewardSpacing.large) {
+                        stateIdentity
+                        Spacer(minLength: HomewardSpacing.medium)
+                        stateBadge
                     }
-                    .frame(width: 52, height: 52)
-                    .accessibilityHidden(true)
-
-                    VStack(alignment: .leading, spacing: HomewardSpacing.xSmall) {
-                        Text("TODAY")
-                            .font(.caption.weight(.semibold))
-                            .tracking(0.8)
-                            .foregroundStyle(.secondary)
-                        Text(stateTitle)
-                            .font(.system(.largeTitle, design: .rounded, weight: .semibold))
-                            .foregroundStyle(.primary)
-                        Text(stateDescription)
-                            .font(.body)
-                            .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: HomewardSpacing.medium) {
+                        stateIdentity
+                        stateBadge
                     }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("overview.state")
-
-                    Spacer(minLength: HomewardSpacing.medium)
-
-                    HomewardStatusLabel(
-                        title: stateBadgeTitle,
-                        symbol: stateSymbol,
-                        tone: stateTone
-                    )
                 }
 
                 Divider()
 
-                HStack(alignment: .center, spacing: HomewardSpacing.xLarge) {
-                    HomewardApplicationSummary(
-                        applications: model.configuration.selectedApplications,
-                        iconsBySelectionKey: applicationIcons
-                    )
-
-                    Spacer(minLength: HomewardSpacing.large)
-
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("NEXT TRANSITION")
-                            .font(.caption2.weight(.semibold))
-                            .tracking(0.6)
-                            .foregroundStyle(.secondary)
-                        Text(transitionText)
-                            .font(.callout.weight(.medium))
-                            .multilineTextAlignment(.trailing)
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .center, spacing: HomewardSpacing.xLarge) {
+                        applicationSummary
+                        Spacer(minLength: HomewardSpacing.large)
+                        transitionSummary
                     }
-                    .accessibilityElement(children: .combine)
+                    VStack(
+                        alignment: .leading,
+                        spacing: HomewardSpacing.medium
+                    ) {
+                        applicationSummary
+                        transitionSummary
+                    }
                 }
             }
         }
@@ -149,6 +154,64 @@ struct TodayView: View {
                 lineWidth: colorSchemeContrast == .increased ? 2 : 1
             )
         }
+    }
+
+    private var stateIdentity: some View {
+        HStack(alignment: .top, spacing: HomewardSpacing.large) {
+            ZStack {
+                Circle()
+                    .fill(stateTone.color.opacity(0.14))
+                Image(systemName: stateSymbol)
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(stateTone.color)
+            }
+            .frame(width: 52, height: 52)
+            .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: HomewardSpacing.xSmall) {
+                Text("TODAY")
+                    .font(.caption.weight(.semibold))
+                    .tracking(0.8)
+                    .foregroundStyle(.secondary)
+                Text(stateTitle)
+                    .font(.system(.largeTitle, design: .rounded, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Text(stateDescription)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("overview.state")
+    }
+
+    private var stateBadge: some View {
+        HomewardStatusLabel(
+            title: stateBadgeTitle,
+            symbol: stateSymbol,
+            tone: stateTone
+        )
+    }
+
+    private var applicationSummary: some View {
+        HomewardApplicationSummary(
+            applications: model.configuration.selectedApplications,
+            iconsBySelectionKey: applicationIcons
+        )
+    }
+
+    private var transitionSummary: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("NEXT TRANSITION")
+                .font(.caption2.weight(.semibold))
+                .tracking(0.6)
+                .foregroundStyle(.secondary)
+            Text(transitionText)
+                .font(.callout.weight(.medium))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
     }
 
     private var readinessSection: some View {
@@ -180,6 +243,16 @@ struct TodayView: View {
                     title: "Work Apps",
                     leadingSymbol: "square.grid.2x2",
                     presentation: applicationReadiness
+                )
+            }
+            if model.presentationSnapshot.attentionCount > 0 {
+                Button(
+                    "Homeward Needs Attention (\(model.presentationSnapshot.attentionCount))…"
+                ) {
+                    openPrimaryAttention()
+                }
+                .accessibilityHint(
+                    "Opens the highest-priority issue that needs action"
                 )
             }
         }
@@ -239,12 +312,12 @@ struct TodayView: View {
 
         if model.forceEscalationPaused {
             Button("Resume Firm Closing…") {
-                Task { await model.resumeFirmClosing() }
+                model.requestPolicyConfirmation(.resumeFirmClosing)
             }
         }
 
         if model.resolvedSchedule.isAvailable,
-           model.resolvedSchedule.phase != .temporarilyExtended,
+           model.canRevealNoteContent,
            !model.visibleNotes.isEmpty {
             Button("Review Saved Thoughts (\(model.visibleNotes.count))…") {
                 activeSheet = .notesReview
@@ -256,11 +329,12 @@ struct TodayView: View {
     private var primaryAction: some View {
         if model.resolvedSchedule.isAvailable {
             Button("End Work Now…") {
-                showEndWorkConfirmation = true
+                model.requestPolicyConfirmation(.endWorkNow)
             }
             .buttonStyle(.borderedProminent)
             .tint(stateTone.color)
             .controlSize(.large)
+            .focused($primaryActionFocused)
             .accessibilityIdentifier("overview.endWork")
         } else {
             Button("Save a Thought…") {
@@ -269,6 +343,7 @@ struct TodayView: View {
             .buttonStyle(.borderedProminent)
             .tint(stateTone.color)
             .controlSize(.large)
+            .focused($primaryActionFocused)
             .accessibilityIdentifier("overview.saveThought")
         }
     }
@@ -363,6 +438,9 @@ struct TodayView: View {
     }
 
     private var stateDescription: String {
+        if model.forceEscalationPaused {
+            return "Work apps are still unavailable. Resume starts a new 30-second grace period."
+        }
         if !model.closingRows.isEmpty {
             let count = model.closingRows.count
             return count == 1
@@ -430,11 +508,19 @@ struct TodayView: View {
     }
 
     private var stateTitle: String {
-        scheduleStatus.title
+        model.presentationSnapshot.title
     }
 
     private var scheduleStatus: ScheduleStatusPresentation {
-        SchedulePresentation.status(
+        if model.forceEscalationPaused {
+            return ScheduleStatusPresentation(
+                title: model.presentationSnapshot.title,
+                badgeTitle: "Paused",
+                symbol: "pause.circle",
+                tone: .rest
+            )
+        }
+        return SchedulePresentation.status(
             schedule: model.resolvedSchedule,
             closingCount: model.closingRows.count
         )
@@ -445,7 +531,8 @@ struct TodayView: View {
     }
 
     private var transitionText: String {
-        SchedulePresentation.transitionText(for: model.resolvedSchedule)
+        model.presentationSnapshot.transitionText
+            ?? "No transition is available"
     }
 
     private var warningSummary: String {
@@ -465,10 +552,21 @@ struct TodayView: View {
                 application.icon
         }
     }
+
+    private func openPrimaryAttention() {
+        switch model.primaryAttentionDestination {
+        case .workApps:
+            model.requestRoute(.workApps)
+        case .savedThoughts:
+            model.requestRoute(.savedThoughts)
+        case .settings, .none:
+            openSettings()
+        }
+    }
 }
 
 @MainActor
-final class CustomCutoffPanelController: NSWindowController {
+final class CustomCutoffPanelController: HomewardInvokedPanelController {
     init(model: AppModel) {
         let panel = HomewardPanelFactory.make(
             title: "Choose Another Cutoff",
@@ -481,6 +579,7 @@ final class CustomCutoffPanelController: NSWindowController {
             )
         )
         super.init(window: panel)
+        panel.delegate = self
     }
 
     @available(*, unavailable)
@@ -489,9 +588,7 @@ final class CustomCutoffPanelController: NSWindowController {
     }
 
     func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        showInvoked()
     }
 }
 
@@ -564,7 +661,7 @@ struct CustomCutoffView: View {
 }
 
 @MainActor
-final class TodayChangePanelController: NSWindowController {
+final class TodayChangePanelController: HomewardInvokedPanelController {
     init(model: AppModel) {
         let panel = HomewardPanelFactory.make(
             title: "Change Today Only",
@@ -577,6 +674,7 @@ final class TodayChangePanelController: NSWindowController {
             )
         )
         super.init(window: panel)
+        panel.delegate = self
     }
 
     @available(*, unavailable)
@@ -585,9 +683,7 @@ final class TodayChangePanelController: NSWindowController {
     }
 
     func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        showInvoked()
     }
 }
 

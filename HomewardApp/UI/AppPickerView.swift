@@ -7,6 +7,7 @@ struct AppPickerView: View {
     @ObservedObject var model: AppModel
     @State private var searchText = ""
     @State private var pendingSelection: SelectedApplication?
+    @State private var pendingSelectionRevision: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -82,12 +83,21 @@ struct AppPickerView: View {
             guard !applicationURLs.isEmpty else {
                 return false
             }
-            guard !requiresImmediateCloseConfirmation || confirmImmediateClose() else {
+            let requiresConfirmation = requiresImmediateCloseConfirmation
+            guard !requiresConfirmation || confirmImmediateClose() else {
                 return false
             }
-            Task {
+            let initialRevision = model.policyRevision
+            Task { @MainActor in
+                var revision = initialRevision
                 for url in applicationURLs {
-                    await model.addApplication(at: url)
+                    if await model.addApplication(
+                        at: url,
+                        expectedRevision: revision,
+                        confirmsImmediateClose: requiresConfirmation
+                    ) {
+                        revision = model.policyRevision
+                    }
                 }
             }
             return true
@@ -99,15 +109,24 @@ struct AppPickerView: View {
         ) {
             Button("Add & Close", role: .destructive) {
                 if let pendingSelection {
-                    Task { await model.addApplication(pendingSelection) }
+                    let revision = pendingSelectionRevision
+                    Task {
+                        await model.addApplication(
+                            pendingSelection,
+                            expectedRevision: revision,
+                            confirmsImmediateClose: true
+                        )
+                    }
                 }
                 pendingSelection = nil
+                pendingSelectionRevision = nil
             }
             Button("Cancel", role: .cancel) {
                 pendingSelection = nil
+                pendingSelectionRevision = nil
             }
         } message: {
-            Text("The current time is blocked. Homeward will immediately apply the configured closing flow.")
+            Text(immediateCloseConsequence)
         }
         .task {
             await model.refreshCatalog()
@@ -135,6 +154,26 @@ struct AppPickerView: View {
             }
             .frame(maxWidth: .infinity, minHeight: 180)
             .accessibilityElement(children: .combine)
+        } else if model.catalogHealth == .unavailable {
+            ContentUnavailableView {
+                Label(
+                    "Applications could not be found",
+                    systemImage: "exclamationmark.triangle"
+                )
+            } description: {
+                Text(
+                    "Existing verified selections were kept. "
+                        + "Try discovery again or choose an application directly."
+                )
+            } actions: {
+                Button("Retry") {
+                    Task { await model.refreshCatalog() }
+                }
+                Button("Choose Application…") {
+                    chooseApplication()
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 180)
         } else if filteredCatalog.isEmpty {
             ContentUnavailableView {
                 Label(
@@ -214,6 +253,13 @@ struct AppPickerView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
+                if catalogRequiresPathDisambiguation(application) {
+                    Text(application.selection.bundlePath)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
             Spacer()
             if isSelected {
@@ -226,17 +272,28 @@ struct AppPickerView: View {
                 isOn: Binding(
                     get: { isSelected },
                     set: { selected in
+                        let revision = model.policyRevision
+                        let requiresConfirmation =
+                            requiresImmediateCloseConfirmation
                         Task {
                             if selected {
-                                if requiresImmediateCloseConfirmation {
+                                if requiresConfirmation {
                                     pendingSelection = application.selection
+                                    pendingSelectionRevision =
+                                        revision
                                 } else {
-                                    await model.addApplication(application.selection)
+                                    await model.addApplication(
+                                        application.selection,
+                                        expectedRevision: revision
+                                    )
                                 }
                             } else if let existing = selectedApplication(
                                 matching: application.selection
                             ) {
-                                await model.removeApplication(id: existing.id)
+                                await model.removeApplication(
+                                    id: existing.id,
+                                    expectedRevision: revision
+                                )
                             }
                         }
                     }
@@ -260,15 +317,15 @@ struct AppPickerView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
                 HomewardStatusLabel(
-                    title: model.configuration.selectedApplications.isEmpty
-                        ? "Required"
-                        : "Ready",
-                    symbol: model.configuration.selectedApplications.isEmpty
-                        ? "circle.dashed"
-                        : "checkmark.circle.fill",
-                    tone: model.configuration.selectedApplications.isEmpty
-                        ? .attention
-                        : .ready
+                    title: hasResolvableApplication
+                        ? "Ready"
+                        : "Required",
+                    symbol: hasResolvableApplication
+                        ? "checkmark.circle.fill"
+                        : "circle.dashed",
+                    tone: hasResolvableApplication
+                        ? .ready
+                        : .attention
                 )
             }
             if model.configuration.selectedApplications.isEmpty {
@@ -314,6 +371,12 @@ struct AppPickerView: View {
         }
     }
 
+    private var hasResolvableApplication: Bool {
+        model.configuration.selectedApplications.contains {
+            $0.isResolvable && !$0.isProtected
+        }
+    }
+
     private func selectedApplicationCard(
         _ application: SelectedApplication
     ) -> some View {
@@ -345,7 +408,13 @@ struct AppPickerView: View {
                         }
                     }
                     Button("Remove", role: .destructive) {
-                        Task { await model.removeApplication(id: application.id) }
+                        let revision = model.policyRevision
+                        Task {
+                            await model.removeApplication(
+                                id: application.id,
+                                expectedRevision: revision
+                            )
+                        }
                     }
                     .accessibilityLabel("Remove \(application.displayName)")
                 } label: {
@@ -393,7 +462,32 @@ struct AppPickerView: View {
         _ lhs: SelectedApplication,
         _ rhs: SelectedApplication
     ) -> Bool {
-        lhs.stableSelectionKey == rhs.stableSelectionKey
+        guard lhs.stableSelectionKey == rhs.stableSelectionKey else {
+            return false
+        }
+        if lhs.bundleIdentifier != nil, rhs.bundleIdentifier != nil {
+            return standardizedPath(lhs.bundlePath)
+                == standardizedPath(rhs.bundlePath)
+        }
+        return true
+    }
+
+    private func catalogRequiresPathDisambiguation(
+        _ application: CatalogApplication
+    ) -> Bool {
+        model.catalog.filter { candidate in
+            candidate.selection.displayName
+                == application.selection.displayName
+                || (
+                    application.selection.bundleIdentifier != nil
+                        && candidate.selection.bundleIdentifier
+                            == application.selection.bundleIdentifier
+                )
+        }.count > 1
+    }
+
+    private func standardizedPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
     }
 
     private func chooseApplication() {
@@ -403,14 +497,25 @@ struct AppPickerView: View {
             allowsMultipleSelection: true
         )
         guard panel.runModal() == .OK,
-              !panel.urls.isEmpty,
-              !requiresImmediateCloseConfirmation || confirmImmediateClose()
+              !panel.urls.isEmpty
         else {
             return
         }
-        Task {
+        let requiresConfirmation = requiresImmediateCloseConfirmation
+        guard !requiresConfirmation || confirmImmediateClose() else {
+            return
+        }
+        let initialRevision = model.policyRevision
+        Task { @MainActor in
+            var revision = initialRevision
             for url in panel.urls {
-                await model.addApplication(at: url)
+                if await model.addApplication(
+                    at: url,
+                    expectedRevision: revision,
+                    confirmsImmediateClose: requiresConfirmation
+                ) {
+                    revision = model.policyRevision
+                }
             }
         }
     }
@@ -423,10 +528,16 @@ struct AppPickerView: View {
     private func confirmImmediateClose() -> Bool {
         let alert = NSAlert()
         alert.messageText = "Add and close selected work apps now?"
-        alert.informativeText = "The current time is blocked. Homeward will immediately apply the configured closing flow."
+        alert.informativeText = immediateCloseConsequence
         alert.addButton(withTitle: "Add & Close")
         alert.addButton(withTitle: "Cancel")
         return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private var immediateCloseConsequence: String {
+        "The current time is closed. Homeward will begin "
+            + "\(SchedulePresentation.closeModeName(model.configuration.closeMode)) "
+            + "after the change is saved."
     }
 
     private func chooseReplacement(for id: UUID) {
@@ -436,12 +547,23 @@ struct AppPickerView: View {
             allowsMultipleSelection: false
         )
         guard panel.runModal() == .OK,
-              let url = panel.url,
-              !requiresImmediateCloseConfirmation || confirmImmediateClose()
+              let url = panel.url
         else {
             return
         }
-        Task { await model.replaceApplication(id: id, with: url) }
+        let requiresConfirmation = requiresImmediateCloseConfirmation
+        guard !requiresConfirmation || confirmImmediateClose() else {
+            return
+        }
+        let revision = model.policyRevision
+        Task {
+            await model.replaceApplication(
+                id: id,
+                with: url,
+                expectedRevision: revision,
+                confirmsImmediateClose: requiresConfirmation
+            )
+        }
     }
 
     private var pendingSelectionConfirmation: Binding<Bool> {

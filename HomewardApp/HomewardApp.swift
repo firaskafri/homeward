@@ -63,7 +63,7 @@ struct HomewardApp: App {
     @NSApplicationDelegateAdaptor(HomewardApplicationDelegate.self)
     private var applicationDelegate
     @StateObject private var model: AppModel
-    @StateObject private var navigation = HomewardNavigationState()
+    @StateObject private var navigation: HomewardNavigationState
     private let presentsMainWindowOnLaunch: Bool
 
     init() {
@@ -76,12 +76,25 @@ struct HomewardApp: App {
         } catch {
             fatalError("Homeward built-in defaults are invalid: \(error)")
         }
+        let navigationState = HomewardNavigationState()
         _model = StateObject(wrappedValue: instance)
+        _navigation = StateObject(wrappedValue: navigationState)
+        instance.installRouteHandler { route in
+            navigationState.requestMainWindow(route)
+        }
+        instance.installSensitivePresentationDismissalHandler {
+            if navigationState.selection == .savedThoughts {
+                navigationState.select(.today)
+            }
+        }
     }
 
     var body: some Scene {
         MenuBarExtra {
-            MenuContent(model: model, navigation: navigation)
+            MenuContent(
+                model: model,
+                navigation: navigation
+            )
         } label: {
             MenuBarLabel(
                 model: model,
@@ -92,7 +105,10 @@ struct HomewardApp: App {
         .menuBarExtraStyle(.menu)
 
         Window("Homeward", id: "homeward") {
-            RootView(model: model, navigation: navigation)
+            RootView(
+                model: model,
+                navigation: navigation
+            )
         }
         .defaultSize(width: 760, height: 600)
         .defaultLaunchBehavior(
@@ -104,6 +120,7 @@ struct HomewardApp: App {
 
         Settings {
             GeneralSettingsView(model: model)
+                .disabled(!model.isPolicyMutationEnabled)
         }
     }
 }
@@ -129,7 +146,8 @@ private struct MenuBarLabel: View {
                 Image(systemName: "house")
             }
         }
-        .accessibilityLabel("Homeward, \(accessibilityState)")
+        .accessibilityLabel("Homeward")
+        .accessibilityValue(accessibilityState)
         .task {
             navigation.installMainWindowPresenter {
                 NSApp.unhide(nil)
@@ -140,31 +158,11 @@ private struct MenuBarLabel: View {
                 navigation: navigation,
                 model: model
             )
-            await model.start()
-            if !model.isOnboardingComplete
-                || model.health == .configurationUnavailable {
-                navigation.requestMainWindow()
-            }
         }
     }
 
     private var accessibilityState: String {
-        switch model.health {
-        case .starting:
-            return "Starting"
-        case .configurationUnavailable:
-            return "Needs attention. App closing is paused."
-        case .ready:
-            break
-        }
-        let state = SchedulePresentation.stateTitle(
-            schedule: model.resolvedSchedule,
-            closingCount: model.closingRows.count
-        )
-        if let transition = model.resolvedSchedule.nextTransition {
-            return "\(state). Next transition \(transition.date.formatted(date: .abbreviated, time: .shortened))."
-        }
-        return state
+        model.presentationSnapshot.accessibilityValue
     }
 }
 
@@ -176,6 +174,16 @@ private struct MenuContent: View {
     var body: some View {
         if model.health == .starting {
             Text("Starting Homeward…")
+            Divider()
+            Button("Quit Homeward…") {
+                confirmQuit(model: model)
+            }
+        } else if model.health == .startupDelayed {
+            Text("Starting Homeward…")
+            Text("This is taking longer than expected. App closing has not started.")
+            Button("Retry") {
+                model.retryStartup()
+            }
             Divider()
             Button("Quit Homeward…") {
                 confirmQuit(model: model)
@@ -198,9 +206,11 @@ private struct MenuContent: View {
             }
         } else {
             Section {
-                Text(stateTitle)
-                Text(transitionText)
+                Text(model.presentationSnapshot.title)
+                if let transitionText = model.presentationSnapshot.transitionText {
+                    Text(transitionText)
                     .foregroundStyle(.secondary)
+                }
             }
 
             Section {
@@ -227,13 +237,34 @@ private struct MenuContent: View {
                 }
             }
 
+            if model.presentationSnapshot.savedThoughtCount > 0 {
+                Button(
+                    "Review Saved Thoughts (\(model.presentationSnapshot.savedThoughtCount))…"
+                ) {
+                    navigation.requestMainWindow(.savedThoughts)
+                }
+            }
+
             if model.resolvedSchedule.isAvailable {
                 Button("End Work Now…") {
-                    confirmEndWork()
+                    model.requestPolicyConfirmation(
+                        .endWorkNow,
+                        routeToToday: true
+                    )
                 }
             } else {
-                Button("Save a Thought…") {
-                    model.showNoteCapture()
+                switch model.notesHealth {
+                case .available:
+                    Button("Save a Thought…") {
+                        model.showNoteCapture()
+                    }
+                case .loading:
+                    Button("Loading Saved Thoughts…") {}
+                        .disabled(true)
+                case .unavailable:
+                    Button("Saved Thoughts Need Attention…") {
+                        navigation.requestMainWindow(.savedThoughts)
+                    }
                 }
             }
 
@@ -269,14 +300,19 @@ private struct MenuContent: View {
 
             if model.forceEscalationPaused {
                 Button("Resume Firm Closing…") {
-                    confirmResumeFirmClosing()
+                    model.requestPolicyConfirmation(
+                        .resumeFirmClosing,
+                        routeToToday: true
+                    )
                 }
             }
 
-            if model.loginItemStatus != .enabled || model.notificationStatus != .authorized {
+            if model.presentationSnapshot.attentionCount > 0 {
                 Divider()
-                Button("Homeward Needs Attention…") {
-                    openSettingsWindow()
+                Button(
+                    "Homeward Needs Attention (\(model.presentationSnapshot.attentionCount))…"
+                ) {
+                    openPrimaryAttention()
                 }
             }
 
@@ -321,44 +357,21 @@ private struct MenuContent: View {
         if case .configurationUnavailable = model.health {
             return true
         }
+        if case .applicationResolutionUnavailable = model.health {
+            return true
+        }
         return false
     }
 
-    private var stateTitle: String {
-        SchedulePresentation.stateTitle(
-            schedule: model.resolvedSchedule,
-            closingCount: model.closingRows.count
-        )
-    }
-
-    private var transitionText: String {
-        SchedulePresentation.transitionText(for: model.resolvedSchedule)
-    }
-
-    private func confirmEndWork() {
-        let alert = NSAlert()
-        alert.messageText = "End work now?"
-        alert.informativeText = "Homeward will begin the configured closing flow for selected work apps."
-        alert.addButton(withTitle: "End Work Now")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else {
-            return
+    private func openPrimaryAttention() {
+        switch model.primaryAttentionDestination {
+        case .workApps:
+            navigation.requestMainWindow(.workApps)
+        case .savedThoughts:
+            navigation.requestMainWindow(.savedThoughts)
+        case .settings, .none:
+            openSettingsWindow()
         }
-        Task { await model.endWorkNow() }
-    }
-
-    private func confirmResumeFirmClosing() {
-        let alert = NSAlert()
-        alert.messageText = "Resume Firm Closing?"
-        alert.informativeText =
-            "Homeward will ask selected apps to quit normally and begin a new "
-            + "\(Int(HomewardPolicy.firmGracePeriod))-second grace period."
-        alert.addButton(withTitle: "Resume Firm Closing")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else {
-            return
-        }
-        Task { await model.resumeFirmClosing() }
     }
 
     private func confirmTakeTodayOff() {
@@ -385,6 +398,7 @@ private struct HomewardCommands: Commands {
                 openSettings()
             }
             .keyboardShortcut(",", modifiers: .command)
+            .disabled(!model.isPolicyMutationEnabled)
         }
 
         CommandGroup(replacing: .appTermination) {
@@ -397,9 +411,14 @@ private struct HomewardCommands: Commands {
 }
 
 @MainActor
-private final class HomewardApplicationDelegate: NSObject, NSApplicationDelegate {
+final class HomewardApplicationDelegate: NSObject, NSApplicationDelegate {
+    private static let delayedStartupThreshold: Duration = .seconds(3)
+
     private weak var navigation: HomewardNavigationState?
     private weak var model: AppModel?
+    private var bootstrapTask: Task<Void, Never>?
+    private var bootstrapRevision = 0
+    private var didFinishLaunching = false
     private var pendingReopenRoute: HomewardRoute?
     private var terminationInProgress = false
 
@@ -409,11 +428,21 @@ private final class HomewardApplicationDelegate: NSObject, NSApplicationDelegate
     ) {
         self.navigation = navigation
         self.model = model
-        guard let pendingReopenRoute else {
-            return
+        model.installBootstrapRetryHandler { [weak self] in
+            self?.restartBootstrap()
         }
-        self.pendingReopenRoute = nil
-        navigation.requestMainWindow(pendingReopenRoute)
+        if let pendingReopenRoute {
+            self.pendingReopenRoute = nil
+            navigation.requestMainWindow(pendingReopenRoute)
+        }
+        if didFinishLaunching {
+            beginBootstrap()
+        }
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        didFinishLaunching = true
+        beginBootstrap()
     }
 
     func applicationShouldHandleReopen(
@@ -425,12 +454,14 @@ private final class HomewardApplicationDelegate: NSObject, NSApplicationDelegate
         } else {
             pendingReopenRoute = .today
         }
-        return false
+        return true
     }
 
     func applicationShouldTerminate(
         _ sender: NSApplication
     ) -> NSApplication.TerminateReply {
+        bootstrapTask?.cancel()
+        bootstrapTask = nil
         guard let model else {
             return .terminateNow
         }
@@ -443,6 +474,46 @@ private final class HomewardApplicationDelegate: NSObject, NSApplicationDelegate
             sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
+    }
+
+    private func beginBootstrap() {
+        guard bootstrapTask == nil, let model else {
+            return
+        }
+        bootstrapRevision &+= 1
+        let revision = bootstrapRevision
+        bootstrapTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            let delayedTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(
+                    for: Self.delayedStartupThreshold
+                )
+                guard !Task.isCancelled,
+                      let self,
+                      self.bootstrapRevision == revision else {
+                    return
+                }
+                self.model?.markStartupDelayed()
+            }
+            await model.start()
+            delayedTask.cancel()
+            guard !Task.isCancelled,
+                  bootstrapRevision == revision else {
+                return
+            }
+            bootstrapTask = nil
+            if !model.isOnboardingComplete || model.health != .ready {
+                navigation?.requestMainWindow()
+            }
+        }
+    }
+
+    private func restartBootstrap() {
+        bootstrapTask?.cancel()
+        bootstrapTask = nil
+        beginBootstrap()
     }
 }
 

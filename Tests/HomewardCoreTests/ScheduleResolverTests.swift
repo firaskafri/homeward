@@ -150,10 +150,10 @@ struct ScheduleResolverTests {
         ) == date(2026, 9, 7, 17, 0, calendar: calendar))
     }
 
-    /// 1 - Name: Warning action cutoff validation.
-    /// 2 - Description: Accepts only an action tied to the current future work-window cutoff.
-    /// 3 - Assumptions: Notification actions carry the cutoff that produced their warning.
-    /// 4 - Expectations: Changed cutoffs and actions handled at or after cutoff are rejected.
+    /// 1 - Name: Warning action generation and cutoff validation.
+    /// 2 - Description: Accepts only an action tied to the current policy generation and future work-window cutoff.
+    /// 3 - Assumptions: Notification actions carry the persisted generation and cutoff that produced their warning.
+    /// 4 - Expectations: Changed generations, changed cutoffs, and actions handled at or after cutoff are rejected.
     @Test
     func warningActionRequiresCurrentCutoff() throws {
         let calendar = utcCalendar()
@@ -167,15 +167,28 @@ struct ScheduleResolverTests {
             warnings: WarningPreferences()
         )
 
-        #expect(WarningActionContext(cutoff: cutoff).isCurrent(
+        #expect(WarningActionContext(
+            cutoff: cutoff,
+            policyGeneration: 7
+        ).isCurrent(
             for: resolved,
+            policyGeneration: 7,
             at: now
         ))
         #expect(!WarningActionContext(
-            cutoff: cutoff.addingTimeInterval(60)
-        ).isCurrent(for: resolved, at: now))
-        #expect(!WarningActionContext(cutoff: cutoff).isCurrent(
+            cutoff: cutoff.addingTimeInterval(60),
+            policyGeneration: 7
+        ).isCurrent(for: resolved, policyGeneration: 7, at: now))
+        #expect(!WarningActionContext(
+            cutoff: cutoff,
+            policyGeneration: 6
+        ).isCurrent(for: resolved, policyGeneration: 7, at: now))
+        #expect(!WarningActionContext(
+            cutoff: cutoff,
+            policyGeneration: 7
+        ).isCurrent(
             for: resolved,
+            policyGeneration: 7,
             at: cutoff
         ))
     }
@@ -619,6 +632,271 @@ struct ScheduleResolverTests {
             after: date(2026, 3, 8, 1, 45, calendar: calendar),
             calendar: calendar
         ) == Date(timeIntervalSince1970: 1_773_028_800))
+    }
+
+    /// 1 - Name: Fall-back repeated-hour occurrences.
+    /// 2 - Description: Resolves a Sunday window spanning both occurrences of 01:30 in New York.
+    /// 3 - Assumptions: Starts use the first repeated wall time and ends use the last repeated wall time.
+    /// 4 - Expectations: Both 01:45 occurrences are available and the interval ends at 02:30 standard time.
+    @Test
+    func fallBackWindowIncludesBothRepeatedOccurrences() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(
+            TimeZone(identifier: "America/New_York")
+        )
+        var rules = blockedRules()
+        rules[.sunday] = .scheduled(
+            start: try LocalTime(hour: 1, minute: 30),
+            end: try LocalTime(hour: 2, minute: 30),
+            endsNextDay: false
+        )
+        let schedule = try WeeklySchedule(rules: rules)
+        let resolver = ScheduleResolver()
+
+        let firstOccurrence = resolver.resolve(
+            schedule: schedule,
+            overrides: [],
+            at: Date(timeIntervalSince1970: 1_793_511_900),
+            calendar: calendar,
+            warnings: WarningPreferences()
+        )
+        let secondOccurrence = resolver.resolve(
+            schedule: schedule,
+            overrides: [],
+            at: Date(timeIntervalSince1970: 1_793_515_500),
+            calendar: calendar,
+            warnings: WarningPreferences()
+        )
+
+        #expect(firstOccurrence.isAvailable)
+        #expect(secondOccurrence.isAvailable)
+        #expect(
+            secondOccurrence.activeBaseInterval?.start
+                == Date(timeIntervalSince1970: 1_793_511_000)
+        )
+        #expect(
+            secondOccurrence.nextTransition?.date
+                == Date(timeIntervalSince1970: 1_793_518_200)
+        )
+    }
+
+    /// 1 - Name: Nonexistent spring-forward start.
+    /// 2 - Description: Resolves a window whose requested 02:30 start does not exist on the DST transition day.
+    /// 3 - Assumptions: The documented next-valid-time policy advances a nonexistent boundary.
+    /// 4 - Expectations: The window begins at 03:00 and remains available through its 04:00 end.
+    @Test
+    func nonexistentStartAdvancesToNextValidTime() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(
+            TimeZone(identifier: "America/New_York")
+        )
+        var rules = blockedRules()
+        rules[.sunday] = .scheduled(
+            start: try LocalTime(hour: 2, minute: 30),
+            end: try LocalTime(hour: 4, minute: 0),
+            endsNextDay: false
+        )
+        let result = ScheduleResolver().resolve(
+            schedule: try WeeklySchedule(rules: rules),
+            overrides: [],
+            at: Date(timeIntervalSince1970: 1_772_954_100),
+            calendar: calendar,
+            warnings: WarningPreferences()
+        )
+
+        #expect(result.isAvailable)
+        #expect(
+            result.activeBaseInterval?.start
+                == Date(timeIntervalSince1970: 1_772_953_200)
+        )
+        #expect(
+            result.nextTransition?.date
+                == Date(timeIntervalSince1970: 1_772_956_800)
+        )
+    }
+
+    /// 1 - Name: Overnight spring-forward crossing.
+    /// 2 - Description: Builds a Saturday overnight interval that crosses New York’s skipped hour.
+    /// 3 - Assumptions: Weekly rules use wall-clock boundaries rather than fixed elapsed durations.
+    /// 4 - Expectations: The 22:00–03:00 window lasts four elapsed hours and ends at the requested local boundary.
+    @Test
+    func overnightWindowCrossesSpringForwardTransition() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(
+            TimeZone(identifier: "America/New_York")
+        )
+        var rules = blockedRules()
+        rules[.saturday] = .scheduled(
+            start: try LocalTime(hour: 22, minute: 0),
+            end: try LocalTime(hour: 3, minute: 0),
+            endsNextDay: true
+        )
+        rules[.sunday] = .scheduled(
+            start: try LocalTime(hour: 9, minute: 0),
+            end: try LocalTime(hour: 10, minute: 0),
+            endsNextDay: false
+        )
+        let intervals = ScheduleResolver().intervals(
+            for: try WeeklySchedule(rules: rules),
+            around: Date(timeIntervalSince1970: 1_772_950_000),
+            calendar: calendar
+        )
+        let transitionInterval = try #require(intervals.first {
+            $0.start == Date(timeIntervalSince1970: 1_772_938_800)
+        })
+
+        #expect(
+            transitionInterval.end
+                == Date(timeIntervalSince1970: 1_772_953_200)
+        )
+        #expect(
+            transitionInterval.end.timeIntervalSince(
+                transitionInterval.start
+            ) == 4 * 60 * 60
+        )
+    }
+
+    /// 1 - Name: Fall-back midnight boundary.
+    /// 2 - Description: Computes the next local midnight after New York’s 25-hour civil day begins.
+    /// 3 - Assumptions: Midnight is calendar-derived and does not add a fixed 24-hour interval.
+    /// 4 - Expectations: The boundary is November 2 at 00:00 standard time.
+    @Test
+    func nextLocalDayBoundaryAcrossFallBack() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(
+            TimeZone(identifier: "America/New_York")
+        )
+
+        #expect(ScheduleResolver().nextLocalDayBoundary(
+            after: Date(timeIntervalSince1970: 1_793_515_500),
+            calendar: calendar
+        ) == Date(timeIntervalSince1970: 1_793_595_600))
+    }
+
+    /// 1 - Name: Fall-back warning boundaries.
+    /// 2 - Description: Resolves warning phase and refresh timing after the repeated hour has ended.
+    /// 3 - Assumptions: Warning offsets are elapsed durations before the resolved 02:30 cutoff.
+    /// 4 - Expectations: 02:20 is winding down and refreshes at the five-minute warning.
+    @Test
+    func warningsUseResolvedFallBackCutoff() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(
+            TimeZone(identifier: "America/New_York")
+        )
+        var rules = blockedRules()
+        rules[.sunday] = .scheduled(
+            start: try LocalTime(hour: 1, minute: 30),
+            end: try LocalTime(hour: 2, minute: 30),
+            endsNextDay: false
+        )
+        let now = Date(timeIntervalSince1970: 1_793_517_600)
+        let preferences = WarningPreferences()
+        let resolver = ScheduleResolver()
+        let result = resolver.resolve(
+            schedule: try WeeklySchedule(rules: rules),
+            overrides: [],
+            at: now,
+            calendar: calendar,
+            warnings: preferences
+        )
+
+        #expect(result.phase == .windingDown)
+        #expect(resolver.nextRefreshDate(
+            for: result,
+            after: now,
+            warnings: preferences
+        ) == Date(timeIntervalSince1970: 1_793_517_900))
+    }
+
+    /// 1 - Name: Override across time-zone change.
+    /// 2 - Description: Resolves one absolute blocking override under two current local time zones.
+    /// 3 - Assumptions: Override instants remain absolute while weekly schedule interpretation follows the supplied zone.
+    /// 4 - Expectations: The same override blocks in both zones while later weekly availability follows each zone.
+    @Test
+    func overrideInstantsSurviveTimeZoneChange() throws {
+        var newYork = Calendar(identifier: .gregorian)
+        newYork.timeZone = try #require(
+            TimeZone(identifier: "America/New_York")
+        )
+        var losAngeles = Calendar(identifier: .gregorian)
+        losAngeles.timeZone = try #require(
+            TimeZone(identifier: "America/Los_Angeles")
+        )
+        let now = Date(timeIntervalSince1970: 1_789_000_000)
+        let expiry = now.addingTimeInterval(45 * 60)
+        let block = try ScheduleOverride(
+            kind: .endWorkNow,
+            effect: .block,
+            effectiveAt: now.addingTimeInterval(-60),
+            expiresAt: expiry
+        )
+        let resolver = ScheduleResolver()
+        let schedule = try WeeklySchedule.defaultWorkWeek()
+
+        let eastern = resolver.resolve(
+            schedule: schedule,
+            overrides: [block],
+            at: now,
+            calendar: newYork,
+            warnings: WarningPreferences()
+        )
+        let pacific = resolver.resolve(
+            schedule: schedule,
+            overrides: [block],
+            at: now,
+            calendar: losAngeles,
+            warnings: WarningPreferences()
+        )
+
+        #expect(!eastern.isAvailable)
+        #expect(!pacific.isAvailable)
+        #expect(eastern.activeOverride == block)
+        #expect(pacific.activeOverride == block)
+        #expect(eastern.nextAvailability != pacific.nextAvailability)
+    }
+
+    /// 1 - Name: Weekly schedule follows time-zone change.
+    /// 2 - Description: Resolves the same absolute instant before and after changing the calendar time zone.
+    /// 3 - Assumptions: Monday 21:00 UTC is after cutoff in New York and inside work hours in Los Angeles.
+    /// 4 - Expectations: Availability changes with the Mac’s current wall-clock zone.
+    @Test
+    func weeklyScheduleFollowsCurrentTimeZone() throws {
+        var newYork = Calendar(identifier: .gregorian)
+        newYork.timeZone = try #require(
+            TimeZone(identifier: "America/New_York")
+        )
+        var losAngeles = Calendar(identifier: .gregorian)
+        losAngeles.timeZone = try #require(
+            TimeZone(identifier: "America/Los_Angeles")
+        )
+        let instant = date(
+            2026,
+            9,
+            7,
+            21,
+            0,
+            calendar: utcCalendar()
+        )
+        let resolver = ScheduleResolver()
+        let schedule = try WeeklySchedule.defaultWorkWeek()
+
+        let eastern = resolver.resolve(
+            schedule: schedule,
+            overrides: [],
+            at: instant,
+            calendar: newYork,
+            warnings: WarningPreferences()
+        )
+        let pacific = resolver.resolve(
+            schedule: schedule,
+            overrides: [],
+            at: instant,
+            calendar: losAngeles,
+            warnings: WarningPreferences()
+        )
+
+        #expect(!eastern.isAvailable)
+        #expect(pacific.isAvailable)
     }
 
     /// 1 - Name: Contradictory overnight rule.

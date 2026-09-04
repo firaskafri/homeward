@@ -2,10 +2,14 @@ import AppKit
 import Combine
 import Foundation
 import HomewardCore
+import UserNotifications
 
 @MainActor
 final class AppModel: NSObject, ObservableObject {
     private static let manualAvailabilityIntervalID = "manual-availability"
+    private static let launchMetadataRetryLimit = 4
+    private static let terminationSaveWait: Duration = .seconds(2)
+    private static let terminationSavePoll: Duration = .milliseconds(25)
 
     enum PreviewState: Equatable {
         case idle
@@ -37,8 +41,67 @@ final class AppModel: NSObject, ObservableObject {
 
     enum Health: Equatable {
         case starting
+        case startupDelayed
         case ready
         case configurationUnavailable
+        case applicationResolutionUnavailable
+    }
+
+    enum NotesHealth: Equatable {
+        case loading
+        case available
+        case unavailable
+    }
+
+    enum CatalogHealth: Equatable {
+        case loading
+        case available
+        case unavailable
+    }
+
+    enum PolicyConfirmationIntent: Equatable {
+        case endWorkNow
+        case gentleShortcutExtension
+        case resumeFirmClosing
+
+        var title: String {
+            switch self {
+            case .endWorkNow:
+                "End work now?"
+            case .gentleShortcutExtension:
+                "Make all work apps available for 10 minutes?"
+            case .resumeFirmClosing:
+                "Resume Firm Closing?"
+            }
+        }
+
+        var actionTitle: String {
+            switch self {
+            case .endWorkNow:
+                "End Work Now"
+            case .gentleShortcutExtension:
+                "Make Work Apps Available"
+            case .resumeFirmClosing:
+                "Resume Firm Closing"
+            }
+        }
+
+        func message(closeMode: CloseMode) -> String {
+            switch self {
+            case .endWorkNow:
+                "Homeward will begin \(SchedulePresentation.closeModeName(closeMode)) for selected work apps."
+            case .gentleShortcutExtension:
+                "This today-only change makes all selected work apps available for 10 minutes."
+            case .resumeFirmClosing:
+                "Homeward will ask selected apps to quit normally and begin a new 30-second grace period."
+            }
+        }
+    }
+
+    enum AttentionDestination: Equatable {
+        case workApps
+        case savedThoughts
+        case settings
     }
 
     @Published private(set) var configuration: HomewardConfiguration
@@ -46,12 +109,20 @@ final class AppModel: NSObject, ObservableObject {
     @Published private(set) var resolvedSchedule: ResolvedSchedule
     @Published private(set) var catalog: [CatalogApplication] = []
     @Published private(set) var isCatalogLoading = false
+    @Published private(set) var catalogHealth: CatalogHealth = .loading
     @Published private(set) var closingRows: [ClosingRow] = []
     @Published private(set) var health: Health = .starting
+    @Published private(set) var notesHealth: NotesHealth = .loading
+    @Published private(set) var notesRecoveryCandidateAvailable = false
     @Published private(set) var notificationStatus:
         HomewardNotificationService.AuthorizationStatus = .notDetermined
     @Published private(set) var loginItemStatus:
         LoginItemService.Status = .notRegistered
+    @Published private(set) var installationLocationStatus:
+        InstallationLocationStatus = .unavailable
+    @Published private(set) var pendingPolicyConfirmation:
+        PolicyConfirmationIntent?
+    @Published private(set) var todayExplanation: String?
     @Published private(set) var lastError: String? {
         didSet {
             guard let lastError, oldValue != lastError, let application = NSApp else {
@@ -69,9 +140,11 @@ final class AppModel: NSObject, ObservableObject {
     }
     @Published private(set) var isSessionActive = false
     @Published private(set) var previewState: PreviewState = .idle
+    @Published private(set) var isRecoveryInProgress = false
 
     private let repository: HomewardRepository
     private let nowProvider: () -> Date
+    private let elapsedClock: ElapsedClock
     private let configurationSaver:
         (HomewardConfiguration) async throws -> HomewardConfiguration
     private let notesSaver: (NotesDocument) async throws -> NotesDocument
@@ -82,12 +155,16 @@ final class AppModel: NSObject, ObservableObject {
     private let planner = EnforcementPlanner()
     private let countdownAnnouncementPolicy = CountdownAnnouncementPolicy()
     private let workspaceMonitor = WorkspaceMonitor()
-    private let runningController = RunningApplicationController()
+    private let runningController: RunningApplicationController
     private let appCatalog: ApplicationCatalog
-    private let catalogDiscoverer: () async -> [CatalogApplication]
+    private let catalogDiscoverer: () async throws -> [CatalogApplication]
     private let loginItemService: LoginItemService
+    private let installationLocationService: InstallationLocationService
     private let notificationService: HomewardNotificationService
     private var transitionTask: Task<Void, Never>?
+    private var notesLoadTask: Task<Void, Never>?
+    private var systemStatusTask: Task<Void, Never>?
+    private var launchMetadataTasks: [Int32: Task<Void, Never>] = [:]
     private var enforcementTasks: [ProcessSessionID: Task<Void, Never>] = [:]
     private var announcedCountdownMilestones: [ProcessSessionID: Set<Int>] = [:]
     private var gentleExemptProcesses: [ProcessSessionID: Int32] = [:]
@@ -111,11 +188,17 @@ final class AppModel: NSObject, ObservableObject {
     private var catalogRefreshShouldReconcile = false
     private var catalogRefreshWaiters: [CheckedContinuation<Void, Never>] = []
     private var started = false
+    private var runtimeActivated = false
     private var isShuttingDown = false
+    private var configurationRevision = 0
+    private var bootstrapRetryHandler: (() -> Void)?
+    private var routeHandler: ((HomewardRoute) -> Void)?
+    private var sensitivePresentationDismissalHandler: (() -> Void)?
 
     init(
         repository: HomewardRepository,
         nowProvider: @escaping () -> Date = Date.init,
+        elapsedClock: ElapsedClock = .continuous,
         configurationSaver: (
             (HomewardConfiguration) async throws -> HomewardConfiguration
         )? = nil,
@@ -131,8 +214,11 @@ final class AppModel: NSObject, ObservableObject {
             )
         },
         applicationCatalog: ApplicationCatalog? = nil,
-        catalogDiscoverer: (() async -> [CatalogApplication])? = nil,
+        catalogDiscoverer: (() async throws -> [CatalogApplication])? = nil,
+        runningController: RunningApplicationController =
+            RunningApplicationController(),
         loginItemService: LoginItemService? = nil,
+        installationLocationService: InstallationLocationService? = nil,
         notificationService: HomewardNotificationService? = nil,
         notesSaver: ((NotesDocument) async throws -> NotesDocument)? = nil,
         notesResetter: (() async throws -> Void)? = nil
@@ -141,15 +227,19 @@ final class AppModel: NSObject, ObservableObject {
         let resolvedCatalog = applicationCatalog ?? ApplicationCatalog()
         self.repository = repository
         self.nowProvider = nowProvider
+        self.elapsedClock = elapsedClock
         self.configurationSaver = configurationSaver ?? { configuration in
             try await repository.saveConfiguration(configuration)
         }
         self.dateByAdding = dateByAdding
         appCatalog = resolvedCatalog
         self.catalogDiscoverer = catalogDiscoverer ?? {
-            await resolvedCatalog.discover()
+            try await resolvedCatalog.discover()
         }
+        self.runningController = runningController
         self.loginItemService = loginItemService ?? LoginItemService()
+        self.installationLocationService =
+            installationLocationService ?? InstallationLocationService()
         self.notificationService =
             notificationService ?? HomewardNotificationService()
         self.notesSaver = notesSaver ?? { notes in
@@ -174,20 +264,177 @@ final class AppModel: NSObject, ObservableObject {
     static func makeDefault(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> AppModel {
-        let repository = HomewardRepository()
-        guard environment["HOMEWARD_UI_TESTING"] == "1" else {
-            return try AppModel(repository: repository)
+        let isAutomatedTest = HomewardRuntime.isAutomatedTest(
+            environment: environment
+        )
+        var repositoryEnvironment = environment
+        if isAutomatedTest,
+           repositoryEnvironment["HOMEWARD_STORAGE_DIRECTORY"] == nil {
+            repositoryEnvironment["HOMEWARD_STORAGE_DIRECTORY"] =
+                FileManager.default.temporaryDirectory
+                .appendingPathComponent(
+                    "HomewardTestHost-\(ProcessInfo.processInfo.processIdentifier)",
+                    isDirectory: true
+                )
+                .path
         }
-        return try AppModel(
+        let repository = HomewardRepository(
+            environment: repositoryEnvironment
+        )
+        let runningController = RunningApplicationController(
+            controlPolicy: .forRuntime(environment: environment)
+        )
+        guard isAutomatedTest else {
+            return try AppModel(
+                repository: repository,
+                runningController: runningController
+            )
+        }
+        let uiTestFixture = environment[
+            HomewardRuntime.uiTestEnvironmentKey
+        ] == "1"
+            ? HomewardUITestScenarioFixture(environment: environment)
+            : nil
+        let model = try AppModel(
             repository: repository,
-            catalogDiscoverer: { [] },
+            catalogDiscoverer: {
+                try await uiTestFixture?.discoverApplications() ?? []
+            },
+            runningController: runningController,
             loginItemService: .isolatedForUITesting(),
+            installationLocationService:
+                uiTestFixture?.installationLocationService
+                ?? InstallationLocationService(
+                    statusProvider: { .applications }
+                ),
             notificationService: .isolatedForUITesting()
         )
+        if uiTestFixture?.beginsInDelayedStartup == true {
+            model.markStartupDelayed()
+        }
+        return model
     }
 
     var isOnboardingComplete: Bool {
         configuration.completedOnboarding
+    }
+
+    var isPolicyMutationEnabled: Bool {
+        health == .ready && !isShuttingDown
+    }
+
+    var policyRevision: Int {
+        configurationRevision
+    }
+
+    var canRevealNoteContent: Bool {
+        isSessionActive
+            && resolvedSchedule.isAvailable
+            && resolvedSchedule.phase != .temporarilyExtended
+            && notesHealth == .available
+    }
+
+    var availableNotesCount: Int {
+        guard notesHealth == .available else {
+            return 0
+        }
+        let intervalID = currentNoteIntervalID
+        return notes.notes.count {
+            $0.lastPresentedIntervalID != intervalID
+        }
+    }
+
+    var attentionCount: Int {
+        var count = configuration.selectedApplications.count {
+            !$0.isResolvable
+        }
+        if configuration.selectedApplications.isEmpty,
+           configuration.completedOnboarding {
+            count += 1
+        }
+        if notificationStatus != .authorized {
+            count += 1
+        }
+        if loginItemStatus != .enabled
+            || !installationLocationStatus.supportsStartAtLogin {
+            count += 1
+        }
+        if notesHealth == .unavailable {
+            count += 1
+        }
+        return count
+    }
+
+    var presentationSnapshot: HomewardPresentationSnapshot {
+        HomewardPresentationSnapshot.resolve(
+            health: health,
+            onboardingComplete: configuration.completedOnboarding,
+            schedule: resolvedSchedule,
+            closingCount: closingRows.count,
+            forceEscalationPaused: forceEscalationPaused,
+            savedThoughtCount: availableNotesCount,
+            attentionCount: attentionCount
+        )
+    }
+
+    var hasPrioritySaveOrErrorPresentation: Bool {
+        configurationSaveInProgress
+            || notesSaveInProgress
+            || lastError != nil
+    }
+
+    var primaryAttentionDestination: AttentionDestination? {
+        if configuration.selectedApplications.isEmpty
+            || configuration.selectedApplications.contains(where: {
+                !$0.isResolvable
+            }) {
+            return .workApps
+        }
+        if notesHealth == .unavailable {
+            return .savedThoughts
+        }
+        if notificationStatus != .authorized
+            || loginItemStatus != .enabled
+            || !installationLocationStatus.supportsStartAtLogin {
+            return .settings
+        }
+        return nil
+    }
+
+    func installBootstrapRetryHandler(_ handler: @escaping () -> Void) {
+        bootstrapRetryHandler = handler
+    }
+
+    func installRouteHandler(_ handler: @escaping (HomewardRoute) -> Void) {
+        routeHandler = handler
+    }
+
+    func requestRoute(_ route: HomewardRoute) {
+        routeHandler?(route)
+    }
+
+    func installSensitivePresentationDismissalHandler(
+        _ handler: @escaping () -> Void
+    ) {
+        sensitivePresentationDismissalHandler = handler
+    }
+
+    func markStartupDelayed() {
+        guard health == .starting else {
+            return
+        }
+        health = .startupDelayed
+    }
+
+    func retryStartup() {
+        guard health == .startupDelayed
+                || health == .applicationResolutionUnavailable else {
+            return
+        }
+        health = .starting
+        lastError = nil
+        started = false
+        bootstrapRetryHandler?()
     }
 
     var canExtendToday: Bool {
@@ -201,6 +448,11 @@ final class AppModel: NSObject, ObservableObject {
         }
     }
 
+    private var requiresImmediateCloseForAppChange: Bool {
+        configuration.completedOnboarding
+            && !resolveSchedule(at: nowProvider()).isAvailable
+    }
+
     var canUseGentleShortcutExtension: Bool {
         let intervalID = blockedIntervalID(at: nowProvider())
         return configuration.closeMode == .gentle
@@ -212,6 +464,9 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     var visibleNotes: [TomorrowNote] {
+        guard canRevealNoteContent else {
+            return []
+        }
         let intervalID = currentNoteIntervalID
         return notes.notes.filter {
             $0.lastPresentedIntervalID != intervalID
@@ -235,7 +490,7 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     func start() async {
-        guard !started, !isShuttingDown else {
+        guard !started, !runtimeActivated, !isShuttingDown else {
             return
         }
         started = true
@@ -244,20 +499,27 @@ final class AppModel: NSObject, ObservableObject {
             if let stored = try await repository.loadConfiguration() {
                 configuration = stored
             }
+            configurationRevision &+= 1
         } catch {
             HomewardLog.persistence.error("Configuration load failed")
-            await notificationService.removeWarnings()
+            cancelAllEnforcement()
+            presentationCoordinator.setRecoveryActive(true)
+            await notificationService.removeAllOwned()
             health = .configurationUnavailable
             lastError = "App closing is paused because settings could not be verified."
             return
         }
 
+        guard !Task.isCancelled, !isShuttingDown else {
+            return
+        }
         await activateRuntime(clearingError: false)
     }
 
+    @discardableResult
     func refreshCatalog(
         reconcileAfterSave: Bool = true
-    ) async {
+    ) async -> Bool {
         catalogRefreshRequested = true
         catalogRefreshShouldReconcile =
             catalogRefreshShouldReconcile || reconcileAfterSave
@@ -265,11 +527,12 @@ final class AppModel: NSObject, ObservableObject {
             await withCheckedContinuation { continuation in
                 catalogRefreshWaiters.append(continuation)
             }
-            return
+            return catalogHealth == .available
         }
 
         catalogRefreshInProgress = true
         isCatalogLoading = true
+        catalogHealth = .loading
         defer {
             catalogRefreshInProgress = false
             isCatalogLoading = false
@@ -282,31 +545,42 @@ final class AppModel: NSObject, ObservableObject {
             catalogRefreshRequested = false
             let shouldReconcile = catalogRefreshShouldReconcile
             catalogRefreshShouldReconcile = false
-            let discovered = await catalogDiscoverer()
+            let discovered: [CatalogApplication]
+            do {
+                discovered = try await catalogDiscoverer()
+            } catch {
+                guard !catalogRefreshRequested else {
+                    continue
+                }
+                HomewardLog.lifecycle.error("Application discovery failed")
+                catalogHealth = .unavailable
+                lastError =
+                    "Applications could not be found. Existing verified app selections were kept."
+                return false
+            }
             guard !catalogRefreshRequested else {
                 continue
             }
             catalog = discovered
-            await reconcileCatalogSelections(
+            guard await reconcileCatalogSelections(
                 reconcileAfterSave: shouldReconcile
-            )
+            ) else {
+                catalogHealth = .unavailable
+                return false
+            }
+            catalogHealth = .available
         }
+        return catalogHealth == .available
     }
 
     private func reconcileCatalogSelections(
         reconcileAfterSave: Bool
-    ) async {
+    ) async -> Bool {
         await waitForConfigurationSave()
         var updated = configuration
         var changed = false
         for index in updated.selectedApplications.indices {
             let selection = updated.selectedApplications[index]
-            let catalogMatch = catalog.first { candidate in
-                if let bundleIdentifier = selection.bundleIdentifier {
-                    return candidate.selection.bundleIdentifier == bundleIdentifier
-                }
-                return candidate.selection.stableSelectionKey == selection.stableSelectionKey
-            }
             let savedURL = URL(fileURLWithPath: selection.bundlePath)
             let savedPathMatch = appCatalog.descriptor(for: savedURL).flatMap {
                 descriptor -> CatalogApplication? in
@@ -319,7 +593,30 @@ final class AppModel: NSObject, ObservableObject {
                     ? descriptor
                     : nil
             }
-            let match = catalogMatch ?? savedPathMatch
+            let exactCatalogMatch = catalog.first {
+                $0.selection.bundlePath == savedURL.standardizedFileURL.path
+            }
+            let match: CatalogApplication?
+            if let bundleIdentifier = selection.bundleIdentifier {
+                let candidates = catalog.filter {
+                    $0.selection.bundleIdentifier == bundleIdentifier
+                }
+                if let exact = exactCatalogMatch.flatMap({
+                    $0.selection.bundleIdentifier == bundleIdentifier
+                        ? $0
+                        : nil
+                }) {
+                    match = exact
+                } else if let savedPathMatch {
+                    match = savedPathMatch
+                } else if candidates.count == 1 {
+                    match = candidates[0]
+                } else {
+                    match = nil
+                }
+            } else {
+                match = exactCatalogMatch ?? savedPathMatch
+            }
             let isResolvable = match != nil
             if updated.selectedApplications[index].isResolvable != isResolvable {
                 updated.selectedApplications[index].isResolvable = isResolvable
@@ -335,23 +632,30 @@ final class AppModel: NSObject, ObservableObject {
             }
         }
         if changed {
-            await commit(
+            return await commit(
                 updated,
-                reconcileAfterSave: reconcileAfterSave
+                reconcileAfterSave: reconcileAfterSave,
+                requiresReady: false
             )
         }
+        return true
     }
 
     func refreshSystemStatuses() async {
         notificationStatus = await notificationService.authorizationStatus()
         if notificationStatus != .authorized {
-            await notificationService.removeWarnings()
+            await notificationService.removeAllOwned()
         }
         loginItemStatus = loginItemService.status
+        installationLocationStatus = installationLocationService.status
     }
 
     @discardableResult
     func requestNotificationPermission() async -> Bool {
+        guard isPolicyMutationEnabled else {
+            lastError = "Homeward is still starting. No settings were changed."
+            return false
+        }
         do {
             _ = try await notificationService.requestAuthorization()
             notificationStatus = await notificationService.authorizationStatus()
@@ -359,13 +663,13 @@ final class AppModel: NSObject, ObservableObject {
                 await scheduleWarningsIfPossible()
                 return true
             }
-            await notificationService.removeWarnings()
+            await notificationService.removeAllOwned()
             return false
         } catch {
             HomewardLog.lifecycle.error("Notification authorization failed")
             notificationStatus = await notificationService.authorizationStatus()
             if notificationStatus != .authorized {
-                await notificationService.removeWarnings()
+                await notificationService.removeAllOwned()
             }
             lastError = "Notifications could not be enabled. App closing still works."
             return false
@@ -374,6 +678,23 @@ final class AppModel: NSObject, ObservableObject {
 
     @discardableResult
     func enableStartAtLogin() -> Bool {
+        guard isPolicyMutationEnabled else {
+            lastError = "Homeward is still starting. No settings were changed."
+            return false
+        }
+        installationLocationStatus = installationLocationService.status
+        switch installationLocationStatus {
+        case .applications:
+            break
+        case .outsideApplications:
+            lastError =
+                "Move Homeward to Applications before enabling Start at Login."
+            return false
+        case .unavailable:
+            lastError =
+                "Homeward could not verify its installation location. Start at Login was not changed."
+            return false
+        }
         do {
             try loginItemService.enable()
             loginItemStatus = loginItemService.status
@@ -388,6 +709,10 @@ final class AppModel: NSObject, ObservableObject {
 
     @discardableResult
     func disableStartAtLogin() -> Bool {
+        guard isPolicyMutationEnabled else {
+            lastError = "Homeward is still starting. No settings were changed."
+            return false
+        }
         do {
             try loginItemService.disable()
             loginItemStatus = loginItemService.status
@@ -403,6 +728,10 @@ final class AppModel: NSObject, ObservableObject {
 
     func openLoginItemSettings() {
         loginItemService.openSystemSettings()
+    }
+
+    func showInstallationInFinder() {
+        installationLocationService.showInFinder()
     }
 
     func openSystemSettings() {
@@ -441,7 +770,8 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     func markOnboardingScheduleDirty() {
-        guard !configuration.completedOnboarding else {
+        guard isPolicyMutationEnabled,
+              !configuration.completedOnboarding else {
             return
         }
         onboardingConfirmationRevision &+= 1
@@ -449,7 +779,8 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     func restoreOnboardingScheduleConfirmation() {
-        guard !configuration.completedOnboarding else {
+        guard isPolicyMutationEnabled,
+              !configuration.completedOnboarding else {
             return
         }
         onboardingConfirmationRevision &+= 1
@@ -458,6 +789,10 @@ final class AppModel: NSObject, ObservableObject {
 
     func startPreview(selectionID: UUID) {
         endPreview()
+        guard isPolicyMutationEnabled else {
+            lastError = "Homeward is still starting. Preview has not started."
+            return
+        }
         guard let selection = configuration.selectedApplications.first(
             where: { $0.id == selectionID }
         ) else {
@@ -497,7 +832,12 @@ final class AppModel: NSObject, ObservableObject {
             lastError = "The preview application is no longer running."
             return
         }
-        _ = runningController.activate(sessionID: previewProcessSessionID)
+        guard runningController.activate(
+            sessionID: previewProcessSessionID
+        ) else {
+            lastError = "The preview application is no longer available."
+            return
+        }
     }
 
     @discardableResult
@@ -508,9 +848,6 @@ final class AppModel: NSObject, ObservableObject {
         }
         var updated = configuration
         updated.closeMode = mode
-        if mode == .gentle {
-            cancelAllEnforcement()
-        }
         if await commit(updated, reconcileAfterSave: false) {
             cancelAllEnforcement()
             await reconcile(runningApplications: workspaceMonitor.runningApplications)
@@ -543,14 +880,33 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     @discardableResult
-    func setSchedule(_ schedule: WeeklySchedule) async -> Bool {
+    func setSchedule(
+        _ schedule: WeeklySchedule,
+        expectedRevision: Int? = nil,
+        confirmsImmediateClose: Bool = false
+    ) async -> Bool {
         await waitForConfigurationSave()
+        guard expectedRevision == nil
+                || expectedRevision == configurationRevision else {
+            lastError =
+                "These schedule changes are based on older settings. Review the current schedule and try again."
+            return false
+        }
+        guard confirmsImmediateClose
+                || !scheduleChangeRequiresImmediateClose(schedule) else {
+            lastError =
+                "This change now makes work unavailable. Confirm the closing consequence before saving."
+            return false
+        }
         var updated = configuration
         updated.schedule = schedule
         if !updated.completedOnboarding {
             updated.onboardingScheduleConfirmed = true
         }
-        return await commit(updated)
+        return await commit(
+            updated,
+            expectedRevision: expectedRevision
+        )
     }
 
     func scheduleChangeRequiresImmediateClose(
@@ -567,8 +923,23 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     @discardableResult
-    func addApplication(_ application: SelectedApplication) async -> Bool {
+    func addApplication(
+        _ application: SelectedApplication,
+        expectedRevision: Int? = nil,
+        confirmsImmediateClose: Bool = false
+    ) async -> Bool {
         await waitForConfigurationSave()
+        guard expectedRevision == nil
+                || expectedRevision == configurationRevision else {
+            lastError =
+                "The work-app list changed. Review the current list and try again."
+            return false
+        }
+        guard confirmsImmediateClose || !requiresImmediateCloseForAppChange else {
+            lastError =
+                "Work is now closed. Confirm the closing consequence before adding this app."
+            return false
+        }
         guard !application.isProtected else {
             lastError = "That system application cannot be managed by Homeward."
             return false
@@ -581,16 +952,30 @@ final class AppModel: NSObject, ObservableObject {
         }
         var updated = configuration
         updated.selectedApplications.append(application)
-        return await commit(updated)
+        return await commit(
+            updated,
+            expectedRevision: expectedRevision
+        )
     }
 
     @discardableResult
-    func removeApplication(id: UUID) async -> Bool {
+    func removeApplication(
+        id: UUID,
+        expectedRevision: Int? = nil
+    ) async -> Bool {
         await waitForConfigurationSave()
-        cancelEnforcement(forSelectionID: id)
+        guard expectedRevision == nil
+                || expectedRevision == configurationRevision else {
+            lastError =
+                "The work-app list changed. Review the current list and try again."
+            return false
+        }
         var updated = configuration
         updated.selectedApplications.removeAll(where: { $0.id == id })
-        if await commit(updated) == false {
+        if await commit(
+            updated,
+            expectedRevision: expectedRevision
+        ) == false {
             await reconcile(
                 runningApplications: workspaceMonitor.runningApplications
             )
@@ -600,17 +985,41 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     @discardableResult
-    func addApplication(at url: URL) async -> Bool {
+    func addApplication(
+        at url: URL,
+        expectedRevision: Int? = nil,
+        confirmsImmediateClose: Bool = false
+    ) async -> Bool {
         guard let descriptor = appCatalog.descriptor(for: url) else {
             lastError = "The selected item is not a supported application."
             return false
         }
-        return await addApplication(descriptor.selection)
+        return await addApplication(
+            descriptor.selection,
+            expectedRevision: expectedRevision,
+            confirmsImmediateClose: confirmsImmediateClose
+        )
     }
 
     @discardableResult
-    func replaceApplication(id: UUID, with url: URL) async -> Bool {
+    func replaceApplication(
+        id: UUID,
+        with url: URL,
+        expectedRevision: Int? = nil,
+        confirmsImmediateClose: Bool = false
+    ) async -> Bool {
         await waitForConfigurationSave()
+        guard expectedRevision == nil
+                || expectedRevision == configurationRevision else {
+            lastError =
+                "The work-app list changed. Review the current list and try again."
+            return false
+        }
+        guard confirmsImmediateClose || !requiresImmediateCloseForAppChange else {
+            lastError =
+                "Work is now closed. Confirm the closing consequence before repairing this app."
+            return false
+        }
         guard let descriptor = appCatalog.descriptor(for: url),
               let index = configuration.selectedApplications.firstIndex(
                   where: { $0.id == id }
@@ -628,7 +1037,10 @@ final class AppModel: NSObject, ObservableObject {
         )
         var updated = configuration
         updated.selectedApplications[index] = replacement
-        return await commit(updated)
+        return await commit(
+            updated,
+            expectedRevision: expectedRevision
+        )
     }
 
     @discardableResult
@@ -740,6 +1152,38 @@ final class AppModel: NSObject, ObservableObject {
         } catch {
             lastError = "Work could not be ended early."
             return false
+        }
+    }
+
+    func requestPolicyConfirmation(
+        _ intent: PolicyConfirmationIntent,
+        routeToToday: Bool = false
+    ) {
+        todayExplanation = nil
+        pendingPolicyConfirmation = intent
+        if routeToToday {
+            routeHandler?(.today)
+        }
+    }
+
+    func cancelPolicyConfirmation() {
+        pendingPolicyConfirmation = nil
+    }
+
+    @discardableResult
+    func confirmPolicyAction() async -> Bool {
+        guard let intent = pendingPolicyConfirmation else {
+            return false
+        }
+        pendingPolicyConfirmation = nil
+        switch intent {
+        case .endWorkNow:
+            return await endWorkNow()
+        case .gentleShortcutExtension:
+            return await useGentleShortcutExtension()
+        case .resumeFirmClosing:
+            await resumeFirmClosing()
+            return !forceEscalationPaused
         }
     }
 
@@ -916,8 +1360,7 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     func showNotesReview() {
-        guard resolvedSchedule.isAvailable,
-              resolvedSchedule.phase != .temporarilyExtended,
+        guard canRevealNoteContent,
               !visibleNotes.isEmpty else {
             return
         }
@@ -925,6 +1368,15 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     func showNoteCapture() {
+        guard isSessionActive else {
+            lastError =
+                "Saved thoughts stay hidden while your session is inactive."
+            return
+        }
+        guard notesHealth == .available else {
+            lastError = "Saved thoughts are unavailable. App closing still works."
+            return
+        }
         lastError = nil
         presentationCoordinator.showNoteCapture(model: self)
     }
@@ -939,6 +1391,10 @@ final class AppModel: NSObject, ObservableObject {
 
     func saveNote(_ text: String) async -> Bool {
         await waitForNotesSave()
+        guard notesHealth == .available else {
+            lastError = "Saved thoughts are unavailable. App closing still works."
+            return false
+        }
         notesSaveInProgress = true
         defer { finishNotesSave() }
         do {
@@ -946,21 +1402,37 @@ final class AppModel: NSObject, ObservableObject {
             var updated = notes
             try updated.append(note)
             notes = try await notesSaver(updated)
+            notesHealth = .available
             return true
         } catch {
-            lastError = "The thought was not saved."
+            lastError = "The thought was not saved. Your draft is still here."
             return false
         }
     }
 
-    func keepNote(id: UUID, intervalID: String) async {
+    @discardableResult
+    func keepNote(id: UUID, intervalID: String) async -> Bool {
         await waitForNotesSave()
         do {
             var updated = notes
             try updated.markPresented(id: id, in: intervalID)
-            _ = await commitNotes(updated)
+            return await commitNotes(updated)
         } catch {
             lastError = "The thought could not be kept for later."
+            return false
+        }
+    }
+
+    @discardableResult
+    func undoKeepNote(_ previousValue: TomorrowNote) async -> Bool {
+        await waitForNotesSave()
+        do {
+            var updated = notes
+            try updated.restorePresentation(from: previousValue)
+            return await commitNotes(updated)
+        } catch {
+            lastError = "The thought could not be restored to this review."
+            return false
         }
     }
 
@@ -1007,7 +1479,7 @@ final class AppModel: NSObject, ObservableObject {
                 forKey: HomewardPreferenceKeys.onboardingStep
             )
             resolvedSchedule = resolveSchedule(at: nowProvider())
-            await notificationService.removeWarnings()
+            await notificationService.removeAllOwned()
             return true
         } catch {
             HomewardLog.persistence.error("Setup reset failed")
@@ -1018,15 +1490,24 @@ final class AppModel: NSObject, ObservableObject {
 
     @discardableResult
     func retryConfigurationLoad() async -> Bool {
+        guard beginRecovery() else {
+            return false
+        }
+        defer { isRecoveryInProgress = false }
+        cancelAllEnforcement()
+        presentationCoordinator.setRecoveryActive(true)
+        await notificationService.removeAllOwned()
         await waitForConfigurationSave()
         configurationSaveInProgress = true
-        defer { finishConfigurationSave() }
         do {
             configuration = try await repository.loadConfiguration()
                 ?? HomewardConfiguration.initial()
+            configurationRevision &+= 1
+            finishConfigurationSave()
             await activateRuntime(clearingError: true)
             return true
         } catch {
+            finishConfigurationSave()
             health = .configurationUnavailable
             lastError = "App closing is paused because settings could not be verified."
             return false
@@ -1035,19 +1516,33 @@ final class AppModel: NSObject, ObservableObject {
 
     @discardableResult
     func restorePreviousConfiguration() async -> Bool {
+        guard beginRecovery() else {
+            return false
+        }
+        defer { isRecoveryInProgress = false }
+        cancelAllEnforcement()
+        presentationCoordinator.setRecoveryActive(true)
+        await notificationService.removeAllOwned()
         await waitForConfigurationSave()
         configurationSaveInProgress = true
-        defer { finishConfigurationSave() }
         do {
             guard let candidate = try await repository.configurationRecoveryCandidate() else {
+                finishConfigurationSave()
                 lastError = "No previous settings are available."
                 return false
             }
+            var recovered = candidate
+            recovered.advancePolicyGeneration(
+                after: configuration.policyGeneration
+            )
             configuration = try await repository
-                .replaceConfigurationDuringRecovery(candidate)
+                .replaceConfigurationDuringRecovery(recovered)
+            configurationRevision &+= 1
+            finishConfigurationSave()
             await activateRuntime(clearingError: true)
             return true
         } catch {
+            finishConfigurationSave()
             lastError = "Previous settings could not be restored. App closing remains paused."
             return false
         }
@@ -1055,13 +1550,24 @@ final class AppModel: NSObject, ObservableObject {
 
     @discardableResult
     func replaceWithFreshSetup() async -> Bool {
+        guard beginRecovery() else {
+            return false
+        }
+        defer { isRecoveryInProgress = false }
+        cancelAllEnforcement()
+        presentationCoordinator.setRecoveryActive(true)
+        await notificationService.removeAllOwned()
         await waitForConfigurationSave()
         configurationSaveInProgress = true
-        defer { finishConfigurationSave() }
         do {
-            let initial = try HomewardConfiguration.initial()
+            var initial = try HomewardConfiguration.initial()
+            initial.advancePolicyGeneration(
+                after: configuration.policyGeneration
+            )
             configuration = try await repository
                 .replaceConfigurationDuringRecovery(initial)
+            configurationRevision &+= 1
+            finishConfigurationSave()
             UserDefaults.standard.set(
                 0,
                 forKey: HomewardPreferenceKeys.onboardingStep
@@ -1069,6 +1575,7 @@ final class AppModel: NSObject, ObservableObject {
             await activateRuntime(clearingError: true)
             return true
         } catch {
+            finishConfigurationSave()
             lastError = "A fresh setup could not be saved. App closing remains paused."
             return false
         }
@@ -1082,9 +1589,50 @@ final class AppModel: NSObject, ObservableObject {
         do {
             try await notesResetter()
             notes = try NotesDocument()
+            notesHealth = .available
+            notesRecoveryCandidateAvailable = false
             return true
         } catch {
             lastError = "Saved thoughts could not be reset."
+            return false
+        }
+    }
+
+    @discardableResult
+    func retryNotesLoad() async -> Bool {
+        await waitForNotesSave()
+        do {
+            notes = try await repository.loadNotes()
+            notesHealth = .available
+            notesRecoveryCandidateAvailable = false
+            return true
+        } catch {
+            notesHealth = .unavailable
+            notesRecoveryCandidateAvailable =
+                (try? await repository.notesRecoveryCandidate()) != nil
+            lastError = "Saved thoughts are unavailable. App closing still works."
+            return false
+        }
+    }
+
+    @discardableResult
+    func restorePreviousNotes() async -> Bool {
+        await waitForNotesSave()
+        notesSaveInProgress = true
+        defer { finishNotesSave() }
+        do {
+            guard let candidate = try await repository
+                .notesRecoveryCandidate() else {
+                lastError = "No previous saved thoughts are available."
+                return false
+            }
+            notes = try await repository.replaceNotesDuringRecovery(candidate)
+            notesHealth = .available
+            notesRecoveryCandidateAvailable = false
+            return true
+        } catch {
+            notesHealth = .unavailable
+            lastError = "Previous saved thoughts could not be restored."
             return false
         }
     }
@@ -1094,12 +1642,23 @@ final class AppModel: NSObject, ObservableObject {
             return
         }
         isShuttingDown = true
+        runtimeForcePauseIntervalIDs.insert(
+            blockedIntervalID(at: nowProvider())
+        )
         transitionTask?.cancel()
+        notesLoadTask?.cancel()
+        systemStatusTask?.cancel()
         previewTimeoutTask?.cancel()
+        for task in launchMetadataTasks.values {
+            task.cancel()
+        }
+        launchMetadataTasks.removeAll()
         cancelEnforcementTasks()
+        presentationCoordinator.dismissSensitivePresentations()
         workspaceMonitor.stop()
         notificationService.stop()
-        await notificationService.removeWarnings()
+        await notificationService.removeAllOwned()
+        await waitForPendingSavesBeforeTermination()
     }
 
     func quit() async {
@@ -1108,6 +1667,10 @@ final class AppModel: NSObject, ObservableObject {
 
     @discardableResult
     func turnOff() async -> Bool {
+        guard isPolicyMutationEnabled else {
+            lastError = "Homeward is still starting. Start at Login was not changed."
+            return false
+        }
         do {
             try loginItemService.disable()
             loginItemStatus = loginItemService.status
@@ -1124,11 +1687,27 @@ final class AppModel: NSObject, ObservableObject {
         lastError = nil
     }
 
+    func clearTodayExplanation() {
+        todayExplanation = nil
+    }
+
     @discardableResult
     private func commit(
         _ updated: HomewardConfiguration,
-        reconcileAfterSave: Bool = true
+        reconcileAfterSave: Bool = true,
+        requiresReady: Bool = true,
+        expectedRevision: Int? = nil
     ) async -> Bool {
+        guard !requiresReady || isPolicyMutationEnabled else {
+            lastError = "Homeward is still starting. No settings were changed."
+            return false
+        }
+        guard expectedRevision == nil
+                || expectedRevision == configurationRevision else {
+            lastError =
+                "These changes are based on older settings. Review the current settings and try again."
+            return false
+        }
         guard !configurationSaveInProgress else {
             lastError = "Another settings change is still being saved. Try again."
             return false
@@ -1139,6 +1718,9 @@ final class AppModel: NSObject, ObservableObject {
         do {
             var persisted = updated
             persisted.removeExpiredOverrides(at: nowProvider())
+            persisted.advancePolicyGeneration(
+                after: configuration.policyGeneration
+            )
             var saved = try await configurationSaver(persisted)
             if onboardingConfirmationRevision != confirmationRevision,
                !saved.completedOnboarding {
@@ -1146,6 +1728,8 @@ final class AppModel: NSObject, ObservableObject {
                     configuration.onboardingScheduleConfirmed
             }
             configuration = saved
+            configurationRevision &+= 1
+            await notificationService.removeAllOwned()
             if reconcileAfterSave {
                 await reconcile(runningApplications: workspaceMonitor.runningApplications)
             }
@@ -1172,7 +1756,19 @@ final class AppModel: NSObject, ObservableObject {
         waiters.forEach { $0.resume() }
     }
 
+    private func beginRecovery() -> Bool {
+        guard !isRecoveryInProgress else {
+            return false
+        }
+        isRecoveryInProgress = true
+        return true
+    }
+
     private func commitNotes(_ updated: NotesDocument) async -> Bool {
+        guard notesHealth == .available else {
+            lastError = "Saved thoughts are unavailable. App closing still works."
+            return false
+        }
         guard !notesSaveInProgress else {
             lastError = "Another saved-thought change is still in progress."
             return false
@@ -1202,6 +1798,22 @@ final class AppModel: NSObject, ObservableObject {
         let waiters = notesSaveWaiters
         notesSaveWaiters.removeAll()
         waiters.forEach { $0.resume() }
+    }
+
+    private func waitForPendingSavesBeforeTermination() async {
+        let deadline = elapsedClock.now().advanced(
+            by: Self.terminationSaveWait
+        )
+        while configurationSaveInProgress || notesSaveInProgress {
+            guard elapsedClock.now() < deadline else {
+                return
+            }
+            do {
+                try await elapsedClock.sleep(Self.terminationSavePoll)
+            } catch {
+                return
+            }
+        }
     }
 
     private func schedulePreviewTimeout(applicationName: String) {
@@ -1283,35 +1895,79 @@ final class AppModel: NSObject, ObservableObject {
         terminatedProcessIdentifier: Int32,
         hasLiveSessionForProcessIdentifier: Bool
     ) -> Bool {
-        if let terminatedSessionID {
-            return terminatedSessionID == expectedSessionID
+        guard let terminatedSessionID else {
+            return false
         }
-        return !hasLiveSessionForProcessIdentifier
-            && terminatedProcessIdentifier == expectedProcessIdentifier
+        return terminatedSessionID == expectedSessionID
     }
 
     private func activateRuntime(clearingError: Bool) async {
         if clearingError {
             lastError = nil
         }
-        do {
-            notes = try await repository.loadNotes()
-        } catch {
-            HomewardLog.persistence.error("Notes load failed")
-            lastError = "Saved thoughts are unavailable. App closing still works."
+        guard await refreshCatalog(reconcileAfterSave: false),
+              !Task.isCancelled,
+              !isShuttingDown else {
+            if !Task.isCancelled, !isShuttingDown {
+                health = .applicationResolutionUnavailable
+            }
+            return
         }
-        await refreshCatalog(reconcileAfterSave: false)
         notificationService.start(handler: self)
         workspaceMonitor.start()
+        presentationCoordinator.setRecoveryActive(false)
+        let initialApplications = workspaceMonitor.runningApplications
         isSessionActive = workspaceMonitor.sessionIsLikelyActive
+        await reconcile(runningApplications: initialApplications)
+        guard !Task.isCancelled, !isShuttingDown else {
+            return
+        }
+        runtimeActivated = true
         health = .ready
-        await reconcile(runningApplications: workspaceMonitor.runningApplications)
-        Task { @MainActor [weak self] in
+        startNotesLoad()
+        systemStatusTask?.cancel()
+        systemStatusTask = Task { @MainActor [weak self] in
             guard let self else {
                 return
             }
             await self.refreshSystemStatuses()
             await self.scheduleWarningsIfPossible()
+        }
+    }
+
+    private func startNotesLoad() {
+        notesLoadTask?.cancel()
+        notesHealth = .loading
+        notesLoadTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            do {
+                let loaded = try await self.repository.loadNotes()
+                guard !Task.isCancelled, !self.isShuttingDown else {
+                    return
+                }
+                self.notes = loaded
+                self.notesHealth = .available
+                self.notesRecoveryCandidateAvailable = false
+                self.presentNotesIfNeeded()
+            } catch {
+                guard !Task.isCancelled, !self.isShuttingDown else {
+                    return
+                }
+                HomewardLog.persistence.error("Notes load failed")
+                let recoveryCandidateAvailable =
+                    (try? await self.repository.notesRecoveryCandidate())
+                    != nil
+                guard !Task.isCancelled, !self.isShuttingDown else {
+                    return
+                }
+                self.notesRecoveryCandidateAvailable =
+                    recoveryCandidateAvailable
+                self.notesHealth = .unavailable
+                self.lastError =
+                    "Saved thoughts are unavailable. App closing still works."
+            }
         }
     }
 
@@ -1400,14 +2056,7 @@ final class AppModel: NSObject, ObservableObject {
         if resolvedSchedule.isAvailable || !configuration.completedOnboarding {
             cancelAllEnforcement()
             if configuration.completedOnboarding {
-                let snapshots = runningController.snapshots(runningApplications)
-                if let selectedRunning = snapshots.first(where: { snapshot in
-                    configuration.selectedApplications.contains {
-                        planner.matches(selection: $0, process: snapshot)
-                    }
-                }) {
-                    presentNotesIfNeeded(for: selectedRunning)
-                }
+                presentNotesIfNeeded()
             }
         } else {
             enforce(
@@ -1452,7 +2101,12 @@ final class AppModel: NSObject, ObservableObject {
         do {
             configurationSaveInProgress = true
             defer { finishConfigurationSave() }
+            updated.advancePolicyGeneration(
+                after: configuration.policyGeneration
+            )
             configuration = try await configurationSaver(updated)
+            configurationRevision &+= 1
+            await notificationService.removeAllOwned()
         } catch {
             HomewardLog.persistence.error("Transient state cleanup failed")
             lastError = "Expired temporary state could not be cleaned up."
@@ -1476,6 +2130,7 @@ final class AppModel: NSObject, ObservableObject {
         do {
             try await notificationService.replaceWarnings(
                 cutoff: cutoff,
+                policyGeneration: configuration.policyGeneration,
                 preferences: configuration.warningPreferences,
                 includeExtension: configuration.closeMode == .gentle
                     && configuration.gentleShortcutExtensionEnabled
@@ -1488,7 +2143,7 @@ final class AppModel: NSObject, ObservableObject {
             notificationStatus =
                 await notificationService.authorizationStatus()
             if notificationStatus != .authorized {
-                await notificationService.removeWarnings()
+                await notificationService.removeAllOwned()
             }
             lastError = "Wind-down notifications could not be scheduled. App closing still works."
         }
@@ -1584,7 +2239,9 @@ final class AppModel: NSObject, ObservableObject {
             }
         case .firm:
             let paused = forceEscalationPaused
-            let deadline = now.addingTimeInterval(HomewardPolicy.firmGracePeriod)
+            let deadline = elapsedClock.now().advanced(
+                by: .seconds(HomewardPolicy.firmGracePeriod)
+            )
             closingRows.append(ClosingRow(
                 sessionID: target.id,
                 enforcementIdentity: enforcementIdentity,
@@ -1593,7 +2250,7 @@ final class AppModel: NSObject, ObservableObject {
                 status: paused ? .forcePaused : .countingDown,
                 secondsRemaining: paused ? nil : Int(HomewardPolicy.firmGracePeriod)
             ))
-            showClosingPanel()
+            showClosingPanel(activating: !paused)
             guard !paused else {
                 return
             }
@@ -1604,7 +2261,7 @@ final class AppModel: NSObject, ObservableObject {
                 while !Task.isCancelled {
                     let remaining = max(
                         0,
-                        Int(ceil(deadline.timeIntervalSince(self.nowProvider())))
+                        Int(ceil(self.elapsedClock.seconds(until: deadline)))
                     )
                     self.updateClosingRow(sessionID: target.id) {
                         $0.secondsRemaining = remaining
@@ -1617,8 +2274,8 @@ final class AppModel: NSObject, ObservableObject {
                     if remaining == 0 {
                         break
                     }
-                    try? await Task.sleep(
-                        for: .seconds(HomewardPolicy.countdownTick)
+                    try? await self.elapsedClock.sleep(
+                        .seconds(HomewardPolicy.countdownTick)
                     )
                 }
                 guard !Task.isCancelled else {
@@ -1626,7 +2283,6 @@ final class AppModel: NSObject, ObservableObject {
                 }
                 await self.attemptForceTermination(
                     target: target,
-                    deadline: deadline,
                     blockedIntervalID: intervalID
                 )
             }
@@ -1663,14 +2319,15 @@ final class AppModel: NSObject, ObservableObject {
 
     private func attemptForceTermination(
         target: EnforcementTarget,
-        deadline: Date,
         blockedIntervalID originalBlockedIntervalID: String
     ) async {
         let now = nowProvider()
         resolvedSchedule = resolveSchedule(at: now)
         let session = EnforcementSession(
             mode: .firm,
-            startedAt: deadline.addingTimeInterval(-HomewardPolicy.firmGracePeriod),
+            startedAt: now.addingTimeInterval(
+                -HomewardPolicy.firmGracePeriod
+            ),
             targets: [target],
             forceEscalationPaused: forceEscalationPaused
         )
@@ -1739,11 +2396,7 @@ final class AppModel: NSObject, ObservableObject {
         if configuration.closeMode == .firm,
            !forceEscalationPaused,
            !resolvedSchedule.isAvailable {
-            cancelEnforcementTasks()
-            closingRows.removeAll(where: {
-                $0.status == .forcePaused || $0.status == .countingDown
-            })
-            refreshClosingPanel()
+            cancelAllEnforcement()
         }
         await reconcile(runningApplications: workspaceMonitor.runningApplications)
     }
@@ -1753,28 +2406,6 @@ final class AppModel: NSObject, ObservableObject {
             task.cancel()
         }
         enforcementTasks.removeAll()
-    }
-
-    private func cancelEnforcement(forSelectionID id: UUID) {
-        let matching = closingRows.filter { row in
-            guard let target = targetForClosingRow(row) else {
-                return false
-            }
-            return target.selectionID == id
-        }
-        for row in matching {
-            enforcementTasks[row.id]?.cancel()
-            enforcementTasks.removeValue(forKey: row.id)
-            removeClosingRow(sessionID: row.id)
-        }
-    }
-
-    private func targetForClosingRow(_ row: ClosingRow) -> EnforcementTarget? {
-        let snapshots = runningController.snapshots(workspaceMonitor.runningApplications)
-        return planner.targets(
-            selections: configuration.selectedApplications,
-            runningApplications: snapshots
-        ).first(where: { $0.id == row.id })
     }
 
     private func updateClosingRow(
@@ -1823,52 +2454,38 @@ final class AppModel: NSObject, ObservableObject {
             return
         }
 
-        let matchingSessionIDs: Set<ProcessSessionID>
-        if let sessionID {
-            matchingSessionIDs = [sessionID]
-        } else {
-            guard runningController.liveSessionID(
-                processIdentifier: processIdentifier
-            ) == nil else {
-                return
+        guard let sessionID else {
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    return
+                }
+                await self.reconcile(
+                    runningApplications: self.workspaceMonitor
+                        .runningApplications
+                )
             }
-            var matches = Set(
-                closingRows.compactMap {
-                    $0.processIdentifier == processIdentifier ? $0.id : nil
-                }
-            )
-            matches.formUnion(
-                blockedLaunchTargets.compactMap {
-                    $0.value.process.processIdentifier == processIdentifier
-                        ? $0.key
-                        : nil
-                }
-            )
-            matches.formUnion(
-                gentleExemptProcesses.compactMap {
-                    $0.value == processIdentifier ? $0.key : nil
-                }
-            )
-            matchingSessionIDs = matches
+            return
         }
 
-        for matchingSessionID in matchingSessionIDs {
-            gentleExemptProcesses.removeValue(forKey: matchingSessionID)
-            removeClosingRow(sessionID: matchingSessionID)
-        }
-        if let sessionID {
-            runningController.remove(sessionID: sessionID)
-        } else {
-            runningController.remove(processIdentifier: processIdentifier)
-        }
+        gentleExemptProcesses.removeValue(forKey: sessionID)
+        removeClosingRow(sessionID: sessionID)
+        runningController.remove(sessionID: sessionID)
         refreshClosingPanel()
     }
 
-    private func showClosingPanel() {
-        presentationCoordinator.showClosing(model: self)
+    private func showClosingPanel(activating: Bool = false) {
+        presentationCoordinator.showClosing(
+            model: self,
+            activating: activating
+        )
     }
 
     private func showBlockedLaunchFeedback(for target: EnforcementTarget) {
+        guard !closingRows.contains(where: {
+            $0.status == .countingDown
+        }) else {
+            return
+        }
         let now = nowProvider()
         let lastFeedback = lastBlockedFeedbackBySelection[target.selectionID]
         lastBlockedFeedbackBySelection[target.selectionID] = now
@@ -1882,15 +2499,15 @@ final class AppModel: NSObject, ObservableObject {
         if shouldShowPanel {
             presentationCoordinator.showBlockedLaunch(
                 model: self,
-                applicationName: target.process.displayName,
                 availabilityText: availability
             )
         } else if notificationStatus == .authorized {
             Task {
                 do {
-                    try await notificationService.postStatus(
-                        title: "A work app is off for now",
-                        body: availability
+                    try await notificationService.post(
+                        .blockedLaunch(
+                            nextAvailability: resolvedSchedule.nextAvailability
+                        )
                     )
                 } catch {
                     HomewardLog.lifecycle.error(
@@ -1905,14 +2522,12 @@ final class AppModel: NSObject, ObservableObject {
         guard notificationStatus == .authorized else {
             return
         }
-        let availability = resolvedSchedule.nextAvailability.map {
-            "Selected apps are unavailable until \($0.formatted(date: .abbreviated, time: .shortened))."
-        } ?? "No work window is scheduled."
         Task {
             do {
-                try await notificationService.postStatus(
-                    title: "Work is closed",
-                    body: availability
+                try await notificationService.post(
+                    .closingComplete(
+                        nextAvailability: resolvedSchedule.nextAvailability
+                    )
                 )
             } catch {
                 HomewardLog.lifecycle.error(
@@ -1973,11 +2588,10 @@ final class AppModel: NSObject, ObservableObject {
         )
     }
 
-    private func presentNotesIfNeeded(for process: RunningApplicationSnapshot) {
-        guard resolvedSchedule.phase != .temporarilyExtended,
-              configuration.selectedApplications.contains(where: {
-                  planner.matches(selection: $0, process: process)
-              }),
+    private func presentNotesIfNeeded() {
+        guard isSessionActive,
+              notesHealth == .available,
+              resolvedSchedule.phase != .temporarilyExtended,
               let intervalID = resolvedSchedule.activeBaseInterval?.id,
               notes.notes.contains(where: {
                   $0.lastPresentedIntervalID != intervalID
@@ -1987,7 +2601,10 @@ final class AppModel: NSObject, ObservableObject {
             return
         }
         presentedNoteIntervalIDs.insert(intervalID)
-        showNotesReview()
+        presentationCoordinator.showNotesReady(
+            model: self,
+            count: availableNotesCount
+        )
     }
 
     private func handleLaunchSnapshot(_ snapshot: RunningApplicationSnapshot) {
@@ -2005,7 +2622,7 @@ final class AppModel: NSObject, ObservableObject {
         transitionTask?.cancel()
         scheduleNextTransition()
         if resolvedSchedule.isAvailable {
-            presentNotesIfNeeded(for: snapshot)
+            presentNotesIfNeeded()
         } else {
             for target in planner.targets(
                 selections: configuration.selectedApplications,
@@ -2014,6 +2631,45 @@ final class AppModel: NSObject, ObservableObject {
                 blockedLaunchTargets[target.id] = target
             }
             enforce(snapshots: [snapshot], now: now)
+        }
+    }
+
+    private func retryLaunchMetadata(
+        for application: NSRunningApplication
+    ) {
+        let processIdentifier = application.processIdentifier
+        launchMetadataTasks[processIdentifier]?.cancel()
+        launchMetadataTasks[processIdentifier] = Task {
+            [weak self, weak application] in
+            guard let self else {
+                return
+            }
+            for _ in 0..<Self.launchMetadataRetryLimit {
+                do {
+                    try await self.elapsedClock.sleep(
+                        .seconds(HomewardPolicy.launchMetadataRetryDelay)
+                    )
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled,
+                      let application,
+                      !application.isTerminated else {
+                    return
+                }
+                let snapshot = self.runningController.snapshot(application)
+                if snapshot.processSessionID != nil {
+                    self.launchMetadataTasks.removeValue(
+                        forKey: processIdentifier
+                    )
+                    self.handleLaunchSnapshot(snapshot)
+                    return
+                }
+            }
+            self.launchMetadataTasks.removeValue(forKey: processIdentifier)
+            await self.reconcile(
+                runningApplications: self.workspaceMonitor.runningApplications
+            )
         }
     }
 }
@@ -2025,20 +2681,7 @@ extension AppModel: WorkspaceMonitorDelegate {
     ) {
         let snapshot = runningController.snapshot(application)
         guard snapshot.processSessionID != nil else {
-            Task { @MainActor [weak self, weak application] in
-                try? await Task.sleep(
-                    for: .seconds(HomewardPolicy.launchMetadataRetryDelay)
-                )
-                guard !Task.isCancelled,
-                      let self,
-                      let application,
-                      !application.isTerminated else {
-                    return
-                }
-                self.handleLaunchSnapshot(
-                    self.runningController.snapshot(application)
-                )
-            }
+            retryLaunchMetadata(for: application)
             return
         }
         handleLaunchSnapshot(snapshot)
@@ -2049,6 +2692,10 @@ extension AppModel: WorkspaceMonitorDelegate {
         didTerminate application: NSRunningApplication
     ) {
         let snapshot = runningController.snapshot(application)
+        launchMetadataTasks[application.processIdentifier]?.cancel()
+        launchMetadataTasks.removeValue(
+            forKey: application.processIdentifier
+        )
         handleProcessTermination(
             processIdentifier: application.processIdentifier,
             sessionID: snapshot.processSessionID
@@ -2067,6 +2714,11 @@ extension AppModel: WorkspaceMonitorDelegate {
     func workspaceMonitorWillSuspend(_ monitor: WorkspaceMonitor) {
         isSessionActive = false
         suspendForceEscalation()
+        presentationCoordinator.dismissSensitivePresentations()
+        sensitivePresentationDismissalHandler?()
+        Task {
+            await notificationService.removeAllOwned()
+        }
     }
 
     func workspaceMonitor(
@@ -2081,6 +2733,11 @@ extension AppModel: WorkspaceMonitorDelegate {
             }
         } else {
             suspendForceEscalation()
+            presentationCoordinator.dismissSensitivePresentations()
+            sensitivePresentationDismissalHandler?()
+            Task {
+                await notificationService.removeAllOwned()
+            }
         }
     }
 }
@@ -2090,8 +2747,16 @@ extension AppModel: HomewardNotificationHandling {
         _ identifier: String,
         context: WarningActionContext?
     ) {
+        if identifier == UNNotificationDefaultActionIdentifier {
+            routeHandler?(.today)
+            return
+        }
+        if identifier == UNNotificationDismissActionIdentifier {
+            return
+        }
         guard identifier == HomewardNotificationService.startClosingAction
                 || identifier == HomewardNotificationService.extendAction else {
+            routeStaleNotificationAction()
             return
         }
         Task { @MainActor [weak self] in
@@ -2111,24 +2776,41 @@ extension AppModel: HomewardNotificationHandling {
         }
         await waitForConfigurationSave()
         guard configuration.completedOnboarding, !isShuttingDown else {
+            routeStaleNotificationAction()
             return
         }
         let now = nowProvider()
         let currentSchedule = resolveSchedule(at: now)
-        guard context?.isCurrent(for: currentSchedule, at: now) == true else {
+        guard context?.isCurrent(
+            for: currentSchedule,
+            policyGeneration: configuration.policyGeneration,
+            at: now
+        ) == true else {
+            routeStaleNotificationAction()
             return
         }
         switch identifier {
         case HomewardNotificationService.startClosingAction:
-            await endWorkNow()
+            requestPolicyConfirmation(.endWorkNow, routeToToday: true)
         case HomewardNotificationService.extendAction:
             guard configuration.closeMode == .gentle,
                   configuration.gentleShortcutExtensionEnabled else {
+                routeStaleNotificationAction()
                 return
             }
-            await useGentleShortcutExtension()
+            requestPolicyConfirmation(
+                .gentleShortcutExtension,
+                routeToToday: true
+            )
         default:
             break
         }
+    }
+
+    private func routeStaleNotificationAction() {
+        pendingPolicyConfirmation = nil
+        todayExplanation =
+            "This notification is no longer current. No changes were made."
+        routeHandler?(.today)
     }
 }

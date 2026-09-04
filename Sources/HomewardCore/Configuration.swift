@@ -7,6 +7,7 @@ public struct HomewardConfiguration: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
+        case policyGeneration
         case schedule
         case selectedApplications
         case closeMode
@@ -21,6 +22,7 @@ public struct HomewardConfiguration: Codable, Equatable, Sendable {
     public static let currentSchemaVersion = 1
 
     public private(set) var schemaVersion: Int
+    public private(set) var policyGeneration: UInt64
     public var schedule: WeeklySchedule
     public var selectedApplications: [SelectedApplication]
     public var closeMode: CloseMode
@@ -33,6 +35,7 @@ public struct HomewardConfiguration: Codable, Equatable, Sendable {
 
     public init(
         schemaVersion: Int = Self.currentSchemaVersion,
+        policyGeneration: UInt64 = 0,
         schedule: WeeklySchedule,
         selectedApplications: [SelectedApplication] = [],
         closeMode: CloseMode = .gentle,
@@ -44,6 +47,7 @@ public struct HomewardConfiguration: Codable, Equatable, Sendable {
         completedOnboarding: Bool = false
     ) throws {
         self.schemaVersion = schemaVersion
+        self.policyGeneration = policyGeneration
         self.schedule = schedule
         self.selectedApplications = selectedApplications
         self.closeMode = closeMode
@@ -148,6 +152,10 @@ public struct HomewardConfiguration: Codable, Equatable, Sendable {
         consumedGentleExtensionIntervalIDs.removeAll()
     }
 
+    public mutating func advancePolicyGeneration(after generation: UInt64) {
+        policyGeneration = generation == .max ? 1 : generation + 1
+    }
+
     @discardableResult
     public mutating func removeExpiredOverrides(at date: Date) -> Bool {
         let previousCount = overrides.count
@@ -170,6 +178,10 @@ public struct HomewardConfiguration: Codable, Equatable, Sendable {
         ).gentleExtensionEnabled ?? false
         try self.init(
             schemaVersion: container.decode(Int.self, forKey: .schemaVersion),
+            policyGeneration: container.decodeIfPresent(
+                UInt64.self,
+                forKey: .policyGeneration
+            ) ?? 0,
             schedule: container.decode(WeeklySchedule.self, forKey: .schedule),
             selectedApplications: container.decode(
                 [SelectedApplication].self,
@@ -238,6 +250,17 @@ public struct NotesDocument: Codable, Equatable, Sendable {
             throw ConfigurationError.noteNotFound(id)
         }
         try notes[index].markPresented(in: intervalID)
+    }
+
+    public mutating func restorePresentation(
+        from previousValue: TomorrowNote
+    ) throws {
+        guard let index = notes.firstIndex(
+            where: { $0.id == previousValue.id }
+        ) else {
+            throw ConfigurationError.noteNotFound(previousValue.id)
+        }
+        try notes[index].restorePresentation(from: previousValue)
     }
 
     @discardableResult

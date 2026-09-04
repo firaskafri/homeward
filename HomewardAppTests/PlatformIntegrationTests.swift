@@ -1,5 +1,7 @@
 import AppKit
 import XCTest
+@testable import Homeward
+@testable import Homeward
 
 // 1 - Name: macOS platform integration test file.
 // 2 - Description: Exercises normal and forced termination only against the dedicated Homeward fixture application.
@@ -21,7 +23,7 @@ final class PlatformIntegrationTests: XCTestCase {
         let expectation = expectation(description: "Fixture launch observed")
         let observer = FixtureLaunchObserver(
             expectation: expectation,
-            expectedBundlePath: fixtureURL.standardizedFileURL.path
+            expectedIdentity: FixturePolicy.identity(at: fixtureURL)
         )
         let center = NSWorkspace.shared.notificationCenter
         center.addObserver(
@@ -150,8 +152,11 @@ final class PlatformIntegrationTests: XCTestCase {
             url = try self.fixtureURL()
         }
         try await terminateExistingFixtures(at: url)
-        guard Bundle(url: url)?.bundleIdentifier
-                == FixturePolicy.bundleIdentifier else {
+        let fixtureIdentity = FixturePolicy.identity(at: url)
+        guard fixtureIdentity.matches(
+            bundleIdentifier: Bundle(url: url)?.bundleIdentifier,
+            bundleURL: url
+        ) else {
             throw FixtureError.invalidFixtureIdentity(url)
         }
         let configuration = NSWorkspace.OpenConfiguration()
@@ -165,25 +170,23 @@ final class PlatformIntegrationTests: XCTestCase {
             at: url,
             configuration: configuration
         )
-        guard application.bundleIdentifier == FixturePolicy.bundleIdentifier,
-              application.bundleURL?.standardizedFileURL.path
-                == url.standardizedFileURL.path else {
+        guard fixtureIdentity.matches(
+            bundleIdentifier: application.bundleIdentifier,
+            bundleURL: application.bundleURL
+        ) else {
             throw FixtureError.invalidFixtureIdentity(url)
         }
         return application
     }
 
     private func terminateExistingFixtures(at fixtureURL: URL) async throws {
-        let expectedPath = fixtureURL.standardizedFileURL.path
+        let fixtureIdentity = FixturePolicy.identity(at: fixtureURL)
         for application in NSRunningApplication.runningApplications(
-            withBundleIdentifier: FixturePolicy.bundleIdentifier
-        ) where application.bundleURL?.standardizedFileURL.path == expectedPath {
-            guard application.bundleIdentifier
-                    == FixturePolicy.bundleIdentifier,
-                  application.bundleURL?.standardizedFileURL.path
-                    == expectedPath else {
-                throw FixtureError.invalidFixtureIdentity(fixtureURL)
-            }
+            withBundleIdentifier: fixtureIdentity.bundleIdentifier
+        ) where fixtureIdentity.matches(
+            bundleIdentifier: application.bundleIdentifier,
+            bundleURL: application.bundleURL
+        ) {
             _ = application.forceTerminate()
             guard await waitUntilTerminated(
                 application,
@@ -230,9 +233,10 @@ final class PlatformIntegrationTests: XCTestCase {
         _ application: NSRunningApplication,
         fixtureURL: URL
     ) async throws {
-        guard application.bundleIdentifier == FixturePolicy.bundleIdentifier,
-              application.bundleURL?.standardizedFileURL.path
-                == fixtureURL.standardizedFileURL.path else {
+        guard FixturePolicy.identity(at: fixtureURL).matches(
+            bundleIdentifier: application.bundleIdentifier,
+            bundleURL: application.bundleURL
+        ) else {
             throw FixtureError.invalidFixtureIdentity(fixtureURL)
         }
         guard !application.isTerminated else {
@@ -255,16 +259,16 @@ final class PlatformIntegrationTests: XCTestCase {
 @MainActor
 private final class FixtureLaunchObserver: NSObject {
     private let expectation: XCTestExpectation
-    private let expectedBundlePath: String
+    private let expectedIdentity: ControlledApplicationIdentity
     private(set) var processIdentifier: Int32?
     private(set) var observedAt: Date?
 
     init(
         expectation: XCTestExpectation,
-        expectedBundlePath: String
+        expectedIdentity: ControlledApplicationIdentity
     ) {
         self.expectation = expectation
-        self.expectedBundlePath = expectedBundlePath
+        self.expectedIdentity = expectedIdentity
     }
 
     @objc
@@ -272,9 +276,10 @@ private final class FixtureLaunchObserver: NSObject {
         guard let application = notification.userInfo?[
             NSWorkspace.applicationUserInfoKey
         ] as? NSRunningApplication,
-              application.bundleIdentifier == FixturePolicy.bundleIdentifier,
-              application.bundleURL?.standardizedFileURL.path
-                == expectedBundlePath,
+              expectedIdentity.matches(
+                  bundleIdentifier: application.bundleIdentifier,
+                  bundleURL: application.bundleURL
+              ),
               processIdentifier == nil
         else {
             return
@@ -292,13 +297,19 @@ private enum FixtureError: Error {
 }
 
 private enum FixturePolicy {
-    static let bundleIdentifier = "com.firaskafri.homeward.fixture"
     static let productsAncestorDepth = 4
     static let pollInterval: TimeInterval = 0.05
     static let delayedTermination: TimeInterval = 0.3
     static let preDelayObservation: TimeInterval = 0.1
     static let launchObservationTimeout: TimeInterval = 2
     static let terminationTimeout: TimeInterval = 2
+
+    @MainActor
+    static func identity(at fixtureURL: URL) -> ControlledApplicationIdentity {
+        RunningApplicationControlPolicy.fixtureIdentity(
+            productsDirectoryURL: fixtureURL.deletingLastPathComponent()
+        )
+    }
 
     enum Mode: String {
         case immediate

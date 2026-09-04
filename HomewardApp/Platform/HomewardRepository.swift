@@ -11,8 +11,12 @@ actor HomewardRepository {
     private var notesStore: AtomicFileStore<NotesDocument>?
 
     init() {
+        self.init(environment: ProcessInfo.processInfo.environment)
+    }
+
+    init(environment: [String: String]) {
         directoryProvider = {
-            try Self.defaultDirectoryURL()
+            try Self.defaultDirectoryURL(environment: environment)
         }
     }
 
@@ -132,6 +136,26 @@ actor HomewardRepository {
         try validated.validate()
         try await notesStore.save(validated)
         return validated
+    }
+
+    @discardableResult
+    func replaceNotesDuringRecovery(
+        _ notes: NotesDocument
+    ) async throws -> NotesDocument {
+        let notesStore = try stores().notes
+        let validated = notes
+        try validated.validate()
+        try await notesStore.replaceDuringRecovery(validated)
+        return validated
+    }
+
+    func notesRecoveryCandidate() async throws -> NotesDocument? {
+        let notesStore = try stores().notes
+        guard let notes = try await notesStore.loadRecoveryCandidate() else {
+            return nil
+        }
+        try notes.validate()
+        return notes
     }
 
     func resetNotes() async throws {

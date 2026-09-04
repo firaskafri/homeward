@@ -7,6 +7,8 @@ struct HomewardCard<Content: View>: View {
     private let content: Content
 
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @Environment(\.accessibilityReduceTransparency)
+    private var reduceTransparency
 
     init(
         padding: CGFloat = HomewardSpacing.large,
@@ -24,7 +26,11 @@ struct HomewardCard<Content: View>: View {
                     cornerRadius: HomewardMetrics.cardCornerRadius,
                     style: .continuous
                 )
-                .fill(.regularMaterial)
+                .fill(
+                    reduceTransparency
+                        ? AnyShapeStyle(Color(nsColor: .windowBackgroundColor))
+                        : AnyShapeStyle(.regularMaterial)
+                )
             }
             .overlay {
                 RoundedRectangle(

@@ -1,0 +1,73 @@
+{
+  "closeMode" : "gentle",
+  "completedOnboarding" : true,
+  "consumedGentleExtensionIntervalIDs" : [
+
+  ],
+  "gentleShortcutExtensionEnabled" : false,
+  "onboardingScheduleConfirmed" : true,
+  "overrides" : [
+
+  ],
+  "schedule" : {
+    "rules" : [
+      1,
+      {
+        "availableAllDay" : {
+
+        }
+      },
+      2,
+      {
+        "availableAllDay" : {
+
+        }
+      },
+      3,
+      {
+        "availableAllDay" : {
+
+        }
+      },
+      4,
+      {
+        "availableAllDay" : {
+
+        }
+      },
+      5,
+      {
+        "availableAllDay" : {
+
+        }
+      },
+      6,
+      {
+        "availableAllDay" : {
+
+        }
+      },
+      7,
+      {
+        "availableAllDay" : {
+
+        }
+      }
+    ]
+  },
+  "schemaVersion" : 1,
+  "selectedApplications" : [
+    {
+      "bundleIdentifier" : "com.homeward.preview.long-name",
+      "bundlePath" : "\/Applications\/A Deliberately Long Work Application Name.app",
+      "developerName" : "Homeward Preview",
+      "displayName" : "A Deliberately Long Work Application Name",
+      "id" : "44444444-4444-4444-4444-444444444444",
+      "isResolvable" : true
+    }
+  ],
+  "warningPreferences" : {
+    "fifteenMinuteWarningEnabled" : true,
+    "fiveMinuteWarningEnabled" : true
+  }
+}

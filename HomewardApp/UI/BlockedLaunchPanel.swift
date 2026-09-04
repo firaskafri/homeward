@@ -6,7 +6,6 @@ import SwiftUI
 final class BlockedLaunchPanelController: NSWindowController {
     init(
         model: AppModel,
-        applicationName: String,
         availabilityText: String
     ) {
         let panel = HomewardPanelFactory.make(
@@ -18,7 +17,6 @@ final class BlockedLaunchPanelController: NSWindowController {
         )
         let view = BlockedLaunchView(
             model: model,
-            applicationName: applicationName,
             availabilityText: availabilityText,
             close: { [weak panel] in panel?.close() }
         )
@@ -40,8 +38,6 @@ final class BlockedLaunchPanelController: NSWindowController {
 
 private struct BlockedLaunchView: View {
     @ObservedObject var model: AppModel
-    @State private var isApplyingExtension = false
-    let applicationName: String
     let availabilityText: String
     let close: () -> Void
 
@@ -49,8 +45,8 @@ private struct BlockedLaunchView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 HomewardPanelHeader(
-                    title: "\(applicationName) stayed closed",
-                    message: "Homeward noticed this app open outside your work schedule and closed it.",
+                    title: "A work app was closed",
+                    message: "Homeward noticed a selected app open outside your work schedule and closed it.",
                     systemImage: "lock.shield.fill",
                     tone: .rest
                 )
@@ -82,24 +78,19 @@ private struct BlockedLaunchView: View {
 
                 if model.canUseGentleShortcutExtension {
                     Button {
-                        applyGentleExtension()
+                        close()
+                        model.requestPolicyConfirmation(
+                            .gentleShortcutExtension,
+                            routeToToday: true
+                        )
                     } label: {
-                        if isApplyingExtension {
-                            HStack(spacing: 6) {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text("Updating Availability…")
-                            }
-                        } else {
-                            Text(
-                                "Allow All Work Apps for "
-                                    + "\(HomewardPolicy.gentleShortcutExtensionMinutes) Minutes"
-                            )
-                        }
+                        Text(
+                            "Make All Work Apps Available for "
+                                + "\(HomewardPolicy.gentleShortcutExtensionMinutes) Minutes…"
+                        )
                     }
-                    .disabled(isApplyingExtension)
                     .accessibilityHint(
-                        "Temporarily changes availability for all selected work apps"
+                        "Opens confirmation for a today-only availability change affecting all selected work apps"
                     )
                 }
 
@@ -133,16 +124,4 @@ private struct BlockedLaunchView: View {
         .accessibilityIdentifier("blockedLaunch.panel")
     }
 
-    private func applyGentleExtension() {
-        model.clearError()
-        isApplyingExtension = true
-        Task { @MainActor in
-            let didApplyExtension =
-                await model.useGentleShortcutExtension()
-            isApplyingExtension = false
-            if didApplyExtension {
-                close()
-            }
-        }
-    }
 }

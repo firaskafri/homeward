@@ -3,10 +3,10 @@
 set -euo pipefail
 
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-derived_data="$repository_root/.build/xcode"
+derived_data="${HOMEWARD_DERIVED_DATA_PATH:-$repository_root/.build/xcode}"
 app="$derived_data/Build/Products/Release/Homeward.app"
 dist="$repository_root/dist"
-verification_marker="$repository_root/.build/verified-release.json"
+verification_marker="${HOMEWARD_VERIFICATION_MARKER:-$derived_data/verified-release.json}"
 
 cd "$repository_root"
 source "$repository_root/scripts/release-evidence.sh"

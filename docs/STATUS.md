@@ -5,8 +5,8 @@
 - Native macOS menu-bar app, schedule resolution, app selection, Gentle and
   Firm closing flows, today-only changes, notes, recovery, notifications, and
   Start at Login integration.
-- Core, app-layer, fixture-backed lifecycle, first-launch UI, and
-  completed-setup reopen tests.
+- Core, app-layer, fixture-backed lifecycle, first-launch UI, and explicit
+  completed-setup launch tests.
 - Static analysis, arm64 Release inspection, ad-hoc signing checks, and
   checksum/provenance packaging.
 - GitHub Actions runs the non-interactive automated subset on macOS 15 with

@@ -11,6 +11,8 @@ struct ScheduleEditorView: View {
     @State private var copySource: Weekday = .monday
     @State private var pendingSchedule: WeeklySchedule?
     @State private var lastSavedScheduleWasConfirmed: Bool
+    @State private var draftRevision: Int
+    @State private var draftEditRevision = 0
     @State private var showsCopyTools = false
 
     init(
@@ -23,6 +25,7 @@ struct ScheduleEditorView: View {
         _lastSavedScheduleWasConfirmed = State(
             initialValue: model.configuration.onboardingScheduleConfirmed
         )
+        _draftRevision = State(initialValue: model.policyRevision)
     }
 
     var body: some View {
@@ -142,7 +145,10 @@ struct ScheduleEditorView: View {
         ) {
             Button("Save & Close", role: .destructive) {
                 if let pendingSchedule {
-                    performSave(pendingSchedule)
+                    performSave(
+                        pendingSchedule,
+                        confirmsImmediateClose: true
+                    )
                 }
                 pendingSchedule = nil
             }
@@ -150,7 +156,11 @@ struct ScheduleEditorView: View {
                 pendingSchedule = nil
             }
         } message: {
-            Text("This schedule makes the current time blocked. Homeward will begin the configured closing flow.")
+            Text(
+                "This change makes the current time unavailable. Homeward will begin "
+                    + "\(SchedulePresentation.closeModeName(model.configuration.closeMode)) "
+                    + "after the change is saved."
+            )
         }
         .accessibilityIdentifier("schedule.view")
     }
@@ -173,6 +183,7 @@ struct ScheduleEditorView: View {
                 Button(weekdayDisplayName(weekday)) {
                     if let sourceRule = rules[copySource] {
                         rules[weekday] = sourceRule
+                        draftEditRevision &+= 1
                         validationMessage = nil
                         if requiresOnboardingConfirmation {
                             model.markOnboardingScheduleDirty()
@@ -204,6 +215,8 @@ struct ScheduleEditorView: View {
         HStack {
             Button("Reset Draft") {
                 rules = model.configuration.schedule.rules
+                draftRevision = model.policyRevision
+                draftEditRevision &+= 1
                 validationMessage = nil
                 saveErrorMessage = nil
                 if requiresOnboardingConfirmation,
@@ -289,6 +302,7 @@ struct ScheduleEditorView: View {
             get: { rules[weekday] ?? .blockedAllDay },
             set: {
                 rules[weekday] = $0
+                draftEditRevision &+= 1
                 validationMessage = nil
                 if requiresOnboardingConfirmation {
                     model.markOnboardingScheduleDirty()
@@ -303,20 +317,34 @@ struct ScheduleEditorView: View {
             if model.scheduleChangeRequiresImmediateClose(schedule) {
                 pendingSchedule = schedule
             } else {
-                performSave(schedule)
+                performSave(
+                    schedule,
+                    confirmsImmediateClose: false
+                )
             }
         } catch {
             validationMessage = scheduleValidationMessage(error)
         }
     }
 
-    private func performSave(_ schedule: WeeklySchedule) {
+    private func performSave(
+        _ schedule: WeeklySchedule,
+        confirmsImmediateClose: Bool
+    ) {
         isSaving = true
         saveErrorMessage = nil
         model.clearError()
+        let submittedEditRevision = draftEditRevision
         Task { @MainActor in
-            if await model.setSchedule(schedule) {
-                rules = model.configuration.schedule.rules
+            if await model.setSchedule(
+                schedule,
+                expectedRevision: draftRevision,
+                confirmsImmediateClose: confirmsImmediateClose
+            ) {
+                if draftEditRevision == submittedEditRevision {
+                    rules = model.configuration.schedule.rules
+                }
+                draftRevision = model.policyRevision
                 lastSavedScheduleWasConfirmed =
                     model.configuration.onboardingScheduleConfirmed
             } else {
@@ -407,7 +435,6 @@ private struct DayRuleRow: View {
             }
         }
         .padding(.vertical, HomewardSpacing.xSmall)
-        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("schedule.day.\(weekday.rawValue)")
     }
 

@@ -1,5 +1,62 @@
 import Foundation
+import AppKit
 import ServiceManagement
+
+enum InstallationLocationStatus: Equatable {
+    case applications
+    case outsideApplications(URL)
+    case unavailable
+
+    var supportsStartAtLogin: Bool {
+        self == .applications
+    }
+}
+
+@MainActor
+final class InstallationLocationService {
+    private let statusProvider: () -> InstallationLocationStatus
+    private let reveal: (URL) -> Void
+
+    init(
+        bundleURL: URL = Bundle.main.bundleURL,
+        workspace: NSWorkspace = .shared
+    ) {
+        statusProvider = {
+            let standardizedURL = bundleURL.standardizedFileURL
+            let applicationsURL = URL(
+                fileURLWithPath: "/Applications",
+                isDirectory: true
+            ).standardizedFileURL
+            guard standardizedURL.pathExtension == "app" else {
+                return .unavailable
+            }
+            return standardizedURL.deletingLastPathComponent()
+                == applicationsURL
+                ? .applications
+                : .outsideApplications(standardizedURL)
+        }
+        reveal = { workspace.activateFileViewerSelecting([$0]) }
+    }
+
+    init(
+        statusProvider: @escaping () -> InstallationLocationStatus,
+        reveal: @escaping (URL) -> Void = { _ in }
+    ) {
+        self.statusProvider = statusProvider
+        self.reveal = reveal
+    }
+
+    var status: InstallationLocationStatus {
+        statusProvider()
+    }
+
+    func showInFinder() {
+        guard case let .outsideApplications(url) = status else {
+            return
+        }
+        reveal(url)
+    }
+}
 
 @MainActor
 final class LoginItemService {

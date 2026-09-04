@@ -45,6 +45,24 @@ struct ModelTests {
         #expect(!configuration.gentleShortcutExtensionEnabled)
     }
 
+    /// 1 - Name: Persisted policy generation.
+    /// 2 - Description: Advances and round-trips the generation used to invalidate notification actions.
+    /// 3 - Assumptions: Every successful policy mutation assigns the next nonzero generation.
+    /// 4 - Expectations: Encoding preserves the generation and advancement is monotonic.
+    @Test
+    func policyGenerationPersistsAndAdvances() throws {
+        var configuration = try HomewardConfiguration.initial()
+        configuration.advancePolicyGeneration(after: 41)
+        let data = try JSONEncoder().encode(configuration)
+        let decoded = try JSONDecoder().decode(
+            HomewardConfiguration.self,
+            from: data
+        )
+
+        #expect(configuration.policyGeneration == 42)
+        #expect(decoded.policyGeneration == 42)
+    }
+
     /// 1 - Name: Legacy Gentle extension migration.
     /// 2 - Description: Decodes the schema-v1 nested Gentle-extension preference used by earlier builds.
     /// 3 - Assumptions: The top-level replacement key is absent from the legacy document.
@@ -261,6 +279,30 @@ struct ModelTests {
         #expect(throws: ConfigurationError.duplicateNote) {
             _ = try NotesDocument(notes: [later, later])
         }
+    }
+
+    /// 1 - Name: Undo Keep identity and order.
+    /// 2 - Description: Restores a kept thought's prior presentation marker without recreating it.
+    /// 3 - Assumptions: The original note remains in the notes document while Keep defers it.
+    /// 4 - Expectations: Undo Keep preserves the UUID, text, timestamp, and deterministic list order.
+    @Test
+    func undoKeepPreservesIdentityAndOrder() throws {
+        let first = try TomorrowNote(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+            text: "First",
+            createdAt: Date(timeIntervalSince1970: 1)
+        )
+        let second = try TomorrowNote(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+            text: "Second",
+            createdAt: Date(timeIntervalSince1970: 2)
+        )
+        var document = try NotesDocument(notes: [first, second])
+
+        try document.markPresented(id: first.id, in: "window-1")
+        try document.restorePresentation(from: first)
+
+        #expect(document.notes == [first, second])
     }
 
     /// 1 - Name: Gentle-extension consumption persistence.

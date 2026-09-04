@@ -3,13 +3,16 @@
 set -euo pipefail
 
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-derived_data="$repository_root/.build/xcode"
+derived_data="${HOMEWARD_DERIVED_DATA_PATH:-$repository_root/.build/xcode}"
 project="$repository_root/Homeward.xcodeproj"
 destination="platform=macOS,arch=arm64"
-verification_marker="$repository_root/.build/verified-release.json"
+verification_marker="${HOMEWARD_VERIFICATION_MARKER:-$derived_data/verified-release.json}"
+native_test_storage="$derived_data/native-test-storage"
 
 cd "$repository_root"
 rm -f "$verification_marker"
+rm -rf "$native_test_storage"
+trap 'rm -rf "$native_test_storage"' EXIT
 source "$repository_root/scripts/release-evidence.sh"
 
 [[ "$(uname -m)" == "arm64" ]] || {
@@ -97,6 +100,8 @@ xcodebuild \
 swift scripts/check-test-docs.swift
 swift test
 
+HOMEWARD_TESTING=1 \
+HOMEWARD_STORAGE_DIRECTORY="$native_test_storage" \
 xcodebuild \
   -project "$project" \
   -scheme Homeward \
@@ -105,6 +110,7 @@ xcodebuild \
   CODE_SIGN_STYLE=Manual \
   CODE_SIGN_IDENTITY=- \
   DEVELOPMENT_TEAM= \
+  INFOPLIST_KEY_LSMultipleInstancesProhibited=NO \
   test
 
 if [[ "${RUN_UI_TESTS:-1}" == "1" ]]; then
@@ -117,6 +123,7 @@ if [[ "${RUN_UI_TESTS:-1}" == "1" ]]; then
     CODE_SIGN_STYLE=Manual \
     CODE_SIGN_IDENTITY=- \
     DEVELOPMENT_TEAM= \
+    INFOPLIST_KEY_LSMultipleInstancesProhibited=NO \
     test
 else
   printf 'Skipping UI automation because RUN_UI_TESTS=%s.\n' \

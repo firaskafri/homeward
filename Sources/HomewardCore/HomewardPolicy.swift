@@ -8,7 +8,6 @@ public enum HomewardPolicy {
     public static let countdownTick: TimeInterval = 1
     public static let blockedFeedbackCooldown: TimeInterval = 10 * 60
     public static let previewStepTimeout: TimeInterval = 60
-    public static let noteUndoDuration: TimeInterval = 10
     public static let extensionDurationsMinutes = [10, 15, 30]
     public static let gentleShortcutExtensionMinutes = 10
     public static let customCutoffDefaultLeadTime: TimeInterval = 60 * 60

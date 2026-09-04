@@ -1,5 +1,112 @@
 import HomewardCore
 
+struct HomewardPresentationSnapshot: Equatable {
+    enum PrimaryAction: Equatable {
+        case none
+        case retryStartup
+        case openRecovery
+        case finishSetup
+        case showClosing
+        case resumeFirmClosing
+        case endWork
+        case saveThought
+    }
+
+    let title: String
+    let transitionText: String?
+    let primaryAction: PrimaryAction
+    let savedThoughtCount: Int
+    let attentionCount: Int
+
+    var accessibilityValue: String {
+        [title, transitionText]
+            .compactMap { $0 }
+            .joined(separator: ". ")
+    }
+
+    static func resolve(
+        health: AppModel.Health,
+        onboardingComplete: Bool,
+        schedule: ResolvedSchedule,
+        closingCount: Int,
+        forceEscalationPaused: Bool,
+        savedThoughtCount: Int,
+        attentionCount: Int
+    ) -> Self {
+        switch health {
+        case .starting:
+            return Self(
+                title: "Starting Homeward…",
+                transitionText: nil,
+                primaryAction: .none,
+                savedThoughtCount: 0,
+                attentionCount: attentionCount
+            )
+        case .startupDelayed:
+            return Self(
+                title: "Starting Homeward…",
+                transitionText:
+                    "This is taking longer than expected. App closing has not started.",
+                primaryAction: .retryStartup,
+                savedThoughtCount: 0,
+                attentionCount: attentionCount
+            )
+        case .configurationUnavailable:
+            return Self(
+                title: "App closing is paused",
+                transitionText:
+                    "Homeward could not verify its saved settings, so it will not close any applications.",
+                primaryAction: .openRecovery,
+                savedThoughtCount: 0,
+                attentionCount: attentionCount
+            )
+        case .applicationResolutionUnavailable:
+            return Self(
+                title: "App closing has not started",
+                transitionText:
+                    "Homeward could not verify the selected applications. Your saved settings were kept.",
+                primaryAction: .openRecovery,
+                savedThoughtCount: 0,
+                attentionCount: attentionCount
+            )
+        case .ready:
+            break
+        }
+        guard onboardingComplete else {
+            return Self(
+                title: "Finish setting up Homeward",
+                transitionText: nil,
+                primaryAction: .finishSetup,
+                savedThoughtCount: 0,
+                attentionCount: attentionCount
+            )
+        }
+        if forceEscalationPaused {
+            return Self(
+                title: "Force quit is paused",
+                transitionText:
+                    "Work apps are still unavailable. Resume starts a new 30-second grace period.",
+                primaryAction: .resumeFirmClosing,
+                savedThoughtCount: savedThoughtCount,
+                attentionCount: attentionCount
+            )
+        }
+        let status = SchedulePresentation.status(
+            schedule: schedule,
+            closingCount: closingCount
+        )
+        return Self(
+            title: status.title,
+            transitionText: SchedulePresentation.transitionText(for: schedule),
+            primaryAction: closingCount > 0
+                ? .showClosing
+                : schedule.isAvailable ? .endWork : .saveThought,
+            savedThoughtCount: savedThoughtCount,
+            attentionCount: attentionCount
+        )
+    }
+}
+
 struct ScheduleStatusPresentation {
     let title: String
     let badgeTitle: String

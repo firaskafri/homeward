@@ -40,7 +40,10 @@ final class ClosingPanelController: NSWindowController, NSWindowDelegate {
         }
         window.center()
         if activating {
-            previousApplication = NSWorkspace.shared.frontmostApplication
+            if !window.isVisible {
+                previousApplication =
+                    NSWorkspace.shared.frontmostApplication
+            }
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         } else {
@@ -66,6 +69,28 @@ final class ClosingPanelController: NSWindowController, NSWindowDelegate {
         return false
     }
 
+    func windowDidChangeOcclusionState(_ notification: Notification) {
+        guard window?.isVisibleAndUnoccluded == false else {
+            return
+        }
+        pauseIfArmed()
+    }
+
+    func windowDidMiniaturize(_ notification: Notification) {
+        pauseIfArmed()
+    }
+
+    private func pauseIfArmed() {
+        guard model.closingRows.contains(where: {
+            $0.status == .countingDown
+        }) else {
+            return
+        }
+        Task {
+            await model.stopForceQuit()
+        }
+    }
+
     private func restorePreviousApplication() {
         previousApplication?.activate(options: [.activateAllWindows])
         previousApplication = nil
@@ -73,7 +98,12 @@ final class ClosingPanelController: NSWindowController, NSWindowDelegate {
 }
 
 private struct ClosingPanelView: View {
+    private enum FocusTarget: Hashable {
+        case stop
+    }
+
     @ObservedObject var model: AppModel
+    @FocusState private var focusedAction: FocusTarget?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -133,6 +163,7 @@ private struct ClosingPanelView: View {
                             "Pauses force quitting for the current blocked period"
                         )
                         .accessibilityIdentifier("closing.stopForce")
+                        .focused($focusedAction, equals: .stop)
 
                         Button("Change Today Only…") {
                             Task {
@@ -148,7 +179,7 @@ private struct ClosingPanelView: View {
 
                     Spacer()
 
-                    Button(hasActiveCountdown ? "Stop Force Quit & Hide" : "Hide") {
+                    Button(hasActiveCountdown ? "Stop Force Quit and Hide" : "Hide") {
                         if hasActiveCountdown {
                             Task {
                                 await model.stopForceQuit()
@@ -167,6 +198,16 @@ private struct ClosingPanelView: View {
         .frame(minWidth: 460, minHeight: 300)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("closing.panel")
+        .onAppear {
+            if hasActiveCountdown {
+                focusedAction = .stop
+            }
+        }
+        .onChange(of: hasActiveCountdown) { wasActive, isActive in
+            if !wasActive, isActive {
+                focusedAction = .stop
+            }
+        }
     }
 
     private var summary: String {

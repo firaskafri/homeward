@@ -4,6 +4,13 @@ import HomewardCore
 @MainActor
 final class RunningApplicationController {
     private var applicationsBySessionID: [ProcessSessionID: NSRunningApplication] = [:]
+    private let controlPolicy: RunningApplicationControlPolicy
+
+    init(
+        controlPolicy: RunningApplicationControlPolicy = .forRuntime()
+    ) {
+        self.controlPolicy = controlPolicy
+    }
 
     func snapshot(_ application: NSRunningApplication) -> RunningApplicationSnapshot {
         let snapshot = RunningApplicationSnapshot(
@@ -78,7 +85,11 @@ final class RunningApplicationController {
     ) -> NSRunningApplication? {
         guard let application = applicationsBySessionID[sessionID],
               !application.isTerminated,
-              let launchDate = application.launchDate
+              let launchDate = application.launchDate,
+              controlPolicy.permits(
+                  bundleIdentifier: application.bundleIdentifier,
+                  bundleURL: application.bundleURL
+              )
         else {
             return nil
         }

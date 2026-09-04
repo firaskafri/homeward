@@ -23,7 +23,10 @@ enum HomewardPanelFactory {
         panel.title = title
         panel.isReleasedWhenClosed = false
         panel.isMovableByWindowBackground = true
-        panel.animationBehavior = .utilityWindow
+        panel.animationBehavior =
+            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                ? .none
+                : .utilityWindow
         panel.tabbingMode = .disallowed
         panel.isRestorable = false
         if let minimumSize {
@@ -41,6 +44,33 @@ enum HomewardPanelFactory {
 extension NSWindow {
     var isVisibleAndUnoccluded: Bool {
         isVisible && occlusionState.contains(.visible)
+    }
+}
+
+@MainActor
+class HomewardInvokedPanelController: NSWindowController, NSWindowDelegate {
+    private weak var previousApplication: NSRunningApplication?
+
+    func showInvoked() {
+        guard let window else {
+            return
+        }
+        if !window.isVisible {
+            previousApplication = NSWorkspace.shared.frontmostApplication
+        }
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        previousApplication?.activate(options: [.activateAllWindows])
+        previousApplication = nil
+    }
+
+    func closeWithoutRestoringFocus() {
+        previousApplication = nil
+        close()
     }
 }
 
