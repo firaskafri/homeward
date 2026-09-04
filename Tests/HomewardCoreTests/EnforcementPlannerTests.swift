@@ -135,7 +135,6 @@ struct EnforcementPlannerTests {
         ).first)
         let startedAt = Date(timeIntervalSince1970: 100)
         let session = EnforcementSession(
-            blockedIntervalID: "blocked-1",
             mode: .firm,
             startedAt: startedAt,
             targets: [target]
@@ -146,20 +145,23 @@ struct EnforcementPlannerTests {
             activeBaseInterval: nil,
             activeOverride: nil,
             nextTransition: nil,
-            nextAvailability: nil,
-            warningOffsets: []
+            nextAvailability: nil
         )
 
         let before = EnforcementPlanner().forceEligibleTargetIDs(
             session: session,
-            at: startedAt.addingTimeInterval(29.999),
+            at: startedAt.addingTimeInterval(
+                EnforcementSession.firmGracePeriod - 0.001
+            ),
             schedule: blocked,
             currentSelections: [selection],
             currentlyRunning: [running]
         )
         let after = EnforcementPlanner().forceEligibleTargetIDs(
             session: session,
-            at: startedAt.addingTimeInterval(30),
+            at: startedAt.addingTimeInterval(
+                EnforcementSession.firmGracePeriod
+            ),
             schedule: blocked,
             currentSelections: [selection],
             currentlyRunning: [running]
@@ -191,7 +193,6 @@ struct EnforcementPlannerTests {
         ).first)
         let startedAt = Date(timeIntervalSince1970: 100)
         var paused = EnforcementSession(
-            blockedIntervalID: "blocked-1",
             mode: .firm,
             startedAt: startedAt,
             targets: [target]
@@ -203,8 +204,7 @@ struct EnforcementPlannerTests {
             activeBaseInterval: nil,
             activeOverride: nil,
             nextTransition: nil,
-            nextAvailability: nil,
-            warningOffsets: []
+            nextAvailability: nil
         )
         let blocked = ResolvedSchedule(
             phase: .workClosed,
@@ -212,10 +212,11 @@ struct EnforcementPlannerTests {
             activeBaseInterval: nil,
             activeOverride: nil,
             nextTransition: nil,
-            nextAvailability: nil,
-            warningOffsets: []
+            nextAvailability: nil
         )
-        let deadline = startedAt.addingTimeInterval(30)
+        let deadline = startedAt.addingTimeInterval(
+            EnforcementSession.firmGracePeriod
+        )
         let planner = EnforcementPlanner()
         let pausedResult = planner.forceEligibleTargetIDs(
             session: paused,
@@ -226,7 +227,6 @@ struct EnforcementPlannerTests {
         )
         let availableResult = planner.forceEligibleTargetIDs(
             session: EnforcementSession(
-                blockedIntervalID: "blocked-1",
                 mode: .firm,
                 startedAt: startedAt,
                 targets: [target]
@@ -238,7 +238,6 @@ struct EnforcementPlannerTests {
         )
         let deselectedResult = planner.forceEligibleTargetIDs(
             session: EnforcementSession(
-                blockedIntervalID: "blocked-1",
                 mode: .firm,
                 startedAt: startedAt,
                 targets: [target]
@@ -250,7 +249,6 @@ struct EnforcementPlannerTests {
         )
         let replacedProcessResult = planner.forceEligibleTargetIDs(
             session: EnforcementSession(
-                blockedIntervalID: "blocked-1",
                 mode: .firm,
                 startedAt: startedAt,
                 targets: [target]

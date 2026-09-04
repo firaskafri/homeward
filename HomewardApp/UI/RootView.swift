@@ -9,12 +9,9 @@ struct RootView: View {
         case .starting:
             ProgressView("Starting Homeward…")
                 .frame(minWidth: 420, minHeight: 260)
-                .task {
-                    await model.start()
-                }
         case .configurationUnavailable:
             recoveryView
-        case .ready, .monitoringUnavailable:
+        case .ready:
             if model.isOnboardingComplete {
                 ManagementView(model: model)
             } else {

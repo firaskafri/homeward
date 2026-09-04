@@ -5,7 +5,8 @@ actor HomewardRepository {
     private let configurationStore: AtomicFileStore<HomewardConfiguration>
     private let notesStore: AtomicFileStore<NotesDocument>
 
-    init(fileManager: FileManager = .default) throws {
+    init() throws {
+        let fileManager = FileManager()
         let applicationSupport = try fileManager.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
@@ -32,29 +33,35 @@ actor HomewardRepository {
     }
 
     func loadConfiguration() async throws -> HomewardConfiguration? {
-        guard var configuration = try await configurationStore.load() else {
+        guard let configuration = try await configurationStore.load() else {
             return nil
         }
         try configuration.validate()
         return configuration
     }
 
-    func saveConfiguration(_ configuration: HomewardConfiguration) async throws {
-        var validated = configuration
+    @discardableResult
+    func saveConfiguration(
+        _ configuration: HomewardConfiguration
+    ) async throws -> HomewardConfiguration {
+        let validated = configuration
         try validated.validate()
         try await configurationStore.save(validated)
+        return validated
     }
 
+    @discardableResult
     func replaceConfigurationDuringRecovery(
         _ configuration: HomewardConfiguration
-    ) async throws {
-        var validated = configuration
+    ) async throws -> HomewardConfiguration {
+        let validated = configuration
         try validated.validate()
-        try await configurationStore.replaceRecovering(validated)
+        try await configurationStore.replaceDuringRecovery(validated)
+        return validated
     }
 
     func configurationRecoveryCandidate() async throws -> HomewardConfiguration? {
-        guard var configuration = try await configurationStore
+        guard let configuration = try await configurationStore
             .loadRecoveryCandidate() else {
             return nil
         }
@@ -63,19 +70,17 @@ actor HomewardRepository {
     }
 
     func loadNotes() async throws -> NotesDocument {
-        var notes = try await notesStore.load() ?? NotesDocument()
+        let notes = try await notesStore.load() ?? NotesDocument()
         try notes.validate()
         return notes
     }
 
-    func saveNotes(_ notes: NotesDocument) async throws {
-        var validated = notes
+    @discardableResult
+    func saveNotes(_ notes: NotesDocument) async throws -> NotesDocument {
+        let validated = notes
         try validated.validate()
         try await notesStore.save(validated)
-    }
-
-    func resetConfiguration() async throws {
-        try await configurationStore.delete()
+        return validated
     }
 
     func resetNotes() async throws {

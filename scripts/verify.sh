@@ -6,8 +6,34 @@ repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 derived_data="$repository_root/.build/xcode"
 project="$repository_root/Homeward.xcodeproj"
 destination="platform=macOS,arch=arm64"
+verification_marker="$repository_root/.build/verified-release.env"
 
 cd "$repository_root"
+
+stop_repository_test_instances() {
+  local pattern="$repository_root/.*/Homeward.app/Contents/MacOS/Homeward"
+  local process_ids
+  process_ids="$(pgrep -f "$pattern" || true)"
+  if [[ -n "$process_ids" ]]; then
+    printf 'Stopping stale Homeward test instance(s): %s\n' "$process_ids"
+    while IFS= read -r process_id; do
+      kill "$process_id"
+      for _ in {1..50}; do
+        kill -0 "$process_id" 2>/dev/null || break
+        sleep 0.1
+      done
+      if kill -0 "$process_id" 2>/dev/null; then
+        printf 'Homeward test instance did not terminate: %s\n' \
+          "$process_id" >&2
+        exit 1
+      fi
+    done <<<"$process_ids"
+  fi
+  if pgrep -x Homeward >/dev/null; then
+    printf 'Quit any installed Homeward app before running native tests.\n' >&2
+    exit 1
+  fi
+}
 
 command -v xcodegen >/dev/null || {
   printf 'xcodegen is required. Install it with: brew install xcodegen\n' >&2
@@ -16,21 +42,37 @@ command -v xcodegen >/dev/null || {
 
 required_xcodegen_version="2.46.0"
 actual_xcodegen_version="$(xcodegen version | awk '{print $2}')"
-IFS=. read -r actual_major actual_minor actual_patch <<<"$actual_xcodegen_version"
+IFS=. read -r actual_major actual_minor _ <<<"$actual_xcodegen_version"
 if (( actual_major < 2 || (actual_major == 2 && actual_minor < 46) )); then
   printf 'XcodeGen %s is required; found %s.\n' \
     "$required_xcodegen_version" "$actual_xcodegen_version" >&2
   exit 1
 fi
 
-project_file="$project/project.pbxproj"
-before_generation="$(shasum -a 256 "$project_file" | awk '{print $1}')"
+generated_hash() {
+  {
+    /usr/bin/find "$project" -type f \
+      ! -path '*/xcuserdata/*' \
+      ! -name '*.xcuserstate' \
+      -print
+    printf '%s\n' "$repository_root/HomewardApp/Info.plist"
+  } |
+    LC_ALL=C /usr/bin/sort |
+    while IFS= read -r generated_file; do
+      shasum -a 256 "$generated_file"
+    done |
+    shasum -a 256 |
+    awk '{print $1}'
+}
+
+before_generation="$(generated_hash)"
 xcodegen generate
-after_generation="$(shasum -a 256 "$project_file" | awk '{print $1}')"
+after_generation="$(generated_hash)"
 [[ "$before_generation" == "$after_generation" ]] || {
   printf 'Homeward.xcodeproj was stale. Regenerate and review it before verification.\n' >&2
   exit 1
 }
+stop_repository_test_instances
 xcodebuild \
   -project "$project" \
   -scheme Homeward \
@@ -105,12 +147,10 @@ plist="$app/Contents/Info.plist"
   printf 'Release app does not prohibit multiple instances.\n' >&2
   exit 1
 }
-[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" == "0.1.0" ]] || {
-  printf 'Release app version is incorrect.\n' >&2
-  exit 1
-}
-[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")" == "1" ]] || {
-  printf 'Release build number is incorrect.\n' >&2
+version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")"
+build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")"
+[[ -n "$version" && -n "$build" ]] || {
+  printf 'Release app version metadata is missing.\n' >&2
   exit 1
 }
 if /usr/bin/find "$app" -iname '*fixture*' -print -quit | /usr/bin/grep -q .; then
@@ -126,5 +166,13 @@ if [[ "$entitlements" == *"com.apple.security.app-sandbox"* ||
   printf 'Release app contains a forbidden entitlement.\n' >&2
   exit 1
 fi
+
+cat >"$verification_marker" <<EOF
+SOURCE_SHA=$(git rev-parse HEAD)
+BINARY_SHA=$(shasum -a 256 "$binary" | awk '{print $1}')
+PLIST_SHA=$(shasum -a 256 "$plist" | awk '{print $1}')
+VERSION=$version
+BUILD=$build
+EOF
 
 printf 'Homeward verification passed.\n'

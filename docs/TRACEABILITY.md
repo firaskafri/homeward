@@ -1,8 +1,8 @@
 # Homeward Requirement Traceability
 
-The canonical requirement details remain in:
-
-`/Users/firaskafri/.openclaw/workspace/projects/homeward/PRD.md`
+The repository-visible implementation baseline is in `DECISIONS.md`; this
+document maps that baseline to code and evidence. The original planning PRD is
+owner-local and intentionally excluded from the repository.
 
 ## Scheduling — SCH-001 through SCH-007
 

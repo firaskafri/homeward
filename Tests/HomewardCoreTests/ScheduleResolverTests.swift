@@ -230,6 +230,98 @@ struct ScheduleResolverTests {
         ))
     }
 
+    /// 1 - Name: Continuously available week.
+    /// 2 - Description: Resolves seven available-all-day rules without exposing the finite scan horizon.
+    /// 3 - Assumptions: Weekly recurrence has no blocked gap.
+    /// 4 - Expectations: Work is available with no artificial next transition.
+    @Test
+    func continuouslyAvailableWeekHasNoArtificialCutoff() throws {
+        let rules = Dictionary(
+            uniqueKeysWithValues: Weekday.allCases.map {
+                ($0, DayRule.availableAllDay)
+            }
+        )
+        let calendar = utcCalendar()
+        let result = ScheduleResolver().resolve(
+            schedule: try WeeklySchedule(rules: rules),
+            overrides: [],
+            at: date(2026, 9, 7, 12, 0, calendar: calendar),
+            calendar: calendar,
+            warnings: WarningPreferences()
+        )
+
+        #expect(result.isAvailable)
+        #expect(result.nextTransition == nil)
+    }
+
+    /// 1 - Name: Blocking override expires into active base window.
+    /// 2 - Description: Blocks part of a scheduled window and reports override expiry as next availability.
+    /// 3 - Assumptions: Base schedule remains available when the override expires.
+    /// 4 - Expectations: Both next transition and next availability equal the override expiry.
+    @Test
+    func blockingOverrideExpiryIsNextAvailability() throws {
+        let calendar = utcCalendar()
+        let now = date(2026, 9, 7, 10, 0, calendar: calendar)
+        let expiry = date(2026, 9, 7, 11, 0, calendar: calendar)
+        let block = try ScheduleOverride(
+            kind: .takeDayOff,
+            effect: .block,
+            effectiveAt: now,
+            expiresAt: expiry
+        )
+        let result = ScheduleResolver().resolve(
+            schedule: try WeeklySchedule.defaultWorkWeek(),
+            overrides: [block],
+            at: now,
+            calendar: calendar,
+            warnings: WarningPreferences()
+        )
+
+        #expect(!result.isAvailable)
+        #expect(result.nextAvailability == expiry)
+        #expect(result.nextTransition == ScheduleTransition(
+            date: expiry,
+            cause: .overrideExpires
+        ))
+    }
+
+    /// 1 - Name: Blocked-interval boundary helpers.
+    /// 2 - Description: Verifies the shared next-window, blocked-identity, and force-pause calculations.
+    /// 3 - Assumptions: Monday after cutoff and Tuesday before opening belong to one blocked interval.
+    /// 4 - Expectations: Both instants share an identifier and expire at Tuesday’s opening.
+    @Test
+    func blockedIntervalBoundaryHelpers() throws {
+        let resolver = ScheduleResolver()
+        let schedule = try WeeklySchedule.defaultWorkWeek()
+        let calendar = utcCalendar()
+        let mondayEvening = date(2026, 9, 7, 18, 0, calendar: calendar)
+        let tuesdayMorning = date(2026, 9, 8, 8, 0, calendar: calendar)
+        let nextOpening = date(2026, 9, 8, 9, 0, calendar: calendar)
+
+        let mondayID = resolver.blockedIntervalID(
+            for: schedule,
+            at: mondayEvening,
+            calendar: calendar
+        )
+        let tuesdayID = resolver.blockedIntervalID(
+            for: schedule,
+            at: tuesdayMorning,
+            calendar: calendar
+        )
+
+        #expect(mondayID == tuesdayID)
+        #expect(resolver.nextWindowStart(
+            for: schedule,
+            afterCurrentIntervalAt: mondayEvening,
+            calendar: calendar
+        ) == nextOpening)
+        #expect(resolver.forcePauseExpiry(
+            for: schedule,
+            at: mondayEvening,
+            calendar: calendar
+        ) == nextOpening)
+    }
+
     /// 1 - Name: Spring-forward schedule.
     /// 2 - Description: Resolves a window across the America/New_York DST gap.
     /// 3 - Assumptions: A nonexistent local boundary advances to the next valid wall-clock instant.

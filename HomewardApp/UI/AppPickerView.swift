@@ -110,12 +110,9 @@ struct AppPickerView: View {
 
     private var browserIsSelected: Bool {
         model.configuration.selectedApplications.contains { application in
-            let value = (
-                application.bundleIdentifier ?? application.displayName
-            ).lowercased()
-            return ["safari", "chrome", "firefox", "arc", "brave", "edge"].contains {
-                value.contains($0)
-            }
+            application.bundleIdentifier.map(
+                ApplicationCatalog.browserBundleIdentifiers.contains
+            ) ?? false
         }
     }
 
@@ -185,14 +182,14 @@ struct AppPickerView: View {
                     HStack {
                         VStack(alignment: .leading) {
                             Text(application.displayName)
-                            if !application.isAvailable {
+                            if !application.isResolvable {
                                 Text("Needs reselection")
                                     .font(.caption)
                                     .foregroundStyle(.orange)
                             }
                         }
                         Spacer()
-                        if !application.isAvailable {
+                        if !application.isResolvable {
                             Button("Reselect…") {
                                 chooseReplacement(for: application.id)
                             }
@@ -208,9 +205,6 @@ struct AppPickerView: View {
     }
 
     private func chooseApplication() {
-        guard !requiresImmediateCloseConfirmation || confirmImmediateClose() else {
-            return
-        }
         let panel = NSOpenPanel()
         panel.title = "Choose a Work Application"
         panel.prompt = "Choose"
@@ -218,7 +212,10 @@ struct AppPickerView: View {
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowedContentTypes = [.applicationBundle]
-        guard panel.runModal() == .OK else {
+        guard panel.runModal() == .OK,
+              !panel.urls.isEmpty,
+              !requiresImmediateCloseConfirmation || confirmImmediateClose()
+        else {
             return
         }
         Task {

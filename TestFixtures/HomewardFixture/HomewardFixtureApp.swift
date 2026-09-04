@@ -43,6 +43,9 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate {
     let mode = Mode(
         rawValue: ProcessInfo.processInfo.environment["HOMEWARD_FIXTURE_MODE"] ?? ""
     ) ?? .immediate
+    let delay = TimeInterval(
+        ProcessInfo.processInfo.environment["HOMEWARD_FIXTURE_DELAY"] ?? ""
+    ) ?? 2
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         switch mode {
@@ -52,7 +55,7 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate {
             return .terminateCancel
         case .delayed:
             Task { @MainActor in
-                try? await Task.sleep(for: .seconds(2))
+                try? await Task.sleep(for: .seconds(delay))
                 sender.reply(toApplicationShouldTerminate: true)
             }
             return .terminateLater

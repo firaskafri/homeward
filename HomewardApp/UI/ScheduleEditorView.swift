@@ -10,6 +10,7 @@ struct ScheduleEditorView: View {
     @State private var copySource: Weekday = .monday
     @State private var pendingSchedule: WeeklySchedule?
     @State private var showImmediateCloseConfirmation = false
+    @State private var lastSavedScheduleWasConfirmed: Bool
 
     init(
         model: AppModel,
@@ -18,6 +19,9 @@ struct ScheduleEditorView: View {
         self.model = model
         self.requiresOnboardingConfirmation = requiresOnboardingConfirmation
         _rules = State(initialValue: model.configuration.schedule.rules)
+        _lastSavedScheduleWasConfirmed = State(
+            initialValue: model.configuration.onboardingScheduleConfirmed
+        )
     }
 
     var body: some View {
@@ -40,7 +44,7 @@ struct ScheduleEditorView: View {
                 HStack {
                     Picker("Source day", selection: $copySource) {
                         ForEach(orderedWeekdays, id: \.self) { weekday in
-                            Text(weekdayName(weekday)).tag(weekday)
+                            Text(weekdayDisplayName(weekday)).tag(weekday)
                         }
                     }
                     Menu("Copy to…") {
@@ -48,7 +52,7 @@ struct ScheduleEditorView: View {
                             orderedWeekdays.filter { $0 != copySource },
                             id: \.self
                         ) { weekday in
-                            Button(weekdayName(weekday)) {
+                            Button(weekdayDisplayName(weekday)) {
                                 if let sourceRule = rules[copySource] {
                                     rules[weekday] = sourceRule
                                     if requiresOnboardingConfirmation {
@@ -74,6 +78,10 @@ struct ScheduleEditorView: View {
                 Button("Reset Draft") {
                     rules = model.configuration.schedule.rules
                     validationMessage = nil
+                    if requiresOnboardingConfirmation,
+                       lastSavedScheduleWasConfirmed {
+                        model.restoreOnboardingScheduleConfirmation()
+                    }
                 }
                 Button("Save Schedule") {
                     save()
@@ -151,6 +159,8 @@ struct ScheduleEditorView: View {
             await model.setSchedule(schedule)
             rules = model.configuration.schedule.rules
             validationMessage = model.lastError
+            lastSavedScheduleWasConfirmed =
+                model.configuration.onboardingScheduleConfirmed
             isSaving = false
         }
     }
@@ -170,11 +180,6 @@ struct ScheduleEditorView: View {
         }
     }
 
-    private func weekdayName(_ weekday: Weekday) -> String {
-        var calendar = Calendar.autoupdatingCurrent
-        calendar.locale = Locale.autoupdatingCurrent
-        return calendar.weekdaySymbols[weekday.rawValue - 1]
-    }
 }
 
 private struct DayRuleRow: View {
@@ -229,9 +234,7 @@ private struct DayRuleRow: View {
     }
 
     private var weekdayName: String {
-        var calendar = Calendar.autoupdatingCurrent
-        calendar.locale = Locale.autoupdatingCurrent
-        return calendar.weekdaySymbols[weekday.rawValue - 1]
+        weekdayDisplayName(weekday)
     }
 
     private var modeBinding: Binding<Mode> {
@@ -249,15 +252,11 @@ private struct DayRuleRow: View {
             set: { mode in
                 switch mode {
                 case .scheduled:
-                    guard let start = try? LocalTime(hour: 9, minute: 0),
-                          let end = try? LocalTime(hour: 17, minute: 0) else {
+                    guard let defaultRule = try? WeeklySchedule
+                        .defaultWorkdayRule() else {
                         return
                     }
-                    rule = .scheduled(
-                        start: start,
-                        end: end,
-                        endsNextDay: false
-                    )
+                    rule = defaultRule
                 case .availableAllDay:
                     rule = .availableAllDay
                 case .blockedAllDay:
@@ -318,4 +317,10 @@ private struct DayRuleRow: View {
             from: DateComponents(year: 2001, month: 1, day: 1, hour: hour, minute: minute)
         )!
     }
+}
+
+private func weekdayDisplayName(_ weekday: Weekday) -> String {
+    var calendar = Calendar.autoupdatingCurrent
+    calendar.locale = Locale.autoupdatingCurrent
+    return calendar.weekdaySymbols[weekday.rawValue - 1]
 }

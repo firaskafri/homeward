@@ -1,0 +1,23 @@
+{
+  "/Users/firaskafri/Work/montra2/personal-blog/homeward/HomewardApp/UI/BlockedLaunchPanel.swift" : {
+    "const-values" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/Homeward.build/Objects-normal/arm64/BlockedLaunchPanel.swiftconstvalues",
+    "dependencies" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/Homeward.build/Objects-normal/arm64/BlockedLaunchPanel.d",
+    "diagnostics" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/Homeward.build/Objects-normal/arm64/BlockedLaunchPanel.dia",
+    "object" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/Homeward.build/Objects-normal/arm64/BlockedLaunchPanel.o",
+    "swift-dependencies" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/Homeward.build/Objects-normal/arm64/BlockedLaunchPanel.swiftdeps"
+  },
+  "/Users/firaskafri/Work/montra2/personal-blog/homeward/HomewardApp/UI/ClosingPanel.swift" : {
+    "const-values" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/Homeward.build/Objects-normal/arm64/ClosingPanel.swiftconstvalues",
+    "dependencies" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/Homeward.build/Objects-normal/arm64/ClosingPanel.d",
+    "diagnostics" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/Homeward.build/Objects-normal/arm64/ClosingPanel.dia",
+    "object" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/Homeward.build/Objects-normal/arm64/ClosingPanel.o",
+    "swift-dependencies" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/Homeward.build/Objects-normal/arm64/ClosingPanel.swiftdeps"
+  },
+  "/Users/firaskafri/Work/montra2/personal-blog/homeward/HomewardApp/UI/ClosingSettingsView.swift" : {
+    "const-values" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/Homeward.build/Objects-normal/arm64/ClosingSettingsView.swiftconstvalues",
+    "dependencies" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/Homeward.build/Objects-normal/arm64/ClosingSettingsView.d",
+    "diagnostics" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/Homeward.build/Objects-normal/arm64/ClosingSettingsView.dia",
+    "object" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/Homeward.build/Objects-normal/arm64/ClosingSettingsView.o",
+    "swift-dependencies" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/Homeward.build/Objects-normal/arm64/ClosingSettingsView.swiftdeps"
+  }
+}

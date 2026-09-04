@@ -10,14 +10,14 @@ terminal commands, or AI conversations.
 
 ## Status
 
-Local MVP development is authorized after the Phase 0 gates in the canonical
-product requirements document. Developer ID signing, notarization, public
-distribution, full manual accessibility review, and dogfood gates remain
-pending.
+The MVP implementation and automated local verification pipeline are present.
+Developer ID signing, notarization, public distribution, full manual
+accessibility/system validation, and dogfood gates remain pending.
 
-Canonical PRD:
-
-`/Users/firaskafri/.openclaw/workspace/projects/homeward/PRD.md`
+See [`docs/STATUS.md`](docs/STATUS.md) for the current evidence boundary,
+[`docs/DECISIONS.md`](docs/DECISIONS.md) for the implementation baseline, and
+[`docs/TRACEABILITY.md`](docs/TRACEABILITY.md) for requirement coverage. The
+original planning PRD is owner-local and is not part of this repository.
 
 ## Requirements
 
@@ -48,15 +48,15 @@ The verification entry point regenerates the Xcode project, checks mandatory
 test documentation, runs pure-core tests, native app and UI tests, static
 analysis, and an arm64 Release build.
 
-To produce a non-public, ad-hoc-signed DMG and provenance manifest after
+To produce an unreleased, ad-hoc-signed DMG and provenance manifest after
 verification:
 
 ```sh
 RUN_UI_TESTS=0 ./scripts/package-local-candidate.sh
 ```
 
-That artifact is for local testing only; public distribution still requires
-Developer ID signing and notarization.
+That artifact is test evidence, not a distributable release. Public
+distribution still requires Developer ID signing and notarization.
 
 ## Architecture
 

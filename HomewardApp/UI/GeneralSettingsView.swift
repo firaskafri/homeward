@@ -2,7 +2,8 @@ import SwiftUI
 
 struct GeneralSettingsView: View {
     @ObservedObject var model: AppModel
-    @AppStorage("showRemainingTime") private var showRemainingTime = false
+    @AppStorage(HomewardPreferenceKeys.showNextTransitionTime)
+    private var showNextTransitionTime = false
     @State private var confirmResetSetup = false
     @State private var confirmResetNotes = false
     @State private var confirmTurnOff = false
@@ -38,10 +39,18 @@ struct GeneralSettingsView: View {
                 Text("Notifications provide wind-down and status messages. App closing still works when notifications are off.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                if model.notificationStatus == .denied {
+                    Text("In System Settings, choose Notifications, then Homeward.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("Menu Bar") {
-                Toggle("Show next transition time", isOn: $showRemainingTime)
+                Toggle(
+                    "Show next transition time",
+                    isOn: $showNextTransitionTime
+                )
             }
 
             Section("Privacy") {
@@ -53,7 +62,7 @@ struct GeneralSettingsView: View {
                 LabeledContent("Version") {
                     Text(version)
                 }
-                Text("Bundle identifier: com.firaskafri.homeward")
+                Text("Bundle identifier: \(bundleIdentifier)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -175,8 +184,8 @@ struct GeneralSettingsView: View {
                 Task { await model.requestNotificationPermission() }
             }
         case .denied, .unavailable:
-            Button("Open Notification Settings") {
-                model.openNotificationSettings()
+            Button("Open System Settings") {
+                model.openSystemSettings()
             }
             Button("Check Again") {
                 Task { await model.refreshSystemStatuses() }
@@ -186,10 +195,14 @@ struct GeneralSettingsView: View {
 
     private var version: String {
         let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
-            as? String ?? "0.1"
+            as? String ?? "Unknown"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion")
-            as? String ?? "1"
+            as? String ?? "Unknown"
         return "\(short) (\(build))"
+    }
+
+    private var bundleIdentifier: String {
+        Bundle.main.bundleIdentifier ?? "Unavailable"
     }
 
 }

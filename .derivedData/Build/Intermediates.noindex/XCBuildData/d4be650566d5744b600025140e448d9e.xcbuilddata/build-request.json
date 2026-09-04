@@ -1,0 +1,66 @@
+{
+  "buildCommand" : {
+    "command" : "build",
+    "skipDependencies" : false,
+    "style" : "buildAndRun"
+  },
+  "configuredTargets" : [
+    {
+      "guid" : "75098cbfadaa380e0d2729ef70a35169ddceea415fc4ae6a48b3d8e23ddd6ee0"
+    },
+    {
+      "guid" : "75098cbfadaa380e0d2729ef70a351698d9cbb5a58824564de73a42bddd4ebb2"
+    }
+  ],
+  "containerPath" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/Homeward.xcodeproj",
+  "continueBuildingAfterErrors" : false,
+  "dependencyScope" : "workspace",
+  "enableIndexBuildArena" : false,
+  "hideShellScriptEnvironment" : false,
+  "parameters" : {
+    "action" : "build",
+    "activeArchitecture" : "arm64",
+    "activeRunDestination" : {
+      "disableOnlyActiveArch" : false,
+      "hostTargetedPlatform" : null,
+      "platform" : "macosx",
+      "sdk" : "macosx26.5",
+      "sdkVariant" : "macos",
+      "supportedArchitectures" : [
+        "arm64e",
+        "arm64",
+        "x86_64"
+      ],
+      "targetArchitecture" : "arm64"
+    },
+    "arenaInfo" : {
+      "buildIntermediatesPath" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex",
+      "buildProductsPath" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Products",
+      "derivedDataPath" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData",
+      "indexDataStoreFolderPath" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Index.noindex/DataStore",
+      "indexEnableDataStore" : true,
+      "indexPCHPath" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Index.noindex/PrecompiledHeaders",
+      "pchPath" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/PrecompiledHeaders"
+    },
+    "configurationName" : "Debug",
+    "overrides" : {
+      "commandLine" : {
+        "table" : {
+
+        }
+      },
+      "synthesized" : {
+        "table" : {
+          "ENABLE_PREVIEWS" : "NO",
+          "ENABLE_XOJIT_PREVIEWS" : "YES"
+        }
+      }
+    }
+  },
+  "schemeCommand" : "test",
+  "showNonLoggedProgress" : true,
+  "useDryRun" : false,
+  "useImplicitDependencies" : true,
+  "useLegacyBuildLocations" : false,
+  "useParallelTargets" : true
+}

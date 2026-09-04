@@ -11,24 +11,39 @@ import XCTest
 /// 4 - Expectations: Onboarding opens as an accessible native window.
 @MainActor
 final class HomewardUITests: XCTestCase {
+    private var storageDirectory: URL?
+
+    override func tearDownWithError() throws {
+        if let storageDirectory {
+            try? FileManager.default.removeItem(at: storageDirectory)
+        }
+        storageDirectory = nil
+    }
+
     /// 1 - Name: First-launch onboarding.
-    /// 2 - Description: Launches Homeward and locates its pre-activation menu-bar item.
-    /// 3 - Assumptions: Detailed menu/window interaction remains a manual gate because hidden menu bars make coordinate automation unreliable.
-    /// 4 - Expectations: Homeward exposes one accessibility-visible status item.
+    /// 2 - Description: Launches Homeward and verifies setup is visible without relying on its menu-bar item.
+    /// 3 - Assumptions: The isolated storage directory has no completed configuration.
+    /// 4 - Expectations: Homeward exposes its status item and opens the first onboarding step.
     func testFirstLaunchShowsOnboarding() throws {
         let app = launchIsolatedApp()
+        defer { app.terminate() }
 
         let statusItem = app.menuBars.statusItems.firstMatch
         XCTAssertTrue(statusItem.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.windows["Homeward"].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.otherElements["onboarding.step.1"].waitForExistence(timeout: 5)
+        )
     }
 
     private func launchIsolatedApp() -> XCUIApplication {
         let app = XCUIApplication()
         app.terminate()
-        app.launchEnvironment["HOMEWARD_STORAGE_DIRECTORY"] = FileManager.default
+        let directory = FileManager.default
             .temporaryDirectory
             .appendingPathComponent("HomewardUITests-\(UUID().uuidString)")
-            .path
+        storageDirectory = directory
+        app.launchEnvironment["HOMEWARD_STORAGE_DIRECTORY"] = directory.path
         app.launch()
         return app
     }

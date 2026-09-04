@@ -1,4 +1,5 @@
 import AppKit
+import HomewardCore
 import SwiftUI
 
 @main
@@ -6,6 +7,7 @@ struct HomewardApp: App {
     @StateObject private var model: AppModel
 
     init() {
+        HomewardPreferenceKeys.migrate()
         let instance: AppModel
         do {
             instance = try AppModel.makeDefault()
@@ -18,9 +20,6 @@ struct HomewardApp: App {
     var body: some Scene {
         MenuBarExtra {
             MenuContent(model: model)
-                .task {
-                    await model.start()
-                }
         } label: {
             MenuBarLabel(model: model)
         }
@@ -39,11 +38,14 @@ struct HomewardApp: App {
 
 private struct MenuBarLabel: View {
     @ObservedObject var model: AppModel
-    @AppStorage("showRemainingTime") private var showRemainingTime = false
+    @Environment(\.openWindow) private var openWindow
+    @AppStorage(HomewardPreferenceKeys.showNextTransitionTime)
+    private var showNextTransitionTime = false
 
     var body: some View {
         Group {
-            if showRemainingTime, let transition = model.resolvedSchedule.nextTransition {
+            if showNextTransitionTime,
+               let transition = model.resolvedSchedule.nextTransition {
                 Label(
                     transition.date.formatted(date: .omitted, time: .shortened),
                     systemImage: "house"
@@ -54,20 +56,27 @@ private struct MenuBarLabel: View {
         }
         .accessibilityLabel("Homeward")
         .accessibilityValue(accessibilityState)
+        .task {
+            await model.start()
+        }
+        .onChange(of: model.health, initial: true) { _, health in
+            switch health {
+            case .starting:
+                break
+            case .ready where model.isOnboardingComplete:
+                break
+            case .ready, .configurationUnavailable:
+                openWindow(id: "homeward")
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
     }
 
     private var accessibilityState: String {
-        let state: String
-        switch model.resolvedSchedule.phase {
-        case .workAvailable:
-            state = "Work available"
-        case .windingDown:
-            state = "Winding down"
-        case .workClosed:
-            state = model.closingRows.isEmpty ? "Work is closed" : "Closing work apps"
-        case .temporarilyExtended:
-            state = "Work extended"
-        }
+        let state = SchedulePresentation.stateTitle(
+            schedule: model.resolvedSchedule,
+            closingCount: model.closingRows.count
+        )
         if let transition = model.resolvedSchedule.nextTransition {
             return "\(state). Next transition \(transition.date.formatted(date: .abbreviated, time: .shortened))."
         }
@@ -105,7 +114,11 @@ private struct MenuContent: View {
 
             Section {
                 Text("\(model.configuration.selectedApplications.count) work apps")
-                Text(model.configuration.closeMode == .gentle ? "Gentle Close" : "Firm Close")
+                Text(
+                    SchedulePresentation.closeModeName(
+                        model.configuration.closeMode
+                    )
+                )
                 if let activeOverride = model.resolvedSchedule.activeOverride {
                     Text(
                         "Today-only change until "
@@ -134,14 +147,15 @@ private struct MenuContent: View {
             }
 
             Menu("Change Today Only…") {
-                Button("Extend by 10 Minutes") {
-                    Task { await model.createExtension(minutes: 10) }
-                }
-                Button("Extend by 15 Minutes") {
-                    Task { await model.createExtension(minutes: 15) }
-                }
-                Button("Extend by 30 Minutes") {
-                    Task { await model.createExtension(minutes: 30) }
+                if model.canExtendToday {
+                    ForEach(
+                        HomewardPolicy.extensionDurationsMinutes,
+                        id: \.self
+                    ) { minutes in
+                        Button("Extend by \(minutes) Minutes") {
+                            Task { await model.createExtension(minutes: minutes) }
+                        }
+                    }
                 }
                 Button("Choose Another Cutoff…") {
                     model.showCustomCutoff()
@@ -154,9 +168,11 @@ private struct MenuContent: View {
                 Button("Take Today Off…") {
                     confirmTakeTodayOff()
                 }
-                Divider()
-                Button("Return to Weekly Schedule") {
-                    Task { await model.returnToWeeklySchedule() }
+                if model.hasAvailabilityOverride {
+                    Divider()
+                    Button("Return to Weekly Schedule") {
+                        Task { await model.returnToWeeklySchedule() }
+                    }
                 }
             }
 
@@ -195,36 +211,14 @@ private struct MenuContent: View {
     }
 
     private var stateTitle: String {
-        if !model.closingRows.isEmpty {
-            return "Closing work apps"
-        }
-        switch model.resolvedSchedule.phase {
-        case .workAvailable:
-            return "Work available"
-        case .windingDown:
-            return "Winding down"
-        case .workClosed:
-            return "Work is closed"
-        case .temporarilyExtended:
-            return "Work extended"
-        }
+        SchedulePresentation.stateTitle(
+            schedule: model.resolvedSchedule,
+            closingCount: model.closingRows.count
+        )
     }
 
     private var transitionText: String {
-        guard let transition = model.resolvedSchedule.nextTransition else {
-            return model.resolvedSchedule.isAvailable
-                ? "Work apps are always available"
-                : "No work window scheduled"
-        }
-        let formatted = transition.date.formatted(date: .abbreviated, time: .shortened)
-        switch transition.cause {
-        case .workWindowStarts:
-            return "Available \(formatted)"
-        case .workWindowEnds:
-            return "Until \(formatted)"
-        case .overrideExpires:
-            return "Weekly schedule resumes \(formatted)"
-        }
+        SchedulePresentation.transitionText(for: model.resolvedSchedule)
     }
 
     private func confirmEndWork() {
@@ -242,7 +236,9 @@ private struct MenuContent: View {
     private func confirmResumeFirmClosing() {
         let alert = NSAlert()
         alert.messageText = "Resume Firm Closing?"
-        alert.informativeText = "Homeward will ask selected apps to quit normally and begin a new 30-second grace period."
+        alert.informativeText =
+            "Homeward will ask selected apps to quit normally and begin a new "
+            + "\(Int(HomewardPolicy.firmGracePeriod))-second grace period."
         alert.addButton(withTitle: "Resume Firm Closing")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else {

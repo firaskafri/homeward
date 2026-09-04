@@ -1,0 +1,19 @@
+{
+  "" : {
+    "diagnostics" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/HomewardUITests.build/Objects-normal/arm64/HomewardUITests-primary.dia",
+    "emit-module-dependencies" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/HomewardUITests.build/Objects-normal/arm64/HomewardUITests-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/HomewardUITests.build/Objects-normal/arm64/HomewardUITests-primary-emit-module.dia",
+    "pch" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/HomewardUITests.build/Objects-normal/arm64/HomewardUITests-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/HomewardUITests.build/Objects-normal/arm64/HomewardUITests-primary.swiftdeps"
+  },
+  "/Users/firaskafri/Work/montra2/personal-blog/homeward/HomewardUITests/HomewardUITests.swift" : {
+    "const-values" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/HomewardUITests.build/Objects-normal/arm64/HomewardUITests.swiftconstvalues",
+    "dependencies" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/HomewardUITests.build/Objects-normal/arm64/HomewardUITests.d",
+    "diagnostics" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/HomewardUITests.build/Objects-normal/arm64/HomewardUITests.dia",
+    "index-unit-output-path" : "/Homeward.build/Debug/HomewardUITests.build/Objects-normal/arm64/HomewardUITests.o",
+    "llvm-bc" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/HomewardUITests.build/Objects-normal/arm64/HomewardUITests.bc",
+    "object" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/HomewardUITests.build/Objects-normal/arm64/HomewardUITests.o",
+    "swift-dependencies" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/HomewardUITests.build/Objects-normal/arm64/HomewardUITests.swiftdeps",
+    "swiftmodule" : "/Users/firaskafri/Work/montra2/personal-blog/homeward/.derivedData/Build/Intermediates.noindex/Homeward.build/Debug/HomewardUITests.build/Objects-normal/arm64/HomewardUITests~partial.swiftmodule"
+  }
+}

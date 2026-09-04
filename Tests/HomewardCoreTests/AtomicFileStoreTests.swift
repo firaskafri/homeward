@@ -19,7 +19,7 @@ struct AtomicFileStoreTests {
     /// 4 - Expectations: Loaded content matches and storage is owner-only.
     @Test
     func roundTripAndPermissions() async throws {
-        let fixture = try TemporaryStoreFixture()
+        let fixture = TemporaryStoreFixture()
         defer { fixture.remove() }
         let store = AtomicFileStore<NotesDocument>(fileURL: fixture.fileURL)
         let note = try TomorrowNote(text: "Remember this")
@@ -39,7 +39,7 @@ struct AtomicFileStoreTests {
     /// 4 - Expectations: Recovery is available only through the explicit recovery API.
     @Test
     func explicitRecoveryCandidate() async throws {
-        let fixture = try TemporaryStoreFixture()
+        let fixture = TemporaryStoreFixture()
         defer { fixture.remove() }
         let store = AtomicFileStore<NotesDocument>(fileURL: fixture.fileURL)
         let first = try NotesDocument(notes: [TomorrowNote(text: "First")])
@@ -58,7 +58,7 @@ struct AtomicFileStoreTests {
     /// 4 - Expectations: Active load throws while the recovery candidate remains separately readable.
     @Test
     func corruptActiveDataFailsOpen() async throws {
-        let fixture = try TemporaryStoreFixture()
+        let fixture = TemporaryStoreFixture()
         defer { fixture.remove() }
         let store = AtomicFileStore<NotesDocument>(fileURL: fixture.fileURL)
         let first = try NotesDocument(notes: [TomorrowNote(text: "First")])
@@ -67,7 +67,7 @@ struct AtomicFileStoreTests {
         try await store.save(second)
         try Data("not json".utf8).write(to: fixture.fileURL, options: .atomic)
 
-        await #expect(throws: (any Error).self) {
+        await #expect(throws: DecodingError.self) {
             _ = try await store.load()
         }
         #expect(try await store.loadRecoveryCandidate() == first)
@@ -79,7 +79,7 @@ struct AtomicFileStoreTests {
     /// 4 - Expectations: Neither file remains after deletion.
     @Test
     func deletionRemovesPrimaryAndRecovery() async throws {
-        let fixture = try TemporaryStoreFixture()
+        let fixture = TemporaryStoreFixture()
         defer { fixture.remove() }
         let store = AtomicFileStore<NotesDocument>(fileURL: fixture.fileURL)
         try await store.save(NotesDocument())
@@ -97,7 +97,7 @@ struct AtomicFileStoreTests {
     /// 4 - Expectations: The replacement becomes active and the earlier validated recovery candidate remains intact.
     @Test
     func recoveryReplacementOverCorruptPrimary() async throws {
-        let fixture = try TemporaryStoreFixture()
+        let fixture = TemporaryStoreFixture()
         defer { fixture.remove() }
         let store = AtomicFileStore<NotesDocument>(fileURL: fixture.fileURL)
         let first = try NotesDocument(notes: [TomorrowNote(text: "First")])
@@ -107,7 +107,7 @@ struct AtomicFileStoreTests {
         try await store.save(second)
         try Data("corrupt".utf8).write(to: fixture.fileURL, options: .atomic)
 
-        try await store.replaceRecovering(replacement)
+        try await store.replaceDuringRecovery(replacement)
 
         #expect(try await store.load() == replacement)
         #expect(try await store.loadRecoveryCandidate() == first)
@@ -118,7 +118,7 @@ private struct TemporaryStoreFixture {
     let directoryURL: URL
     let fileURL: URL
 
-    init() throws {
+    init() {
         directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("HomewardTests-\(UUID().uuidString)", isDirectory: true)
         fileURL = directoryURL.appendingPathComponent("notes.json")

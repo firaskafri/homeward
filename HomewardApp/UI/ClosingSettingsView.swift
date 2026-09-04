@@ -27,7 +27,9 @@ struct ClosingSettingsView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     Label(
-                        "Homeward asks apps to quit normally, shows a full 30-second countdown, then may force-quit apps still running. Unsaved changes can be lost.",
+                        "Homeward asks apps to quit normally, shows a full "
+                            + "\(Int(HomewardPolicy.firmGracePeriod))-second countdown, "
+                            + "then may force-quit apps still running. Unsaved changes can be lost.",
                         systemImage: "exclamationmark.triangle"
                     )
                     .foregroundStyle(.orange)
@@ -44,14 +46,30 @@ struct ClosingSettingsView: View {
                     isOn: warningBinding(\.fiveMinuteWarningEnabled)
                 )
                 Toggle(
-                    "Allow one 10-minute Gentle extension",
-                    isOn: warningBinding(\.gentleExtensionEnabled)
+                    "Allow one \(HomewardPolicy.gentleShortcutExtensionMinutes)-minute Gentle extension",
+                    isOn: Binding(
+                        get: {
+                            model.configuration.gentleShortcutExtensionEnabled
+                        },
+                        set: { enabled in
+                            Task {
+                                await model.setGentleShortcutExtensionEnabled(
+                                    enabled
+                                )
+                            }
+                        }
+                    )
                 )
                 .disabled(model.configuration.closeMode == .firm)
             }
 
             Section {
-                Text("Firm Close never shortens the 30-second grace. Stop Force Quit pauses force escalation for the current blocked interval without making work apps available.")
+                Text(
+                    "Firm Close never shortens the "
+                        + "\(Int(HomewardPolicy.firmGracePeriod))-second grace. "
+                        + "Stop Force Quit pauses force escalation for the current "
+                        + "blocked interval without making work apps available."
+                )
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -67,7 +85,11 @@ struct ClosingSettingsView: View {
             }
             Button("Keep Gentle Close", role: .cancel) {}
         } message: {
-            Text("Firm Close can discard unsaved changes or interrupt active processes. Homeward always requests a normal quit and shows a full 30-second countdown first.")
+            Text(
+                "Firm Close can discard unsaved changes or interrupt active "
+                    + "processes. Homeward always requests a normal quit and shows "
+                    + "a full \(Int(HomewardPolicy.firmGracePeriod))-second countdown first."
+            )
         }
         .accessibilityIdentifier("closing.settings")
     }

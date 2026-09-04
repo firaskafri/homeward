@@ -5,22 +5,17 @@ import SwiftUI
 @MainActor
 final class NotesPanelController: NSWindowController {
     init(model: AppModel) {
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 420),
-            styleMask: [.titled, .closable, .resizable, .utilityWindow],
-            backing: .buffered,
-            defer: false
+        let panel = HomewardPanelFactory.make(
+            title: "Saved Thoughts",
+            size: NSSize(width: 560, height: 420),
+            resizable: true,
+            floatsAutomatically: true
         )
         let view = NotesReviewView(
             model: model,
             onClose: { [weak panel] in panel?.close() }
         )
-        panel.title = "Saved Thoughts"
         panel.contentViewController = NSHostingController(rootView: view)
-        panel.level = .floating
-        panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.isReleasedWhenClosed = false
         super.init(window: panel)
     }
 
@@ -38,19 +33,15 @@ final class NotesPanelController: NSWindowController {
 @MainActor
 final class NoteCapturePanelController: NSWindowController {
     init(model: AppModel) {
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 440, height: 280),
-            styleMask: [.titled, .closable, .utilityWindow],
-            backing: .buffered,
-            defer: false
+        let panel = HomewardPanelFactory.make(
+            title: "Save a Thought",
+            size: NSSize(width: 440, height: 280)
         )
         let view = NoteCaptureView(
             model: model,
             onClose: { [weak panel] in panel?.close() }
         )
-        panel.title = "Save a Thought"
         panel.contentViewController = NSHostingController(rootView: view)
-        panel.isReleasedWhenClosed = false
         super.init(window: panel)
     }
 
@@ -68,13 +59,12 @@ final class NoteCapturePanelController: NSWindowController {
 
 struct NoteCaptureView: View {
     @ObservedObject var model: AppModel
-    @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var isSaving = false
     @FocusState private var editorFocused: Bool
-    var onClose: (() -> Void)?
+    let onClose: () -> Void
 
-    init(model: AppModel, onClose: (() -> Void)? = nil) {
+    init(model: AppModel, onClose: @escaping () -> Void) {
         self.model = model
         self.onClose = onClose
     }
@@ -109,8 +99,7 @@ struct NoteCaptureView: View {
                     .foregroundStyle(remainingCharacters < 0 ? .red : .secondary)
                 Spacer()
                 Button("Cancel") {
-                    onClose?()
-                    dismiss()
+                    onClose()
                 }
                 .keyboardShortcut(.cancelAction)
                 Button("Save") {
@@ -142,8 +131,7 @@ struct NoteCaptureView: View {
         isSaving = true
         Task { @MainActor in
             if await model.saveNote(text) {
-                onClose?()
-                dismiss()
+                onClose()
             } else {
                 isSaving = false
                 editorFocused = true
@@ -154,13 +142,12 @@ struct NoteCaptureView: View {
 
 struct NotesReviewView: View {
     @ObservedObject var model: AppModel
-    @Environment(\.dismiss) private var dismiss
     @State private var pendingDelete: TomorrowNote?
     @State private var recentlyCompleted: TomorrowNote?
     @State private var undoTask: Task<Void, Never>?
-    var onClose: (() -> Void)?
+    let onClose: () -> Void
 
-    init(model: AppModel, onClose: (() -> Void)? = nil) {
+    init(model: AppModel, onClose: @escaping () -> Void) {
         self.model = model
         self.onClose = onClose
     }
@@ -170,13 +157,13 @@ struct NotesReviewView: View {
             Text("Saved thoughts")
                 .font(.title2.bold())
 
-            if visibleNotes.isEmpty {
+            if model.visibleNotes.isEmpty {
                 ContentUnavailableView(
                     "No saved thoughts",
                     systemImage: "note.text"
                 )
             } else {
-                List(visibleNotes) { note in
+                List(model.visibleNotes) { note in
                     noteRow(note)
                 }
             }
@@ -186,8 +173,11 @@ struct NotesReviewView: View {
                     Text("Thought marked done")
                     Button("Undo") {
                         undoTask?.cancel()
-                        Task { await model.restoreNote(recentlyCompleted) }
-                        self.recentlyCompleted = nil
+                        Task {
+                            if await model.restoreNote(recentlyCompleted) {
+                                self.recentlyCompleted = nil
+                            }
+                        }
                     }
                     .keyboardShortcut("z", modifiers: .command)
                 }
@@ -198,8 +188,7 @@ struct NotesReviewView: View {
             HStack {
                 Spacer()
                 Button("Done") {
-                    onClose?()
-                    dismiss()
+                    onClose()
                 }
                 .keyboardShortcut(.defaultAction)
             }
@@ -244,7 +233,7 @@ struct NotesReviewView: View {
                     Task {
                         await model.keepNote(
                             id: note.id,
-                            intervalID: currentIntervalID
+                            intervalID: model.currentNoteIntervalID
                         )
                     }
                 }
@@ -261,26 +250,22 @@ struct NotesReviewView: View {
         .accessibilityIdentifier("notes.row.\(note.id.uuidString)")
     }
 
-    private var currentIntervalID: String {
-        model.resolvedSchedule.activeBaseInterval?.id ?? "available"
-    }
-
-    private var visibleNotes: [TomorrowNote] {
-        model.notes.notes.filter {
-            $0.lastPresentedIntervalID != currentIntervalID
-        }
-    }
-
     private func complete(_ note: TomorrowNote) {
         undoTask?.cancel()
-        recentlyCompleted = note
-        Task { await model.removeNote(id: note.id) }
-        undoTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(10))
-            guard !Task.isCancelled else {
+        Task { @MainActor in
+            guard let completed = await model.completeNote(id: note.id) else {
                 return
             }
-            recentlyCompleted = nil
+            recentlyCompleted = completed
+            undoTask = Task { @MainActor in
+                try? await Task.sleep(
+                    for: .seconds(HomewardPolicy.noteUndoDuration)
+                )
+                guard !Task.isCancelled else {
+                    return
+                }
+                recentlyCompleted = nil
+            }
         }
     }
 }

@@ -7,8 +7,9 @@ with an ad-hoc local signature and Hardened Runtime. This is suitable for local
 verification only.
 
 `scripts/package-local-candidate.sh` packages that verified app into a local
-DMG and emits a checksum, provenance manifest, and dSYM archive. CI retains
-these files as non-public evidence tied to the source commit.
+DMG and emits a checksum, provenance manifest, and required dSYM archive. CI
+retains these files as unreleased evidence tied to the source commit; access is
+governed by GitHub artifact permissions.
 
 ## Public release prerequisites
 

@@ -21,7 +21,11 @@ struct AppModelTests {
     /// 4 - Expectations: Gentle mode and incomplete onboarding prevent termination.
     @Test
     func safeInitializationDefaults() throws {
-        let model = try AppModel.makeDefault()
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let model = try AppModel(
+            repository: HomewardRepository(directoryURL: fixture.directoryURL)
+        )
 
         #expect(model.configuration.closeMode == .gentle)
         #expect(!model.configuration.completedOnboarding)
@@ -34,9 +38,9 @@ struct AppModelTests {
     /// 4 - Expectations: Finder, System Settings, and Homeward are present in the denylist.
     @Test
     func protectedApplicationPolicy() {
-        #expect(ApplicationCatalog.protectedBundleIdentifiers.contains("com.apple.finder"))
-        #expect(ApplicationCatalog.protectedBundleIdentifiers.contains("com.apple.SystemSettings"))
-        #expect(ApplicationCatalog.protectedBundleIdentifiers.contains("com.firaskafri.homeward"))
+        #expect(SelectedApplication.protectedBundleIdentifiers.contains("com.apple.finder"))
+        #expect(SelectedApplication.protectedBundleIdentifiers.contains("com.apple.SystemSettings"))
+        #expect(SelectedApplication.protectedBundleIdentifiers.contains("com.firaskafri.homeward"))
     }
 
     /// 1 - Name: Custom cutoff override pair.
@@ -45,7 +49,7 @@ struct AppModelTests {
     /// 4 - Expectations: The configuration contains one allow and one future block override.
     @Test
     func customCutoffOverridePair() async throws {
-        let fixture = try AppModelFixture()
+        let fixture = AppModelFixture()
         defer { fixture.remove() }
         let model = try AppModel(repository: HomewardRepository(
             directoryURL: fixture.directoryURL
@@ -74,7 +78,7 @@ struct AppModelTests {
     /// 4 - Expectations: Runtime policy and persisted configuration both report force escalation paused.
     @Test
     func stopForceQuitCreatesSafetyLatch() async throws {
-        let fixture = try AppModelFixture()
+        let fixture = AppModelFixture()
         defer { fixture.remove() }
         let model = try AppModel(repository: HomewardRepository(
             directoryURL: fixture.directoryURL
@@ -94,7 +98,7 @@ struct AppModelTests {
     /// 4 - Expectations: Only the force-pause override remains.
     @Test
     func returnToWeeklySchedulePreservesForcePause() async throws {
-        let fixture = try AppModelFixture()
+        let fixture = AppModelFixture()
         defer { fixture.remove() }
         let model = try AppModel(repository: HomewardRepository(
             directoryURL: fixture.directoryURL
@@ -115,7 +119,7 @@ struct AppModelTests {
     /// 4 - Expectations: Finder is not selected and an explanatory error is published.
     @Test
     func protectedAppRejectedAtModelBoundary() async throws {
-        let fixture = try AppModelFixture()
+        let fixture = AppModelFixture()
         defer { fixture.remove() }
         let model = try AppModel(repository: HomewardRepository(
             directoryURL: fixture.directoryURL
@@ -138,7 +142,7 @@ struct AppModelTests {
     /// 4 - Expectations: Repository load rejects the protected persisted policy.
     @Test
     func repositoryValidatesDecodedConfiguration() async throws {
-        let fixture = try AppModelFixture()
+        let fixture = AppModelFixture()
         defer { fixture.remove() }
         try FileManager.default.createDirectory(
             at: fixture.directoryURL,
@@ -169,7 +173,7 @@ struct AppModelTests {
 private struct AppModelFixture {
     let directoryURL: URL
 
-    init() throws {
+    init() {
         directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("HomewardAppModelTests-\(UUID().uuidString)")
     }

@@ -1,6 +1,22 @@
 import Foundation
 
-public struct RunningApplicationSnapshot: Equatable, Hashable, Sendable {
+public struct ProcessSessionID: RawRepresentable, Codable, Equatable, Hashable,
+    Sendable, CustomStringConvertible
+{
+    public let rawValue: String
+
+    public init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    public init(processIdentifier: Int32, launchedAt: Date) {
+        rawValue = "\(processIdentifier)-\(launchedAt.timeIntervalSinceReferenceDate)"
+    }
+
+    public var description: String { rawValue }
+}
+
+public struct RunningApplicationSnapshot: Equatable, Sendable {
     public let processIdentifier: Int32
     public let bundleIdentifier: String?
     public let bundlePath: String?
@@ -21,16 +37,19 @@ public struct RunningApplicationSnapshot: Equatable, Hashable, Sendable {
         self.launchedAt = launchedAt
     }
 
-    public var processSessionID: String? {
+    public var processSessionID: ProcessSessionID? {
         guard let launchedAt else {
             return nil
         }
-        return "\(processIdentifier)-\(launchedAt.timeIntervalSinceReferenceDate)"
+        return ProcessSessionID(
+            processIdentifier: processIdentifier,
+            launchedAt: launchedAt
+        )
     }
 }
 
-public struct EnforcementTarget: Equatable, Identifiable, Sendable {
-    public let id: String
+public struct EnforcementTarget: Equatable, Sendable {
+    public let id: ProcessSessionID
     public let selectionID: UUID
     public let process: RunningApplicationSnapshot
 
@@ -47,71 +66,25 @@ public struct EnforcementTarget: Equatable, Identifiable, Sendable {
     }
 }
 
-public enum TargetOutcome: String, Codable, Equatable, Sendable {
-    case awaitingNormalQuit
-    case awaitingForceDeadline
-    case unresolved
-    case exempted
-    case terminated
-}
+public struct EnforcementSession: Equatable, Sendable {
+    public static let firmGracePeriod = HomewardPolicy.firmGracePeriod
 
-public struct TargetEnforcementState: Equatable, Sendable {
-    public let target: EnforcementTarget
-    public var outcome: TargetOutcome
-    public var forceDeadline: Date?
-
-    public init(
-        target: EnforcementTarget,
-        outcome: TargetOutcome = .awaitingNormalQuit,
-        forceDeadline: Date? = nil
-    ) {
-        self.target = target
-        self.outcome = outcome
-        self.forceDeadline = forceDeadline
-    }
-}
-
-public struct EnforcementSession: Equatable, Identifiable, Sendable {
-    public static let firmGracePeriod: TimeInterval = 30
-
-    public let id: UUID
-    public let blockedIntervalID: String
     public let mode: CloseMode
     public let startedAt: Date
-    public var targets: [String: TargetEnforcementState]
+    public var targets: [ProcessSessionID: EnforcementTarget]
     public var forceEscalationPaused: Bool
 
     public init(
-        id: UUID = UUID(),
-        blockedIntervalID: String,
         mode: CloseMode,
         startedAt: Date,
         targets: [EnforcementTarget],
         forceEscalationPaused: Bool = false
     ) {
-        self.id = id
-        self.blockedIntervalID = blockedIntervalID
         self.mode = mode
         self.startedAt = startedAt
         self.forceEscalationPaused = forceEscalationPaused
-        self.targets = Dictionary(
-            uniqueKeysWithValues: targets.map { target in
-                let deadline = mode == .firm
-                    ? startedAt.addingTimeInterval(Self.firmGracePeriod)
-                    : nil
-                let state = TargetEnforcementState(
-                    target: target,
-                    outcome: mode == .firm ? .awaitingForceDeadline : .awaitingNormalQuit,
-                    forceDeadline: deadline
-                )
-                return (target.id, state)
-            }
-        )
-    }
-
-    public var isComplete: Bool {
-        targets.values.allSatisfy { state in
-            state.outcome == .terminated || state.outcome == .exempted
+        self.targets = targets.reduce(into: [:]) { result, target in
+            result[target.id] = target
         }
     }
 }
@@ -144,7 +117,7 @@ public struct EnforcementPlanner: Sendable {
         schedule: ResolvedSchedule,
         currentSelections: [SelectedApplication],
         currentlyRunning: [RunningApplicationSnapshot]
-    ) -> [String] {
+    ) -> [ProcessSessionID] {
         guard session.mode == .firm,
               !session.forceEscalationPaused,
               !schedule.isAvailable
@@ -152,27 +125,32 @@ public struct EnforcementPlanner: Sendable {
             return []
         }
 
-        let selectionsByID = Dictionary(
-            uniqueKeysWithValues: currentSelections.map { ($0.id, $0) }
-        )
-        let runningBySessionID = Dictionary(
-            uniqueKeysWithValues: currentlyRunning.compactMap { snapshot in
-                snapshot.processSessionID.map { ($0, snapshot) }
+        let selectionsByID = currentSelections.reduce(
+            into: [UUID: SelectedApplication]()
+        ) {
+            $0[$1.id] = $1
+        }
+        let runningBySessionID = currentlyRunning.reduce(
+            into: [ProcessSessionID: RunningApplicationSnapshot]()
+        ) {
+            if let sessionID = $1.processSessionID {
+                $0[sessionID] = $1
             }
+        }
+        let forceDeadline = session.startedAt.addingTimeInterval(
+            EnforcementSession.firmGracePeriod
         )
 
-        return session.targets.values.compactMap { state in
-            guard state.outcome == .awaitingForceDeadline,
-                  let deadline = state.forceDeadline,
-                  now >= deadline,
-                  let selection = selectionsByID[state.target.selectionID],
-                  let liveProcess = runningBySessionID[state.target.id],
-                  liveProcess == state.target.process,
+        return session.targets.values.compactMap { target in
+            guard now >= forceDeadline,
+                  let selection = selectionsByID[target.selectionID],
+                  let liveProcess = runningBySessionID[target.id],
+                  liveProcess == target.process,
                   matches(selection: selection, process: liveProcess)
             else {
                 return nil
             }
-            return state.target.id
+            return target.id
         }
     }
 

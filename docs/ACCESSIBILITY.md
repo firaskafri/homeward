@@ -2,13 +2,15 @@
 
 Target: native macOS behavior plus WCAG 2.2 Level A/AA where applicable.
 
-## Interaction contract
+## Design requirements
 
 - Every function is keyboard-operable.
 - Dragging an application always has a Choose Application alternative.
 - Visible labels are the start of Voice Control names.
 - State is represented by text and symbols, never color alone.
-- Automatic panels do not activate Homeward or take focus from a save dialog.
+- Blocked-launch and automatic notes panels do not activate Homeward or take
+  focus from a save dialog. A Firm countdown may activate Homeward so the
+  safety controls remain visible, then restores the previous application.
 - User-invoked panels become key and restore focus on dismissal.
 - Firm countdowns announce 30, 15, and 5 seconds, not every tick.
 - Stop Force Quit remains available throughout every active Firm countdown.
@@ -23,6 +25,9 @@ Target: native macOS behavior plus WCAG 2.2 Level A/AA where applicable.
 - UI automation verifies the pre-activation menu-bar item.
 - Unit tests verify the deterministic state and safety rules that drive
   accessible copy.
+
+These checks do not establish conformance. Every design requirement above
+remains subject to the manual release gate.
 
 ## Manual release gate
 

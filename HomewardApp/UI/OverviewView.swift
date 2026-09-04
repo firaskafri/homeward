@@ -3,11 +3,17 @@ import HomewardCore
 import SwiftUI
 
 struct OverviewView: View {
+    private enum ActiveSheet: String, Identifiable {
+        case noteCapture
+        case notesReview
+        case customCutoff
+
+        var id: String { rawValue }
+    }
+
     @ObservedObject var model: AppModel
     @State private var showEndWorkConfirmation = false
-    @State private var showNoteCapture = false
-    @State private var showNotesReview = false
-    @State private var showCustomCutoff = false
+    @State private var activeSheet: ActiveSheet?
     @State private var showTakeDayOffConfirmation = false
 
     var body: some View {
@@ -33,14 +39,21 @@ struct OverviewView: View {
         } message: {
             Text("Homeward will begin the configured closing flow for selected work apps.")
         }
-        .sheet(isPresented: $showNoteCapture) {
-            NoteCaptureView(model: model)
-        }
-        .sheet(isPresented: $showNotesReview) {
-            NotesReviewView(model: model)
-        }
-        .sheet(isPresented: $showCustomCutoff) {
-            CustomCutoffView(model: model)
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .noteCapture:
+                NoteCaptureView(model: model) {
+                    activeSheet = nil
+                }
+            case .notesReview:
+                NotesReviewView(model: model) {
+                    activeSheet = nil
+                }
+            case .customCutoff:
+                CustomCutoffView(model: model) {
+                    activeSheet = nil
+                }
+            }
         }
         .confirmationDialog(
             "Take today off?",
@@ -70,17 +83,6 @@ struct OverviewView: View {
 
     @ViewBuilder
     private var healthSection: some View {
-        switch model.health {
-        case .starting:
-            ProgressView("Starting Homeward…")
-        case .ready:
-            EmptyView()
-        case let .configurationUnavailable(message):
-            warning(message)
-        case let .monitoringUnavailable(message):
-            warning(message)
-        }
-
         if model.loginItemStatus != .enabled {
             warning("Start at Login is not enabled. Homeward works only while it is open.")
         }
@@ -107,23 +109,24 @@ struct OverviewView: View {
                 .accessibilityIdentifier("overview.endWork")
             } else {
                 Button("Save a Thought…") {
-                    showNoteCapture = true
+                    activeSheet = .noteCapture
                 }
                 .accessibilityIdentifier("overview.saveThought")
             }
 
             Menu("Change Today Only…") {
-                Button("Extend by 10 Minutes") {
-                    Task { await model.createExtension(minutes: 10) }
-                }
-                Button("Extend by 15 Minutes") {
-                    Task { await model.createExtension(minutes: 15) }
-                }
-                Button("Extend by 30 Minutes") {
-                    Task { await model.createExtension(minutes: 30) }
+                if model.canExtendToday {
+                    ForEach(
+                        HomewardPolicy.extensionDurationsMinutes,
+                        id: \.self
+                    ) { minutes in
+                        Button("Extend by \(minutes) Minutes") {
+                            Task { await model.createExtension(minutes: minutes) }
+                        }
+                    }
                 }
                 Button("Choose Another Cutoff…") {
-                    showCustomCutoff = true
+                    activeSheet = .customCutoff
                 }
                 if !model.resolvedSchedule.isAvailable {
                     Button("Make Work Available Now") {
@@ -133,9 +136,11 @@ struct OverviewView: View {
                 Button("Take Today Off…") {
                     showTakeDayOffConfirmation = true
                 }
-                Divider()
-                Button("Return to Weekly Schedule") {
-                    Task { await model.returnToWeeklySchedule() }
+                if model.hasAvailabilityOverride {
+                    Divider()
+                    Button("Return to Weekly Schedule") {
+                        Task { await model.returnToWeeklySchedule() }
+                    }
                 }
             }
             .accessibilityIdentifier("overview.changeToday")
@@ -148,9 +153,9 @@ struct OverviewView: View {
 
             if model.resolvedSchedule.isAvailable,
                model.resolvedSchedule.phase != .temporarilyExtended,
-               !model.notes.notes.isEmpty {
-                Button("Review Saved Thoughts (\(model.notes.notes.count))…") {
-                    showNotesReview = true
+               !model.visibleNotes.isEmpty {
+                Button("Review Saved Thoughts (\(model.visibleNotes.count))…") {
+                    activeSheet = .notesReview
                 }
             }
         }
@@ -166,7 +171,11 @@ struct OverviewView: View {
             GridRow {
                 Text("Closing mode")
                     .foregroundStyle(.secondary)
-                Text(model.configuration.closeMode == .gentle ? "Gentle Close" : "Firm Close")
+                Text(
+                    SchedulePresentation.closeModeName(
+                        model.configuration.closeMode
+                    )
+                )
             }
             GridRow {
                 Text("Warnings")
@@ -178,7 +187,7 @@ struct OverviewView: View {
                     Text("Today only")
                         .foregroundStyle(.secondary)
                     Text(
-                        "\(overrideName(activeOverride.kind)) until "
+                        "\(SchedulePresentation.overrideName(activeOverride.kind)) until "
                             + activeOverride.expiresAt.formatted(
                                 date: .abbreviated,
                                 time: .shortened
@@ -188,7 +197,7 @@ struct OverviewView: View {
             }
             if !model.closingRows.isEmpty {
                 GridRow {
-                    Text("Needs attention")
+                    Text("Closing apps")
                         .foregroundStyle(.secondary)
                     Text("\(model.closingRows.count)")
                 }
@@ -197,16 +206,10 @@ struct OverviewView: View {
     }
 
     private var stateTitle: String {
-        switch model.resolvedSchedule.phase {
-        case .workAvailable:
-            "Work available"
-        case .windingDown:
-            "Winding down"
-        case .workClosed:
-            model.closingRows.isEmpty ? "Work is closed" : "Closing work apps"
-        case .temporarilyExtended:
-            "Work extended"
-        }
+        SchedulePresentation.stateTitle(
+            schedule: model.resolvedSchedule,
+            closingCount: model.closingRows.count
+        )
     }
 
     private var stateSymbol: String {
@@ -223,20 +226,7 @@ struct OverviewView: View {
     }
 
     private var transitionText: String {
-        guard let transition = model.resolvedSchedule.nextTransition else {
-            return model.resolvedSchedule.isAvailable
-                ? "Work apps are always available"
-                : "No work window scheduled"
-        }
-        let formatted = transition.date.formatted(date: .abbreviated, time: .shortened)
-        switch transition.cause {
-        case .workWindowStarts:
-            return "Available \(formatted)"
-        case .workWindowEnds:
-            return "Until \(formatted)"
-        case .overrideExpires:
-            return "Weekly schedule resumes \(formatted)"
-        }
+        SchedulePresentation.transitionText(for: model.resolvedSchedule)
     }
 
     private var warningSummary: String {
@@ -250,23 +240,6 @@ struct OverviewView: View {
         return values.isEmpty ? "Off" : values.joined(separator: ", ")
     }
 
-    private func overrideName(_ kind: OverrideKind) -> String {
-        switch kind {
-        case .endWorkNow:
-            "Work ended early"
-        case .fixedExtension:
-            "Extended"
-        case .customCutoff:
-            "Custom cutoff"
-        case .makeAvailable:
-            "Work available"
-        case .takeDayOff:
-            "Day off"
-        case .forceEscalationPaused:
-            "Force quit paused"
-        }
-    }
-
     private func warning(_ message: String) -> some View {
         Label(message, systemImage: "exclamationmark.triangle")
             .foregroundStyle(.orange)
@@ -277,20 +250,16 @@ struct OverviewView: View {
 @MainActor
 final class CustomCutoffPanelController: NSWindowController {
     init(model: AppModel) {
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 440, height: 220),
-            styleMask: [.titled, .closable, .utilityWindow],
-            backing: .buffered,
-            defer: false
+        let panel = HomewardPanelFactory.make(
+            title: "Choose Another Cutoff",
+            size: NSSize(width: 440, height: 220)
         )
-        panel.title = "Choose Another Cutoff"
         panel.contentViewController = NSHostingController(
             rootView: CustomCutoffView(
                 model: model,
                 onClose: { [weak panel] in panel?.close() }
             )
         )
-        panel.isReleasedWhenClosed = false
         super.init(window: panel)
     }
 
@@ -308,11 +277,10 @@ final class CustomCutoffPanelController: NSWindowController {
 
 struct CustomCutoffView: View {
     @ObservedObject var model: AppModel
-    @Environment(\.dismiss) private var dismiss
     @State private var cutoff = Date().addingTimeInterval(60 * 60)
-    var onClose: (() -> Void)?
+    let onClose: () -> Void
 
-    init(model: AppModel, onClose: (() -> Void)? = nil) {
+    init(model: AppModel, onClose: @escaping () -> Void) {
         self.model = model
         self.onClose = onClose
         let now = Date()
@@ -341,15 +309,16 @@ struct CustomCutoffView: View {
             HStack {
                 Spacer()
                 Button("Cancel") {
-                    onClose?()
-                    dismiss()
+                    onClose()
                 }
                 .keyboardShortcut(.cancelAction)
                 Button("Apply Cutoff") {
                     Task {
+                        model.clearError()
                         await model.chooseCutoff(cutoff)
-                        onClose?()
-                        dismiss()
+                        if model.lastError == nil {
+                            onClose()
+                        }
                     }
                 }
                 .keyboardShortcut(.defaultAction)
@@ -373,20 +342,16 @@ struct CustomCutoffView: View {
 @MainActor
 final class TodayChangePanelController: NSWindowController {
     init(model: AppModel) {
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 320),
-            styleMask: [.titled, .closable, .utilityWindow],
-            backing: .buffered,
-            defer: false
+        let panel = HomewardPanelFactory.make(
+            title: "Change Today Only",
+            size: NSSize(width: 420, height: 320)
         )
-        panel.title = "Change Today Only"
         panel.contentViewController = NSHostingController(
             rootView: TodayChangePanelView(
                 model: model,
                 onClose: { [weak panel] in panel?.close() }
             )
         )
-        panel.isReleasedWhenClosed = false
         super.init(window: panel)
     }
 
@@ -405,6 +370,7 @@ final class TodayChangePanelController: NSWindowController {
 private struct TodayChangePanelView: View {
     @ObservedObject var model: AppModel
     let onClose: () -> Void
+    @State private var confirmTakeDayOff = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -412,15 +378,21 @@ private struct TodayChangePanelView: View {
                 .font(.title2.bold())
             Text("Your weekly schedule will not change.")
                 .foregroundStyle(.secondary)
+            if let error = model.lastError {
+                InlineErrorView(message: error) {
+                    model.clearError()
+                }
+            }
 
-            Button("Extend by 10 Minutes") {
-                apply { await model.createExtension(minutes: 10) }
-            }
-            Button("Extend by 15 Minutes") {
-                apply { await model.createExtension(minutes: 15) }
-            }
-            Button("Extend by 30 Minutes") {
-                apply { await model.createExtension(minutes: 30) }
+            if model.canExtendToday {
+                ForEach(
+                    HomewardPolicy.extensionDurationsMinutes,
+                    id: \.self
+                ) { minutes in
+                    Button("Extend by \(minutes) Minutes") {
+                        apply { await model.createExtension(minutes: minutes) }
+                    }
+                }
             }
             Button("Choose Another Cutoff…") {
                 onClose()
@@ -432,10 +404,12 @@ private struct TodayChangePanelView: View {
                 }
             }
             Button("Take Today Off…") {
-                apply { await model.takeTodayOff() }
+                confirmTakeDayOff = true
             }
-            Button("Return to Weekly Schedule") {
-                apply { await model.returnToWeeklySchedule() }
+            if model.hasAvailabilityOverride {
+                Button("Return to Weekly Schedule") {
+                    apply { await model.returnToWeeklySchedule() }
+                }
             }
 
             HStack {
@@ -446,11 +420,30 @@ private struct TodayChangePanelView: View {
         }
         .padding(20)
         .frame(minWidth: 400, minHeight: 300)
+        .confirmationDialog(
+            "Take today off?",
+            isPresented: $confirmTakeDayOff
+        ) {
+            Button("Take Today Off", role: .destructive) {
+                apply { await model.takeTodayOff() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                "Homeward will apply the configured closing flow and keep "
+                    + "work apps unavailable through today."
+            )
+        }
         .accessibilityIdentifier("today.changePanel")
     }
 
     private func apply(_ action: @escaping @MainActor () async -> Void) {
-        onClose()
-        Task { await action() }
+        model.clearError()
+        Task {
+            await action()
+            if model.lastError == nil {
+                onClose()
+            }
+        }
     }
 }

@@ -10,18 +10,12 @@ final class ClosingPanelController: NSWindowController, NSWindowDelegate {
         self.model = model
         let content = ClosingPanelView(model: model)
         let hostingController = NSHostingController(rootView: content)
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 440, height: 320),
-            styleMask: [.titled, .closable, .utilityWindow],
-            backing: .buffered,
-            defer: false
+        let panel = HomewardPanelFactory.make(
+            title: "Closing Work Apps",
+            size: NSSize(width: 440, height: 320),
+            floatsAutomatically: true
         )
-        panel.title = "Closing Work Apps"
         panel.contentViewController = hostingController
-        panel.level = .floating
-        panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.isReleasedWhenClosed = false
         super.init(window: panel)
         panel.delegate = self
     }
@@ -50,10 +44,6 @@ final class ClosingPanelController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    func refresh() {
-        window?.contentView?.needsLayout = true
-    }
-
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard model.closingRows.contains(where: { $0.status == .countingDown }) else {
             return true
@@ -61,11 +51,16 @@ final class ClosingPanelController: NSWindowController, NSWindowDelegate {
         Task {
             await model.stopForceQuit()
             sender.orderOut(nil)
+            restorePreviousApplication()
         }
         return false
     }
 
     func windowWillClose(_ notification: Notification) {
+        restorePreviousApplication()
+    }
+
+    private func restorePreviousApplication() {
         previousApplication?.activate(options: [.activateAllWindows])
         previousApplication = nil
     }
@@ -120,8 +115,8 @@ private struct ClosingPanelView: View {
     private var summary: String {
         let unresolved = model.closingRows.count
         return unresolved == 1
-            ? "1 work app still needs attention."
-            : "\(unresolved) work apps still need attention."
+            ? "1 work app is in the closing flow."
+            : "\(unresolved) work apps are in the closing flow."
     }
 
     private var stopButtonTitle: String {
@@ -180,8 +175,6 @@ private struct ClosingPanelView: View {
             "pause.circle"
         case .forceFailed:
             "exclamationmark.triangle"
-        case .leftOpen:
-            "checkmark.circle"
         }
     }
 
@@ -197,8 +190,6 @@ private struct ClosingPanelView: View {
             "Force quit is paused"
         case .forceFailed:
             "Force quit did not close the app"
-        case .leftOpen:
-            "Left open this time"
         }
     }
 }

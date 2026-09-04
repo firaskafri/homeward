@@ -18,14 +18,14 @@ public struct ScheduleInterval: Equatable, Sendable {
     }
 }
 
-public enum SchedulePhase: String, Equatable, Sendable {
+public enum SchedulePhase: Equatable, Sendable {
     case workAvailable
     case windingDown
     case workClosed
     case temporarilyExtended
 }
 
-public enum TransitionCause: String, Equatable, Sendable {
+public enum TransitionCause: Equatable, Sendable {
     case workWindowStarts
     case workWindowEnds
     case overrideExpires
@@ -48,7 +48,6 @@ public struct ResolvedSchedule: Equatable, Sendable {
     public let activeOverride: ScheduleOverride?
     public let nextTransition: ScheduleTransition?
     public let nextAvailability: Date?
-    public let warningOffsets: [TimeInterval]
 
     public init(
         phase: SchedulePhase,
@@ -56,8 +55,7 @@ public struct ResolvedSchedule: Equatable, Sendable {
         activeBaseInterval: ScheduleInterval?,
         activeOverride: ScheduleOverride?,
         nextTransition: ScheduleTransition?,
-        nextAvailability: Date?,
-        warningOffsets: [TimeInterval]
+        nextAvailability: Date?
     ) {
         self.phase = phase
         self.isAvailable = isAvailable
@@ -65,7 +63,6 @@ public struct ResolvedSchedule: Equatable, Sendable {
         self.activeOverride = activeOverride
         self.nextTransition = nextTransition
         self.nextAvailability = nextAvailability
-        self.warningOffsets = warningOffsets
     }
 }
 
@@ -85,7 +82,10 @@ public struct ScheduleResolver: Sendable {
             around: now,
             calendar: calendar
         )
-        let baseInterval = intervals.first(where: { $0.contains(now) })
+        let continuouslyAvailable = isContinuouslyAvailable(schedule)
+        let baseInterval = continuouslyAvailable
+            ? ScheduleInterval(start: .distantPast, end: .distantFuture)
+            : intervals.first(where: { $0.contains(now) })
         let baseAvailable = baseInterval != nil
         let activeOverride = overrides
             .filter { $0.isActive(at: now) && $0.effect != .unchanged }
@@ -101,14 +101,16 @@ public struct ScheduleResolver: Sendable {
             isAvailable = baseAvailable
         }
 
-        let nextBaseStart = intervals.first(where: { $0.start > now })?.start
+        let nextBaseStart = continuouslyAvailable
+            ? nil
+            : intervals.first(where: { $0.start > now })?.start
         let nextTransition: ScheduleTransition?
         if let activeOverride {
             nextTransition = ScheduleTransition(
                 date: activeOverride.expiresAt,
                 cause: .overrideExpires
             )
-        } else if let baseInterval {
+        } else if let baseInterval, !continuouslyAvailable {
             nextTransition = ScheduleTransition(
                 date: baseInterval.end,
                 cause: .workWindowEnds
@@ -122,7 +124,7 @@ public struct ScheduleResolver: Sendable {
             nextTransition = nil
         }
 
-        let warningOffsets = enabledWarningOffsets(from: warnings)
+        let warningOffsets = warnings.enabledOffsets
         let phase: SchedulePhase
         if activeOverride?.effect == .allow {
             phase = .temporarilyExtended
@@ -141,8 +143,14 @@ public struct ScheduleResolver: Sendable {
             activeBaseInterval: baseInterval,
             activeOverride: activeOverride,
             nextTransition: nextTransition,
-            nextAvailability: isAvailable ? nil : nextBaseStart,
-            warningOffsets: warningOffsets
+            nextAvailability: nextAvailability(
+                isAvailable: isAvailable,
+                activeOverride: activeOverride,
+                intervals: intervals,
+                now: now,
+                nextBaseStart: nextBaseStart,
+                continuouslyAvailable: continuouslyAvailable
+            )
         )
     }
 
@@ -206,15 +214,47 @@ public struct ScheduleResolver: Sendable {
         return merge(rawIntervals.sorted(by: { $0.start < $1.start }))
     }
 
-    private func enabledWarningOffsets(from preferences: WarningPreferences) -> [TimeInterval] {
-        var offsets: [TimeInterval] = []
-        if preferences.fifteenMinuteWarningEnabled {
-            offsets.append(15 * 60)
+    public func nextWindowStart(
+        for schedule: WeeklySchedule,
+        afterCurrentIntervalAt date: Date,
+        calendar: Calendar
+    ) -> Date? {
+        let intervals = intervals(for: schedule, around: date, calendar: calendar)
+        if let current = intervals.first(where: { $0.contains(date) }) {
+            return intervals.first(where: { $0.start >= current.end })?.start
         }
-        if preferences.fiveMinuteWarningEnabled {
-            offsets.append(5 * 60)
-        }
-        return offsets.sorted(by: >)
+        return intervals.first(where: { $0.start > date })?.start
+    }
+
+    public func blockedIntervalID(
+        for schedule: WeeklySchedule,
+        at date: Date,
+        calendar: Calendar
+    ) -> String {
+        let intervals = intervals(for: schedule, around: date, calendar: calendar)
+        let current = intervals.first(where: { $0.contains(date) })
+        let blockedStart = current?.end
+            ?? intervals.last(where: { $0.end <= date })?.end
+            ?? Date.distantPast
+        let nextStart = intervals.first(where: {
+            if let current {
+                return $0.start >= current.end
+            }
+            return $0.start > date
+        })?.start ?? Date.distantFuture
+        return "blocked-\(blockedStart.timeIntervalSinceReferenceDate)-\(nextStart.timeIntervalSinceReferenceDate)"
+    }
+
+    public func forcePauseExpiry(
+        for schedule: WeeklySchedule,
+        at date: Date,
+        calendar: Calendar
+    ) -> Date {
+        nextWindowStart(
+            for: schedule,
+            afterCurrentIntervalAt: date,
+            calendar: calendar
+        ) ?? Date.distantFuture
     }
 
     private func isInsideWarningPeriod(
@@ -226,6 +266,70 @@ public struct ScheduleResolver: Sendable {
             return false
         }
         return now >= cutoff.addingTimeInterval(-maximumOffset) && now < cutoff
+    }
+
+    private func nextAvailability(
+        isAvailable: Bool,
+        activeOverride: ScheduleOverride?,
+        intervals: [ScheduleInterval],
+        now: Date,
+        nextBaseStart: Date?,
+        continuouslyAvailable: Bool
+    ) -> Date? {
+        guard !isAvailable else {
+            return nil
+        }
+        if let activeOverride, activeOverride.effect == .block {
+            if continuouslyAvailable
+                || intervals.contains(where: { $0.contains(activeOverride.expiresAt) }) {
+                return activeOverride.expiresAt
+            }
+            return intervals.first(where: {
+                $0.start >= max(now, activeOverride.expiresAt)
+            })?.start
+        }
+        return nextBaseStart
+    }
+
+    private func isContinuouslyAvailable(_ schedule: WeeklySchedule) -> Bool {
+        let minutesPerDay = 24 * 60
+        let minutesPerWeek = 7 * minutesPerDay
+        var ranges: [(start: Int, end: Int)] = []
+
+        for weekday in Weekday.allCases {
+            let dayStart = (weekday.rawValue - 1) * minutesPerDay
+            switch schedule.rule(for: weekday) {
+            case .blockedAllDay:
+                continue
+            case .availableAllDay:
+                ranges.append((dayStart, dayStart + minutesPerDay))
+            case let .scheduled(start, end, endsNextDay):
+                let startMinute = dayStart + start.hour * 60 + start.minute
+                let endMinute = dayStart
+                    + (endsNextDay ? minutesPerDay : 0)
+                    + end.hour * 60
+                    + end.minute
+                if endMinute <= minutesPerWeek {
+                    ranges.append((startMinute, endMinute))
+                } else {
+                    ranges.append((startMinute, minutesPerWeek))
+                    ranges.append((0, endMinute - minutesPerWeek))
+                }
+            }
+        }
+
+        let sorted = ranges.sorted { $0.start < $1.start }
+        guard var mergedEnd = sorted.first?.end,
+              sorted.first?.start == 0 else {
+            return false
+        }
+        for range in sorted.dropFirst() {
+            guard range.start <= mergedEnd else {
+                return false
+            }
+            mergedEnd = max(mergedEnd, range.end)
+        }
+        return mergedEnd >= minutesPerWeek
     }
 
     private func boundaryDate(

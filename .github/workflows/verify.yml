@@ -26,13 +26,18 @@ jobs:
       - name: Require Apple Silicon
         run: test "$(uname -m)" = arm64
 
+      - name: Select Xcode 16.4
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_16.4.app
+          test "$(xcodebuild -version | sed -n '1p')" = "Xcode 16.4"
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
       - name: Verify without interactive UI automation
         run: RUN_UI_TESTS=0 ./scripts/verify.sh
 
-      - name: Package non-public release candidate
+      - name: Package unreleased test candidate
         run: SKIP_VERIFY=1 ./scripts/package-local-candidate.sh
 
       - name: Upload release-candidate evidence

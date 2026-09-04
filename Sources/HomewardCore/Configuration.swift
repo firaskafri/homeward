@@ -1,6 +1,19 @@
 import Foundation
 
 public struct HomewardConfiguration: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case schedule
+        case selectedApplications
+        case closeMode
+        case warningPreferences
+        case gentleShortcutExtensionEnabled
+        case overrides
+        case consumedGentleExtensionIntervalIDs
+        case onboardingScheduleConfirmed
+        case completedOnboarding
+    }
+
     public static let currentSchemaVersion = 1
 
     public var schemaVersion: Int
@@ -8,6 +21,7 @@ public struct HomewardConfiguration: Codable, Equatable, Sendable {
     public var selectedApplications: [SelectedApplication]
     public var closeMode: CloseMode
     public var warningPreferences: WarningPreferences
+    public var gentleShortcutExtensionEnabled: Bool
     public var overrides: [ScheduleOverride]
     public var consumedGentleExtensionIntervalIDs: Set<String>
     public var onboardingScheduleConfirmed: Bool
@@ -19,6 +33,7 @@ public struct HomewardConfiguration: Codable, Equatable, Sendable {
         selectedApplications: [SelectedApplication] = [],
         closeMode: CloseMode = .gentle,
         warningPreferences: WarningPreferences = WarningPreferences(),
+        gentleShortcutExtensionEnabled: Bool = false,
         overrides: [ScheduleOverride] = [],
         consumedGentleExtensionIntervalIDs: Set<String> = [],
         onboardingScheduleConfirmed: Bool = false,
@@ -29,7 +44,8 @@ public struct HomewardConfiguration: Codable, Equatable, Sendable {
         self.selectedApplications = selectedApplications
         self.closeMode = closeMode
         self.warningPreferences = warningPreferences
-        self.overrides = overrides
+        self.gentleShortcutExtensionEnabled = gentleShortcutExtensionEnabled
+        self.overrides = overrides.sorted(by: { $0.effectiveAt < $1.effectiveAt })
         self.consumedGentleExtensionIntervalIDs = consumedGentleExtensionIntervalIDs
         self.onboardingScheduleConfirmed = onboardingScheduleConfirmed
         self.completedOnboarding = completedOnboarding
@@ -40,7 +56,7 @@ public struct HomewardConfiguration: Codable, Equatable, Sendable {
         try HomewardConfiguration(schedule: .defaultWorkWeek())
     }
 
-    public mutating func validate() throws {
+    public func validate() throws {
         guard schemaVersion == Self.currentSchemaVersion else {
             throw ConfigurationError.unsupportedSchemaVersion(schemaVersion)
         }
@@ -49,6 +65,10 @@ public struct HomewardConfiguration: Codable, Equatable, Sendable {
         let keys = selectedApplications.map(\.stableSelectionKey)
         guard Set(keys).count == keys.count else {
             throw ConfigurationError.duplicateApplicationSelection
+        }
+        let identifiers = selectedApplications.map(\.id)
+        guard Set(identifiers).count == identifiers.count else {
+            throw ConfigurationError.duplicateApplicationIdentifier
         }
         if let protectedIdentifier = selectedApplications.first(
             where: \.isProtected
@@ -59,11 +79,90 @@ public struct HomewardConfiguration: Codable, Equatable, Sendable {
         }
 
         try overrides.forEach { try $0.validate() }
-        overrides = overrides.sorted(by: { $0.effectiveAt < $1.effectiveAt })
+    }
+
+    public mutating func replaceActiveAvailabilityOverrides(
+        with replacements: [ScheduleOverride],
+        at date: Date
+    ) {
+        overrides.removeAll {
+            $0.kind != .forceEscalationPaused && $0.isActive(at: date)
+        }
+        overrides.append(contentsOf: replacements)
+        overrides.sort(by: { $0.effectiveAt < $1.effectiveAt })
+    }
+
+    public mutating func replaceUnexpiredAvailabilityOverrides(
+        with replacements: [ScheduleOverride],
+        at date: Date
+    ) {
+        overrides.removeAll {
+            $0.kind != .forceEscalationPaused && $0.expiresAt > date
+        }
+        overrides.append(contentsOf: replacements)
+        overrides.sort(by: { $0.effectiveAt < $1.effectiveAt })
+    }
+
+    public mutating func clearAvailabilityOverrides() {
+        overrides.removeAll { $0.kind != .forceEscalationPaused }
+    }
+
+    public mutating func setForceEscalationPause(
+        _ pause: ScheduleOverride
+    ) {
+        overrides.removeAll { $0.kind == .forceEscalationPaused }
+        overrides.append(pause)
+        overrides.sort(by: { $0.effectiveAt < $1.effectiveAt })
+    }
+
+    public mutating func clearForceEscalationPause() {
+        overrides.removeAll { $0.kind == .forceEscalationPaused }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            schemaVersion: container.decode(Int.self, forKey: .schemaVersion),
+            schedule: container.decode(WeeklySchedule.self, forKey: .schedule),
+            selectedApplications: container.decode(
+                [SelectedApplication].self,
+                forKey: .selectedApplications
+            ),
+            closeMode: container.decode(CloseMode.self, forKey: .closeMode),
+            warningPreferences: container.decode(
+                WarningPreferences.self,
+                forKey: .warningPreferences
+            ),
+            gentleShortcutExtensionEnabled: container.decodeIfPresent(
+                Bool.self,
+                forKey: .gentleShortcutExtensionEnabled
+            ) ?? false,
+            overrides: container.decode(
+                [ScheduleOverride].self,
+                forKey: .overrides
+            ),
+            consumedGentleExtensionIntervalIDs: container.decodeIfPresent(
+                Set<String>.self,
+                forKey: .consumedGentleExtensionIntervalIDs
+            ) ?? [],
+            onboardingScheduleConfirmed: container.decodeIfPresent(
+                Bool.self,
+                forKey: .onboardingScheduleConfirmed
+            ) ?? false,
+            completedOnboarding: container.decode(
+                Bool.self,
+                forKey: .completedOnboarding
+            )
+        )
     }
 }
 
 public struct NotesDocument: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case notes
+    }
+
     public static let currentSchemaVersion = 1
 
     public var schemaVersion: Int
@@ -85,11 +184,11 @@ public struct NotesDocument: Codable, Equatable, Sendable {
         notes.sort(by: Self.noteOrder)
     }
 
-    public mutating func keep(id: UUID, presentedIn intervalID: String) {
+    public mutating func markPresented(id: UUID, in intervalID: String) {
         guard let index = notes.firstIndex(where: { $0.id == id }) else {
             return
         }
-        notes[index].lastPresentedIntervalID = intervalID
+        notes[index].markPresented(in: intervalID)
     }
 
     @discardableResult
@@ -107,7 +206,7 @@ public struct NotesDocument: Codable, Equatable, Sendable {
         return lhs.createdAt < rhs.createdAt
     }
 
-    public mutating func validate() throws {
+    public func validate() throws {
         guard schemaVersion == Self.currentSchemaVersion else {
             throw ConfigurationError.unsupportedSchemaVersion(schemaVersion)
         }
@@ -116,13 +215,21 @@ public struct NotesDocument: Codable, Equatable, Sendable {
         guard Set(noteIDs).count == noteIDs.count else {
             throw ConfigurationError.duplicateNote
         }
-        notes.sort(by: Self.noteOrder)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            schemaVersion: container.decode(Int.self, forKey: .schemaVersion),
+            notes: container.decode([TomorrowNote].self, forKey: .notes)
+        )
     }
 }
 
 public enum ConfigurationError: Error, Equatable, Sendable {
     case unsupportedSchemaVersion(Int)
     case duplicateApplicationSelection
+    case duplicateApplicationIdentifier
     case protectedApplicationSelection(String)
     case duplicateNote
 }

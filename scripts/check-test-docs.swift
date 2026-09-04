@@ -15,8 +15,36 @@ let headings = [
     "3 - Assumptions",
     "4 - Expectations",
 ]
+let documentationPrefix = "/// "
 
 var failures: [String] = []
+
+func documentationBlock(
+    before lineIndex: Int,
+    in lines: [String],
+    skippingAttributes: Bool
+) -> String {
+    var cursor = lineIndex - 1
+    while cursor >= 0 {
+        let trimmed = lines[cursor].trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty || (skippingAttributes && trimmed.hasPrefix("@")) {
+            cursor -= 1
+            continue
+        }
+        break
+    }
+
+    var documentation: [String] = []
+    while cursor >= 0 {
+        let trimmed = lines[cursor].trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix(documentationPrefix) else {
+            break
+        }
+        documentation.append(trimmed)
+        cursor -= 1
+    }
+    return documentation.reversed().joined(separator: "\n")
+}
 
 for relativeDirectory in testDirectories {
     let directory = root.appendingPathComponent(relativeDirectory)
@@ -36,23 +64,36 @@ for relativeDirectory in testDirectories {
         let contents = try String(contentsOf: fileURL, encoding: .utf8)
         let lines = contents.components(separatedBy: .newlines)
 
-        for heading in headings where !contents.contains("// \(heading):") {
+        let fileDocumentation = lines.prefix(30).filter {
+            $0.trimmingCharacters(in: .whitespaces)
+                .hasPrefix("// ")
+        }.joined(separator: "\n")
+        for heading in headings
+            where !fileDocumentation.contains("// \(heading):") {
             failures.append("\(relativePath): missing file documentation heading '\(heading)'")
         }
 
         for (index, line) in lines.enumerated() {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             let isTestMarker = trimmed.hasPrefix("@Test")
-                || trimmed.hasPrefix("func test")
+                || trimmed.range(
+                    of: #"^func\s+test"#,
+                    options: .regularExpression
+                ) != nil
             let isSuiteMarker = trimmed.hasPrefix("@Suite")
-                || trimmed.hasPrefix("final class")
+                || (trimmed.contains("class ")
+                    && trimmed.contains(": XCTestCase"))
             guard isTestMarker || isSuiteMarker else {
                 continue
             }
 
-            let start = max(0, index - 10)
-            let context = lines[start..<index].joined(separator: "\n")
-            for heading in headings where !context.contains("/// \(heading):") {
+            let context = documentationBlock(
+                before: index,
+                in: lines,
+                skippingAttributes: !trimmed.hasPrefix("@")
+            )
+            for heading in headings
+                where !context.contains("\(documentationPrefix)\(heading):") {
                 let kind = isTestMarker ? "test" : "suite/type"
                 failures.append(
                     "\(relativePath):\(index + 1): \(kind) missing documentation heading '\(heading)'"

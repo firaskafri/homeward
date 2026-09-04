@@ -11,32 +11,24 @@ struct CatalogApplication: Identifiable {
 
 @MainActor
 final class ApplicationCatalog {
-    static let protectedBundleIdentifiers =
-        SelectedApplication.protectedBundleIdentifiers
+    static let browserBundleIdentifiers: Set<String> = [
+        "com.apple.Safari",
+        "com.google.Chrome",
+        "org.mozilla.firefox",
+        "company.thebrowser.Browser",
+        "com.brave.Browser",
+        "com.microsoft.edgemac",
+    ]
 
-    private let fileManager: FileManager
     private let workspace: NSWorkspace
 
-    init(
-        fileManager: FileManager = .default,
-        workspace: NSWorkspace = .shared
-    ) {
-        self.fileManager = fileManager
+    init(workspace: NSWorkspace = .shared) {
         self.workspace = workspace
     }
 
-    func discover() -> [CatalogApplication] {
-        let homeApplications = fileManager.homeDirectoryForCurrentUser
-            .appendingPathComponent("Applications", isDirectory: true)
-        let roots = [
-            URL(fileURLWithPath: "/Applications", isDirectory: true),
-            URL(fileURLWithPath: "/System/Applications", isDirectory: true),
-            URL(fileURLWithPath: "/System/Applications/Utilities", isDirectory: true),
-            homeApplications,
-        ]
-
+    func discover() async -> [CatalogApplication] {
         let runningURLs = workspace.runningApplications.compactMap(\.bundleURL)
-        let discoveredURLs = roots.flatMap(applicationURLs(in:))
+        let discoveredURLs = await Self.discoverApplicationURLs()
         var uniqueByPath: [String: URL] = [:]
         for url in discoveredURLs + runningURLs {
             let standardized = url.standardizedFileURL
@@ -67,7 +59,9 @@ final class ApplicationCatalog {
 
         let bundleIdentifier = bundle.bundleIdentifier
         if let bundleIdentifier,
-           Self.protectedBundleIdentifiers.contains(bundleIdentifier) {
+           SelectedApplication.protectedBundleIdentifiers.contains(
+               bundleIdentifier
+           ) {
             return nil
         }
 
@@ -80,7 +74,7 @@ final class ApplicationCatalog {
             bundlePath: url.standardizedFileURL.path,
             displayName: displayName,
             developerName: developer,
-            isAvailable: true
+            isResolvable: true
         )
 
         return CatalogApplication(
@@ -90,21 +84,30 @@ final class ApplicationCatalog {
         )
     }
 
-    func isProtected(_ url: URL) -> Bool {
-        guard let bundleIdentifier = Bundle(url: url)?.bundleIdentifier else {
-            return false
+    private nonisolated static func discoverApplicationURLs() async -> [URL] {
+        let fileManager = FileManager()
+        let homeApplications = fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent("Applications", isDirectory: true)
+        let roots = [
+            URL(fileURLWithPath: "/Applications", isDirectory: true),
+            URL(fileURLWithPath: "/System/Applications", isDirectory: true),
+            URL(
+                fileURLWithPath: "/System/Applications/Utilities",
+                isDirectory: true
+            ),
+            homeApplications,
+        ]
+        return roots.flatMap { root -> [URL] in
+            guard let contents = try? fileManager.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: [.isApplicationKey],
+                options: [.skipsHiddenFiles]
+            ) else {
+                return []
+            }
+            return contents.filter {
+                $0.pathExtension.lowercased() == "app"
+            }
         }
-        return Self.protectedBundleIdentifiers.contains(bundleIdentifier)
-    }
-
-    private func applicationURLs(in root: URL) -> [URL] {
-        guard let contents = try? fileManager.contentsOfDirectory(
-            at: root,
-            includingPropertiesForKeys: [.isApplicationKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return []
-        }
-        return contents.filter { $0.pathExtension.lowercased() == "app" }
     }
 }

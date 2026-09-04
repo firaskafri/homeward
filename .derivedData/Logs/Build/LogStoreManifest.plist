@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>logFormatVersion</key>
+	<integer>12</integer>
+	<key>logs</key>
+	<dict>
+		<key>3300F06F-614A-477D-821D-9A3633DAD6E5</key>
+		<dict>
+			<key>className</key>
+			<string>IDECommandLineBuildLog</string>
+			<key>documentTypeString</key>
+			<string>&lt;nil&gt;</string>
+			<key>domainType</key>
+			<string>Xcode.IDEActivityLogDomainType.BuildLog</string>
+			<key>fileName</key>
+			<string>3300F06F-614A-477D-821D-9A3633DAD6E5.xcactivitylog</string>
+			<key>hasPrimaryLog</key>
+			<true/>
+			<key>primaryObservable</key>
+			<dict>
+				<key>highLevelStatus</key>
+				<string>E</string>
+				<key>totalNumberOfAnalyzerIssues</key>
+				<integer>0</integer>
+				<key>totalNumberOfErrors</key>
+				<integer>1</integer>
+				<key>totalNumberOfTestFailures</key>
+				<integer>0</integer>
+				<key>totalNumberOfWarnings</key>
+				<integer>0</integer>
+			</dict>
+			<key>schemeIdentifier-containerName</key>
+			<string>Homeward project</string>
+			<key>schemeIdentifier-schemeName</key>
+			<string>HomewardUI</string>
+			<key>schemeIdentifier-sharedScheme</key>
+			<integer>1</integer>
+			<key>signature</key>
+			<string>Testing project Homeward with scheme HomewardUI</string>
+			<key>timeStartedRecording</key>
+			<real>810210717.91232002</real>
+			<key>timeStoppedRecording</key>
+			<real>810210719.400774</real>
+			<key>title</key>
+			<string>Testing project Homeward with scheme HomewardUI</string>
+			<key>uniqueIdentifier</key>
+			<string>3300F06F-614A-477D-821D-9A3633DAD6E5</string>
+		</dict>
+	</dict>
+</dict>
+</plist>

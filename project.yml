@@ -1,7 +1,6 @@
 name: Homeward
 
 options:
-  bundleIdPrefix: com.firaskafri
   createIntermediateGroups: true
   deploymentTarget:
     macOS: "15.0"
@@ -15,7 +14,6 @@ settings:
     ARCHS: arm64
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
-    MACOSX_DEPLOYMENT_TARGET: "15.0"
 
 targets:
   Homeward:
@@ -43,7 +41,6 @@ targets:
         ENABLE_APP_SANDBOX: false
         ENABLE_HARDENED_RUNTIME: true
         CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: 752LD44EEA
         SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
         SUPPORTS_MACCATALYST: false
 
@@ -87,7 +84,6 @@ targets:
         ENABLE_APP_SANDBOX: false
         ENABLE_HARDENED_RUNTIME: true
         CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: 752LD44EEA
         SUPPORTS_MACCATALYST: false
 
 schemes:

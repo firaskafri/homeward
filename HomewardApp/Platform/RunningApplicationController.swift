@@ -3,7 +3,7 @@ import HomewardCore
 
 @MainActor
 final class RunningApplicationController {
-    private var applicationsBySessionID: [String: NSRunningApplication] = [:]
+    private var applicationsBySessionID: [ProcessSessionID: NSRunningApplication] = [:]
 
     func snapshot(_ application: NSRunningApplication) -> RunningApplicationSnapshot {
         let snapshot = RunningApplicationSnapshot(
@@ -24,7 +24,7 @@ final class RunningApplicationController {
     }
 
     @discardableResult
-    func requestNormalTermination(for sessionID: String) -> Bool {
+    func requestNormalTermination(for sessionID: ProcessSessionID) -> Bool {
         guard let application = validatedApplication(for: sessionID) else {
             return false
         }
@@ -32,7 +32,7 @@ final class RunningApplicationController {
     }
 
     @discardableResult
-    func requestForceTermination(for sessionID: String) -> Bool {
+    func requestForceTermination(for sessionID: ProcessSessionID) -> Bool {
         guard let application = validatedApplication(for: sessionID) else {
             return false
         }
@@ -40,33 +40,43 @@ final class RunningApplicationController {
     }
 
     @discardableResult
-    func activate(sessionID: String) -> Bool {
+    func activate(sessionID: ProcessSessionID) -> Bool {
         guard let application = validatedApplication(for: sessionID) else {
             return false
         }
         return application.activate(options: [.activateAllWindows])
     }
 
-    func isTerminated(sessionID: String) -> Bool {
+    func isTerminated(sessionID: ProcessSessionID) -> Bool {
         guard let application = applicationsBySessionID[sessionID] else {
             return true
         }
         return application.isTerminated
     }
 
-    func remove(sessionID: String) {
+    func remove(sessionID: ProcessSessionID) {
         applicationsBySessionID.removeValue(forKey: sessionID)
     }
 
-    private func validatedApplication(for sessionID: String) -> NSRunningApplication? {
+    func remove(processIdentifier: pid_t) {
+        applicationsBySessionID = applicationsBySessionID.filter {
+            $0.value.processIdentifier != processIdentifier
+        }
+    }
+
+    private func validatedApplication(
+        for sessionID: ProcessSessionID
+    ) -> NSRunningApplication? {
         guard let application = applicationsBySessionID[sessionID],
               !application.isTerminated,
               let launchDate = application.launchDate
         else {
             return nil
         }
-        let currentSessionID =
-            "\(application.processIdentifier)-\(launchDate.timeIntervalSinceReferenceDate)"
+        let currentSessionID = ProcessSessionID(
+            processIdentifier: application.processIdentifier,
+            launchedAt: launchDate
+        )
         guard currentSessionID == sessionID else {
             return nil
         }

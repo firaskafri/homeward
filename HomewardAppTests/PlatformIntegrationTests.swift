@@ -17,8 +17,12 @@ final class PlatformIntegrationTests: XCTestCase {
     /// 3 - Assumptions: The local fixture starts under normal machine load and no previous fixture remains running.
     /// 4 - Expectations: The matching launch notification arrives within the PRD’s two-second request budget.
     func testFixtureLaunchObservationLatency() async throws {
+        let fixtureURL = try fixtureURL()
         let expectation = expectation(description: "Fixture launch observed")
-        let observer = FixtureLaunchObserver(expectation: expectation)
+        let observer = FixtureLaunchObserver(
+            expectation: expectation,
+            expectedBundlePath: fixtureURL.standardizedFileURL.path
+        )
         let center = NSWorkspace.shared.notificationCenter
         center.addObserver(
             observer,
@@ -29,13 +33,18 @@ final class PlatformIntegrationTests: XCTestCase {
         defer { center.removeObserver(observer) }
         let startedAt = Date()
 
-        let application = try await launchFixture(mode: "immediate")
-        await fulfillment(of: [expectation], timeout: 2)
+        let application = try await launchFixture(
+            mode: .immediate,
+            fixtureURL: fixtureURL
+        )
+        defer { terminateIfNeeded(application) }
+        await fulfillment(
+            of: [expectation],
+            timeout: FixturePolicy.terminationTimeout
+        )
 
         XCTAssertEqual(observer.processIdentifier, application.processIdentifier)
         XCTAssertLessThan(Date().timeIntervalSince(startedAt), 2)
-        _ = application.forceTerminate()
-        _ = await waitUntilTerminated(application, timeout: 2)
     }
 
     /// 1 - Name: Normal termination fixture.
@@ -43,10 +52,37 @@ final class PlatformIntegrationTests: XCTestCase {
     /// 3 - Assumptions: The fixture delegate returns terminate-now.
     /// 4 - Expectations: The fixture exits within two seconds without a force request.
     func testNormalTerminationFixture() async throws {
-        let application = try await launchFixture(mode: "immediate")
+        let application = try await launchFixture(mode: .immediate)
+        defer { terminateIfNeeded(application) }
 
         XCTAssertTrue(application.terminate())
-        let terminated = await waitUntilTerminated(application, timeout: 2)
+        let terminated = await waitUntilTerminated(
+            application,
+            timeout: FixturePolicy.terminationTimeout
+        )
+        XCTAssertTrue(terminated)
+    }
+
+    /// 1 - Name: Delayed normal termination fixture.
+    /// 2 - Description: Confirms an accepted normal-quit request can remain pending before observed exit.
+    /// 3 - Assumptions: The fixture replies after the configured short delay.
+    /// 4 - Expectations: It remains alive briefly and then exits without force termination.
+    func testDelayedTerminationFixture() async throws {
+        let application = try await launchFixture(
+            mode: .delayed,
+            delay: FixturePolicy.delayedTermination
+        )
+        defer { terminateIfNeeded(application) }
+
+        XCTAssertTrue(application.terminate())
+        try await Task.sleep(
+            for: .seconds(FixturePolicy.preDelayObservation)
+        )
+        XCTAssertFalse(application.isTerminated)
+        let terminated = await waitUntilTerminated(
+            application,
+            timeout: FixturePolicy.terminationTimeout
+        )
         XCTAssertTrue(terminated)
     }
 
@@ -55,39 +91,68 @@ final class PlatformIntegrationTests: XCTestCase {
     /// 3 - Assumptions: The test validates the exact fixture path and bundle identifier before the destructive request.
     /// 4 - Expectations: Normal termination leaves it running and force termination ends it within two seconds.
     func testRefusedTerminationFixture() async throws {
-        let application = try await launchFixture(mode: "refuse")
+        let application = try await launchFixture(mode: .refuse)
+        defer { terminateIfNeeded(application) }
 
         _ = application.terminate()
-        try await Task.sleep(for: .milliseconds(300))
+        try await Task.sleep(
+            for: .seconds(FixturePolicy.delayedTermination)
+        )
         XCTAssertFalse(application.isTerminated)
         XCTAssertTrue(application.forceTerminate())
-        let terminated = await waitUntilTerminated(application, timeout: 2)
+        let terminated = await waitUntilTerminated(
+            application,
+            timeout: FixturePolicy.terminationTimeout
+        )
         XCTAssertTrue(terminated)
     }
 
-    private func launchFixture(mode: String) async throws -> NSRunningApplication {
-        let url = try fixtureURL()
+    private func launchFixture(
+        mode: FixturePolicy.Mode,
+        delay: TimeInterval? = nil,
+        fixtureURL: URL? = nil
+    ) async throws -> NSRunningApplication {
+        let url: URL
+        if let fixtureURL {
+            url = fixtureURL
+        } else {
+            url = try self.fixtureURL()
+        }
         await terminateExistingFixtures(at: url)
-        XCTAssertEqual(
-            Bundle(url: url)?.bundleIdentifier,
-            "com.firaskafri.homeward.fixture"
-        )
+        guard Bundle(url: url)?.bundleIdentifier
+                == FixturePolicy.bundleIdentifier else {
+            throw FixtureError.invalidFixtureIdentity(url)
+        }
         let configuration = NSWorkspace.OpenConfiguration()
-        configuration.environment = ["HOMEWARD_FIXTURE_MODE": mode]
+        var environment = ["HOMEWARD_FIXTURE_MODE": mode.rawValue]
+        if let delay {
+            environment["HOMEWARD_FIXTURE_DELAY"] = String(delay)
+        }
+        configuration.environment = environment
         configuration.activates = false
-        return try await NSWorkspace.shared.openApplication(
+        let application = try await NSWorkspace.shared.openApplication(
             at: url,
             configuration: configuration
         )
+        guard application.bundleIdentifier == FixturePolicy.bundleIdentifier,
+              application.bundleURL?.standardizedFileURL.path
+                == url.standardizedFileURL.path else {
+            terminateIfNeeded(application)
+            throw FixtureError.invalidFixtureIdentity(url)
+        }
+        return application
     }
 
     private func terminateExistingFixtures(at fixtureURL: URL) async {
         let expectedPath = fixtureURL.standardizedFileURL.path
         for application in NSRunningApplication.runningApplications(
-            withBundleIdentifier: "com.firaskafri.homeward.fixture"
+            withBundleIdentifier: FixturePolicy.bundleIdentifier
         ) where application.bundleURL?.standardizedFileURL.path == expectedPath {
             _ = application.forceTerminate()
-            _ = await waitUntilTerminated(application, timeout: 2)
+            _ = await waitUntilTerminated(
+                application,
+                timeout: FixturePolicy.terminationTimeout
+            )
         }
     }
 
@@ -112,9 +177,21 @@ final class PlatformIntegrationTests: XCTestCase {
             if application.isTerminated {
                 return true
             }
-            try? await Task.sleep(for: .milliseconds(50))
+            do {
+                try await Task.sleep(
+                    for: .seconds(FixturePolicy.pollInterval)
+                )
+            } catch {
+                return application.isTerminated
+            }
         }
         return application.isTerminated
+    }
+
+    private func terminateIfNeeded(_ application: NSRunningApplication) {
+        if !application.isTerminated {
+            _ = application.forceTerminate()
+        }
     }
 }
 
@@ -125,10 +202,15 @@ final class PlatformIntegrationTests: XCTestCase {
 @MainActor
 private final class FixtureLaunchObserver: NSObject {
     private let expectation: XCTestExpectation
+    private let expectedBundlePath: String
     private(set) var processIdentifier: Int32?
 
-    init(expectation: XCTestExpectation) {
+    init(
+        expectation: XCTestExpectation,
+        expectedBundlePath: String
+    ) {
         self.expectation = expectation
+        self.expectedBundlePath = expectedBundlePath
     }
 
     @objc
@@ -136,7 +218,9 @@ private final class FixtureLaunchObserver: NSObject {
         guard let application = notification.userInfo?[
             NSWorkspace.applicationUserInfoKey
         ] as? NSRunningApplication,
-              application.bundleIdentifier == "com.firaskafri.homeward.fixture"
+              application.bundleIdentifier == FixturePolicy.bundleIdentifier,
+              application.bundleURL?.standardizedFileURL.path
+                == expectedBundlePath
         else {
             return
         }
@@ -147,4 +231,19 @@ private final class FixtureLaunchObserver: NSObject {
 
 private enum FixtureError: Error {
     case fixtureNotBuilt(URL)
+    case invalidFixtureIdentity(URL)
+}
+
+private enum FixturePolicy {
+    static let bundleIdentifier = "com.firaskafri.homeward.fixture"
+    static let pollInterval: TimeInterval = 0.05
+    static let delayedTermination: TimeInterval = 0.3
+    static let preDelayObservation: TimeInterval = 0.1
+    static let terminationTimeout: TimeInterval = 2
+
+    enum Mode: String {
+        case immediate
+        case delayed
+        case refuse
+    }
 }

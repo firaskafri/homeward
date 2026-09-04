@@ -3,7 +3,7 @@ import SwiftUI
 
 struct OnboardingView: View {
     @ObservedObject var model: AppModel
-    @AppStorage("onboardingStep") private var step = 0
+    @AppStorage(HomewardPreferenceKeys.onboardingStep) private var step = 0
     @State private var showPreview = false
 
     private let stepTitles = [
@@ -17,13 +17,13 @@ struct OnboardingView: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Step \(step + 1) of \(stepTitles.count)")
+                Text("Step \(currentStep + 1) of \(stepTitles.count)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(stepTitles[step])
+                Text(stepTitles[currentStep])
                     .font(.largeTitle.bold())
                     .accessibilityAddTraits(.isHeader)
-                if step == 0 {
+                if currentStep == 0 {
                     Text("Bring your Mac home. Leave work at work.")
                         .font(.title3)
                     Text("Homeward closes the work apps you choose when your workday ends and keeps them closed until your next work window.")
@@ -44,7 +44,7 @@ struct OnboardingView: View {
             }
 
             Group {
-                switch step {
+                switch currentStep {
                 case 0:
                     ScheduleEditorView(
                         model: model,
@@ -66,13 +66,13 @@ struct OnboardingView: View {
 
             HStack {
                 Button("Back") {
-                    step = max(0, step - 1)
+                    step = max(0, currentStep - 1)
                 }
-                .disabled(step == 0)
+                .disabled(currentStep == 0)
 
                 Spacer()
 
-                if step == stepTitles.count - 1 {
+                if currentStep == stepTitles.count - 1 {
                     Button("Test Setup…") {
                         showPreview = true
                     }
@@ -84,12 +84,14 @@ struct OnboardingView: View {
                     .accessibilityIdentifier("onboarding.start")
                 } else {
                     Button("Continue") {
-                        step = min(stepTitles.count - 1, step + 1)
+                        step = min(stepTitles.count - 1, currentStep + 1)
                     }
                     .keyboardShortcut(.defaultAction)
                     .disabled(
-                        (step == 0 && !model.configuration.onboardingScheduleConfirmed)
-                            || (step == 1 && model.configuration.selectedApplications.isEmpty)
+                        (currentStep == 0
+                            && !model.configuration.onboardingScheduleConfirmed)
+                            || (currentStep == 1
+                                && model.configuration.selectedApplications.isEmpty)
                     )
                 }
             }
@@ -99,7 +101,16 @@ struct OnboardingView: View {
         .sheet(isPresented: $showPreview) {
             PreviewView(model: model)
         }
-        .accessibilityIdentifier("onboarding.step.\(step + 1)")
+        .onAppear {
+            if step != currentStep {
+                step = currentStep
+            }
+        }
+        .accessibilityIdentifier("onboarding.step.\(currentStep + 1)")
+    }
+
+    private var currentStep: Int {
+        min(max(step, 0), stepTitles.count - 1)
     }
 
     private var permissionStep: some View {
@@ -136,8 +147,8 @@ struct OnboardingView: View {
                             Task { await model.requestNotificationPermission() }
                         }
                     } else if model.notificationStatus != .authorized {
-                        Button("Open Notification Settings") {
-                            model.openNotificationSettings()
+                        Button("Open System Settings") {
+                            model.openSystemSettings()
                         }
                         Button("Check Again") {
                             Task { await model.refreshSystemStatuses() }
@@ -145,6 +156,11 @@ struct OnboardingView: View {
                     } else {
                         Label("Enabled", systemImage: "checkmark.circle")
                     }
+                }
+                if model.notificationStatus == .denied {
+                    Text("In System Settings, choose Notifications, then Homeward.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -171,7 +187,11 @@ struct OnboardingView: View {
             }
             Section("Closing") {
                 LabeledContent("Mode") {
-                    Text(model.configuration.closeMode == .gentle ? "Gentle Close" : "Firm Close")
+                    Text(
+                        SchedulePresentation.closeModeName(
+                            model.configuration.closeMode
+                        )
+                    )
                 }
             }
             if !model.resolvedSchedule.isAvailable {

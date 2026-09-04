@@ -1,6 +1,6 @@
 import Foundation
 
-public enum Weekday: Int, Codable, CaseIterable, Comparable, Sendable {
+public enum Weekday: Int, Codable, CaseIterable, Sendable {
     case sunday = 1
     case monday
     case tuesday
@@ -8,22 +8,21 @@ public enum Weekday: Int, Codable, CaseIterable, Comparable, Sendable {
     case thursday
     case friday
     case saturday
-
-    public static func < (lhs: Weekday, rhs: Weekday) -> Bool {
-        lhs.rawValue < rhs.rawValue
-    }
 }
 
-public struct LocalTime: Codable, Equatable, Comparable, Hashable, Sendable {
+public struct LocalTime: Codable, Equatable, Comparable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case hour
+        case minute
+    }
+
     public let hour: Int
     public let minute: Int
 
     public init(hour: Int, minute: Int) throws {
-        guard (0...23).contains(hour), (0...59).contains(minute) else {
-            throw ValidationError.invalidLocalTime(hour: hour, minute: minute)
-        }
         self.hour = hour
         self.minute = minute
+        try validate()
     }
 
     public static func < (lhs: LocalTime, rhs: LocalTime) -> Bool {
@@ -35,6 +34,14 @@ public struct LocalTime: Codable, Equatable, Comparable, Hashable, Sendable {
             throw ValidationError.invalidLocalTime(hour: hour, minute: minute)
         }
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            hour: container.decode(Int.self, forKey: .hour),
+            minute: container.decode(Int.self, forKey: .minute)
+        )
+    }
 }
 
 public enum DayRule: Codable, Equatable, Sendable {
@@ -44,6 +51,10 @@ public enum DayRule: Codable, Equatable, Sendable {
 }
 
 public struct WeeklySchedule: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case rules
+    }
+
     public private(set) var rules: [Weekday: DayRule]
 
     public init(rules: [Weekday: DayRule]) throws {
@@ -55,26 +66,22 @@ public struct WeeklySchedule: Codable, Equatable, Sendable {
     }
 
     public static func defaultWorkWeek() throws -> WeeklySchedule {
-        let start = try LocalTime(hour: 9, minute: 0)
-        let end = try LocalTime(hour: 17, minute: 0)
+        let defaultRule = try defaultWorkdayRule()
         var rules = Dictionary(
             uniqueKeysWithValues: Weekday.allCases.map { ($0, DayRule.blockedAllDay) }
         )
         for weekday in [Weekday.monday, .tuesday, .wednesday, .thursday, .friday] {
-            rules[weekday] = .scheduled(start: start, end: end, endsNextDay: false)
+            rules[weekday] = defaultRule
         }
         return try WeeklySchedule(rules: rules)
     }
 
-    public mutating func setRule(_ rule: DayRule, for weekday: Weekday) throws {
-        let previous = rules[weekday]
-        rules[weekday] = rule
-        do {
-            try validate()
-        } catch {
-            rules[weekday] = previous
-            throw error
-        }
+    public static func defaultWorkdayRule() throws -> DayRule {
+        .scheduled(
+            start: try LocalTime(hour: 9, minute: 0),
+            end: try LocalTime(hour: 17, minute: 0),
+            endsNextDay: false
+        )
     }
 
     public func rule(for weekday: Weekday) -> DayRule {
@@ -110,6 +117,13 @@ public struct WeeklySchedule: Codable, Equatable, Sendable {
             }
         }
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            rules: container.decode([Weekday: DayRule].self, forKey: .rules)
+        )
+    }
 }
 
 public enum CloseMode: String, Codable, Equatable, Sendable {
@@ -118,18 +132,29 @@ public enum CloseMode: String, Codable, Equatable, Sendable {
 }
 
 public struct WarningPreferences: Codable, Equatable, Sendable {
+    public static let fifteenMinuteOffset: TimeInterval = 15 * 60
+    public static let fiveMinuteOffset: TimeInterval = 5 * 60
+
     public var fifteenMinuteWarningEnabled: Bool
     public var fiveMinuteWarningEnabled: Bool
-    public var gentleExtensionEnabled: Bool
 
     public init(
         fifteenMinuteWarningEnabled: Bool = true,
-        fiveMinuteWarningEnabled: Bool = true,
-        gentleExtensionEnabled: Bool = false
+        fiveMinuteWarningEnabled: Bool = true
     ) {
         self.fifteenMinuteWarningEnabled = fifteenMinuteWarningEnabled
         self.fiveMinuteWarningEnabled = fiveMinuteWarningEnabled
-        self.gentleExtensionEnabled = gentleExtensionEnabled
+    }
+
+    public var enabledOffsets: [TimeInterval] {
+        var offsets: [TimeInterval] = []
+        if fifteenMinuteWarningEnabled {
+            offsets.append(Self.fifteenMinuteOffset)
+        }
+        if fiveMinuteWarningEnabled {
+            offsets.append(Self.fiveMinuteOffset)
+        }
+        return offsets.sorted(by: >)
     }
 }
 
@@ -149,6 +174,15 @@ public enum AvailabilityEffect: String, Codable, Equatable, Sendable {
 }
 
 public struct ScheduleOverride: Codable, Equatable, Identifiable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case kind
+        case effect
+        case effectiveAt
+        case expiresAt
+        case relatedIntervalID
+    }
+
     public let id: UUID
     public let kind: OverrideKind
     public let effect: AvailabilityEffect
@@ -164,15 +198,13 @@ public struct ScheduleOverride: Codable, Equatable, Identifiable, Sendable {
         expiresAt: Date,
         relatedIntervalID: String? = nil
     ) throws {
-        guard expiresAt > effectiveAt else {
-            throw ValidationError.invalidOverrideRange
-        }
         self.id = id
         self.kind = kind
         self.effect = effect
         self.effectiveAt = effectiveAt
         self.expiresAt = expiresAt
         self.relatedIntervalID = relatedIntervalID
+        try validate()
     }
 
     public func isActive(at date: Date) -> Bool {
@@ -183,10 +215,49 @@ public struct ScheduleOverride: Codable, Equatable, Identifiable, Sendable {
         guard expiresAt > effectiveAt else {
             throw ValidationError.invalidOverrideRange
         }
+        let validEffect: Bool
+        switch kind {
+        case .endWorkNow, .takeDayOff:
+            validEffect = effect == .block
+        case .fixedExtension, .makeAvailable:
+            validEffect = effect == .allow
+        case .customCutoff:
+            validEffect = effect == .allow || effect == .block
+        case .forceEscalationPaused:
+            validEffect = effect == .unchanged
+        }
+        guard validEffect else {
+            throw ValidationError.invalidOverrideEffect(kind: kind, effect: effect)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            id: container.decode(UUID.self, forKey: .id),
+            kind: container.decode(OverrideKind.self, forKey: .kind),
+            effect: container.decode(AvailabilityEffect.self, forKey: .effect),
+            effectiveAt: container.decode(Date.self, forKey: .effectiveAt),
+            expiresAt: container.decode(Date.self, forKey: .expiresAt),
+            relatedIntervalID: container.decodeIfPresent(
+                String.self,
+                forKey: .relatedIntervalID
+            )
+        )
     }
 }
 
-public struct SelectedApplication: Codable, Equatable, Identifiable, Hashable, Sendable {
+public struct SelectedApplication: Codable, Equatable, Identifiable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case bundleIdentifier
+        case bundlePath
+        case displayName
+        case developerName
+        case isResolvable
+        case isAvailable
+    }
+
     public static let protectedBundleIdentifiers: Set<String> = [
         "com.apple.finder",
         "com.apple.systempreferences",
@@ -201,7 +272,7 @@ public struct SelectedApplication: Codable, Equatable, Identifiable, Hashable, S
     public var bundlePath: String
     public var displayName: String
     public var developerName: String?
-    public var isAvailable: Bool
+    public var isResolvable: Bool
 
     public init(
         id: UUID = UUID(),
@@ -209,14 +280,14 @@ public struct SelectedApplication: Codable, Equatable, Identifiable, Hashable, S
         bundlePath: String,
         displayName: String,
         developerName: String? = nil,
-        isAvailable: Bool = true
+        isResolvable: Bool = true
     ) {
         self.id = id
         self.bundleIdentifier = bundleIdentifier
         self.bundlePath = bundlePath
         self.displayName = displayName
         self.developerName = developerName
-        self.isAvailable = isAvailable
+        self.isResolvable = isResolvable
     }
 
     public var stableSelectionKey: String {
@@ -226,15 +297,64 @@ public struct SelectedApplication: Codable, Equatable, Identifiable, Hashable, S
     public var isProtected: Bool {
         bundleIdentifier.map(Self.protectedBundleIdentifiers.contains) ?? false
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let isResolvable: Bool
+        if let value = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .isResolvable
+        ) {
+            isResolvable = value
+        } else if let legacyValue = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .isAvailable
+        ) {
+            isResolvable = legacyValue
+        } else {
+            isResolvable = true
+        }
+        self.init(
+            id: try container.decode(UUID.self, forKey: .id),
+            bundleIdentifier: try container.decodeIfPresent(
+                String.self,
+                forKey: .bundleIdentifier
+            ),
+            bundlePath: try container.decode(String.self, forKey: .bundlePath),
+            displayName: try container.decode(String.self, forKey: .displayName),
+            developerName: try container.decodeIfPresent(
+                String.self,
+                forKey: .developerName
+            ),
+            isResolvable: isResolvable
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encodeIfPresent(bundleIdentifier, forKey: .bundleIdentifier)
+        try container.encode(bundlePath, forKey: .bundlePath)
+        try container.encode(displayName, forKey: .displayName)
+        try container.encodeIfPresent(developerName, forKey: .developerName)
+        try container.encode(isResolvable, forKey: .isResolvable)
+    }
 }
 
 public struct TomorrowNote: Codable, Equatable, Identifiable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case text
+        case createdAt
+        case lastPresentedIntervalID
+    }
+
     public static let maximumCharacterCount = 500
 
     public let id: UUID
-    public var text: String
+    public private(set) var text: String
     public let createdAt: Date
-    public var lastPresentedIntervalID: String?
+    public private(set) var lastPresentedIntervalID: String?
 
     public init(
         id: UUID = UUID(),
@@ -243,16 +363,11 @@ public struct TomorrowNote: Codable, Equatable, Identifiable, Sendable {
         lastPresentedIntervalID: String? = nil
     ) throws {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            throw ValidationError.emptyNote
-        }
-        guard trimmed.count <= Self.maximumCharacterCount else {
-            throw ValidationError.noteTooLong(maximum: Self.maximumCharacterCount)
-        }
         self.id = id
         self.text = trimmed
         self.createdAt = createdAt
         self.lastPresentedIntervalID = lastPresentedIntervalID
+        try validate()
     }
 
     public func validate() throws {
@@ -267,6 +382,23 @@ public struct TomorrowNote: Codable, Equatable, Identifiable, Sendable {
             throw ValidationError.noteTooLong(maximum: Self.maximumCharacterCount)
         }
     }
+
+    public mutating func markPresented(in intervalID: String) {
+        lastPresentedIntervalID = intervalID
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            id: container.decode(UUID.self, forKey: .id),
+            text: container.decode(String.self, forKey: .text),
+            createdAt: container.decode(Date.self, forKey: .createdAt),
+            lastPresentedIntervalID: container.decodeIfPresent(
+                String.self,
+                forKey: .lastPresentedIntervalID
+            )
+        )
+    }
 }
 
 public enum ValidationError: Error, Equatable, Sendable {
@@ -277,6 +409,7 @@ public enum ValidationError: Error, Equatable, Sendable {
     case invalidOvernightWindow(Weekday)
     case overnightConflictsWithBlockedDay(source: Weekday, destination: Weekday)
     case invalidOverrideRange
+    case invalidOverrideEffect(kind: OverrideKind, effect: AvailabilityEffect)
     case emptyNote
     case noteRequiresTrimming
     case noteTooLong(maximum: Int)

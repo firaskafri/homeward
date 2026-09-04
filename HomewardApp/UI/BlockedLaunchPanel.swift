@@ -1,4 +1,5 @@
 import AppKit
+import HomewardCore
 import SwiftUI
 
 @MainActor
@@ -8,11 +9,10 @@ final class BlockedLaunchPanelController: NSWindowController {
         applicationName: String,
         availabilityText: String
     ) {
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 220),
-            styleMask: [.titled, .closable, .utilityWindow],
-            backing: .buffered,
-            defer: false
+        let panel = HomewardPanelFactory.make(
+            title: "Work App Closed",
+            size: NSSize(width: 420, height: 220),
+            floatsAutomatically: true
         )
         let view = BlockedLaunchView(
             model: model,
@@ -20,12 +20,7 @@ final class BlockedLaunchPanelController: NSWindowController {
             availabilityText: availabilityText,
             close: { [weak panel] in panel?.close() }
         )
-        panel.title = "Work App Closed"
         panel.contentViewController = NSHostingController(rootView: view)
-        panel.level = .floating
-        panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.isReleasedWhenClosed = false
         super.init(window: panel)
     }
 
@@ -61,8 +56,11 @@ private struct BlockedLaunchView: View {
                     model.showNoteCapture()
                 }
                 if model.configuration.closeMode == .gentle,
-                   model.configuration.warningPreferences.gentleExtensionEnabled {
-                    Button("Make All Work Apps Available for 10 Minutes…") {
+                   model.configuration.gentleShortcutExtensionEnabled {
+                    Button(
+                        "Make All Work Apps Available for "
+                            + "\(HomewardPolicy.gentleShortcutExtensionMinutes) Minutes…"
+                    ) {
                         close()
                         Task { await model.useGentleShortcutExtension() }
                     }

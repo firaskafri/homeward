@@ -32,12 +32,13 @@ struct ModelTests {
     /// 3 - Assumptions: Fifteen- and five-minute warnings begin enabled.
     /// 4 - Expectations: The Gentle shortcut is disabled until explicitly enabled.
     @Test
-    func defaultPreferences() {
+    func defaultPreferences() throws {
         let preferences = WarningPreferences()
+        let configuration = try HomewardConfiguration.initial()
 
         #expect(preferences.fifteenMinuteWarningEnabled)
         #expect(preferences.fiveMinuteWarningEnabled)
-        #expect(!preferences.gentleExtensionEnabled)
+        #expect(!configuration.gentleShortcutExtensionEnabled)
     }
 
     /// 1 - Name: Stable application selection key.
@@ -95,8 +96,15 @@ struct ModelTests {
         #expect(throws: ValidationError.emptyNote) {
             _ = try TomorrowNote(text: "  \n ")
         }
-        #expect(throws: ValidationError.noteTooLong(maximum: 500)) {
-            _ = try TomorrowNote(text: String(repeating: "a", count: 501))
+        #expect(throws: ValidationError.noteTooLong(
+            maximum: TomorrowNote.maximumCharacterCount
+        )) {
+            _ = try TomorrowNote(
+                text: String(
+                    repeating: "a",
+                    count: TomorrowNote.maximumCharacterCount + 1
+                )
+            )
         }
 
         let note = try TomorrowNote(text: "  Review the build  ")
@@ -169,14 +177,12 @@ struct ModelTests {
     /// 3 - Assumptions: Persisted JSON is untrusted and receives semantic validation after decoding.
     /// 4 - Expectations: An out-of-range decoded hour fails validation.
     @Test
-    func decodedLocalTimeValidation() throws {
-        let decoded = try JSONDecoder().decode(
-            LocalTime.self,
-            from: Data(#"{"hour":99,"minute":0}"#.utf8)
-        )
-
+    func decodedLocalTimeValidation() {
         #expect(throws: ValidationError.invalidLocalTime(hour: 99, minute: 0)) {
-            try decoded.validate()
+            _ = try JSONDecoder().decode(
+                LocalTime.self,
+                from: Data(#"{"hour":99,"minute":0}"#.utf8)
+            )
         }
     }
 }

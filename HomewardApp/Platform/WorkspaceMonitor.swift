@@ -83,6 +83,12 @@ final class WorkspaceMonitor: NSObject {
         )
         center.addObserver(
             self,
+            selector: #selector(workspaceDidWake(_:)),
+            name: NSWorkspace.screensDidWakeNotification,
+            object: workspace
+        )
+        center.addObserver(
+            self,
             selector: #selector(sessionDidBecomeActive(_:)),
             name: NSWorkspace.sessionDidBecomeActiveNotification,
             object: workspace
@@ -153,13 +159,15 @@ final class WorkspaceMonitor: NSObject {
 
     @objc
     private func workspaceDidWake(_ notification: Notification) {
-        delegate?.workspaceMonitorRequiresReconciliation(self)
+        delegate?.workspaceMonitor(
+            self,
+            sessionActiveDidChange: sessionIsLikelyActive
+        )
     }
 
     @objc
     private func sessionDidBecomeActive(_ notification: Notification) {
         delegate?.workspaceMonitor(self, sessionActiveDidChange: true)
-        delegate?.workspaceMonitorRequiresReconciliation(self)
     }
 
     @objc

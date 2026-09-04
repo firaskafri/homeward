@@ -22,15 +22,21 @@ final class HomewardNotificationService {
 
     private let center: UNUserNotificationCenter
     private let responseRouter = NotificationResponseRouter()
+    private var started = false
 
     init(center: UNUserNotificationCenter = .current()) {
         self.center = center
-        center.delegate = responseRouter
-        registerCategories(includeExtension: false)
     }
 
-    func setHandler(_ handler: HomewardNotificationHandling) {
+    func start(handler: HomewardNotificationHandling) {
+        guard !started else {
+            responseRouter.handler = handler
+            return
+        }
+        started = true
         responseRouter.handler = handler
+        center.delegate = responseRouter
+        registerCategories(includeExtension: false)
     }
 
     func authorizationStatus() async -> AuthorizationStatus {
@@ -60,21 +66,18 @@ final class HomewardNotificationService {
         await removeWarnings()
         registerCategories(includeExtension: includeExtension)
         let now = Date()
-        let offsets: [(minutes: Int, enabled: Bool)] = [
-            (15, preferences.fifteenMinuteWarningEnabled),
-            (5, preferences.fiveMinuteWarningEnabled),
-        ]
-        for offset in offsets where offset.enabled {
-            let warningDate = cutoff.addingTimeInterval(TimeInterval(-offset.minutes * 60))
+        for offset in preferences.enabledOffsets {
+            let minutes = Int(offset / 60)
+            let warningDate = cutoff.addingTimeInterval(-offset)
             guard warningDate > now else {
                 continue
             }
             let content = UNMutableNotificationContent()
-            content.title = offset.minutes == 15
+            content.title = minutes == 15
                 ? "Workday ends in 15 minutes"
                 : "5 minutes remaining"
             content.body = warningBody(
-                minutes: offset.minutes,
+                minutes: minutes,
                 applicationNames: applicationNames,
                 cutoff: cutoff
             )
@@ -90,7 +93,7 @@ final class HomewardNotificationService {
                 repeats: false
             )
             let request = UNNotificationRequest(
-                identifier: "homeward-warning-\(offset.minutes)-\(cutoff.timeIntervalSince1970)",
+                identifier: "homeward-warning-\(minutes)-\(cutoff.timeIntervalSince1970)",
                 content: content,
                 trigger: trigger
             )
@@ -128,7 +131,7 @@ final class HomewardNotificationService {
         )
         let extend = UNNotificationAction(
             identifier: Self.extendAction,
-            title: "Extend 10 Minutes",
+            title: "Extend \(HomewardPolicy.gentleShortcutExtensionMinutes) Minutes",
             options: [.foreground]
         )
         let actions = includeExtension ? [startClosing, extend] : [startClosing]
