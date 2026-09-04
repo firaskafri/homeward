@@ -93,7 +93,8 @@ final class AppModel: NSObject, ObservableObject {
             case .gentleShortcutExtension:
                 "This today-only change makes all selected work apps available for 10 minutes."
             case .resumeFirmClosing:
-                "Homeward will ask selected apps to quit normally and begin a new 30-second grace period."
+                "Homeward will ask selected apps to quit normally and begin a new "
+                    + "\(HomewardPolicy.firmGracePeriodDescription) grace period."
             }
         }
     }
@@ -104,11 +105,15 @@ final class AppModel: NSObject, ObservableObject {
         case settings
     }
 
+    private enum ConfigurationRecoveryOutcome {
+        case activate(resetOnboarding: Bool)
+        case reject(message: String)
+    }
+
     @Published private(set) var configuration: HomewardConfiguration
     @Published private(set) var notes: NotesDocument
     @Published private(set) var resolvedSchedule: ResolvedSchedule
     @Published private(set) var catalog: [CatalogApplication] = []
-    @Published private(set) var isCatalogLoading = false
     @Published private(set) var catalogHealth: CatalogHealth = .loading
     @Published private(set) var closingRows: [ClosingRow] = []
     @Published private(set) var health: Health = .starting
@@ -176,13 +181,10 @@ final class AppModel: NSObject, ObservableObject {
     private var presentedNoteIntervalIDs: Set<String> = []
     private var previewSelectionID: UUID?
     private var previewProcessSessionID: ProcessSessionID?
-    private var previewProcessIdentifier: Int32?
     private var previewTimeoutTask: Task<Void, Never>?
-    private var configurationSaveInProgress = false
-    private var configurationSaveWaiters: [CheckedContinuation<Void, Never>] = []
+    private let configurationMutationGate = AsyncMutationGate()
     private var onboardingConfirmationRevision = 0
-    private var notesSaveInProgress = false
-    private var notesSaveWaiters: [CheckedContinuation<Void, Never>] = []
+    private let notesMutationGate = AsyncMutationGate()
     private var catalogRefreshInProgress = false
     private var catalogRefreshRequested = false
     private var catalogRefreshShouldReconcile = false
@@ -319,6 +321,10 @@ final class AppModel: NSObject, ObservableObject {
         configuration.completedOnboarding
     }
 
+    var isCatalogLoading: Bool {
+        catalogHealth == .loading
+    }
+
     var isPolicyMutationEnabled: Bool {
         health == .ready && !isShuttingDown
     }
@@ -377,9 +383,17 @@ final class AppModel: NSObject, ObservableObject {
         )
     }
 
+    var todayActions: [TodayActionPresentation.Action] {
+        TodayActionPresentation.actions(
+            canExtendToday: canExtendToday,
+            isAvailable: resolvedSchedule.isAvailable,
+            hasAvailabilityOverride: hasAvailabilityOverride
+        )
+    }
+
     var hasPrioritySaveOrErrorPresentation: Bool {
-        configurationSaveInProgress
-            || notesSaveInProgress
+        configurationMutationGate.isInProgress
+            || notesMutationGate.isInProgress
             || lastError != nil
     }
 
@@ -531,11 +545,9 @@ final class AppModel: NSObject, ObservableObject {
         }
 
         catalogRefreshInProgress = true
-        isCatalogLoading = true
         catalogHealth = .loading
         defer {
             catalogRefreshInProgress = false
-            isCatalogLoading = false
             let waiters = catalogRefreshWaiters
             catalogRefreshWaiters.removeAll()
             waiters.forEach { $0.resume() }
@@ -810,7 +822,6 @@ final class AppModel: NSObject, ObservableObject {
         }
         previewSelectionID = selectionID
         previewProcessSessionID = target.id
-        previewProcessIdentifier = target.process.processIdentifier
         let accepted = runningController.requestNormalTermination(for: target.id)
         previewState = accepted
             ? .waitingForFirstExit(selection.displayName)
@@ -823,7 +834,6 @@ final class AppModel: NSObject, ObservableObject {
         previewTimeoutTask = nil
         previewSelectionID = nil
         previewProcessSessionID = nil
-        previewProcessIdentifier = nil
         previewState = .idle
     }
 
@@ -1395,7 +1405,7 @@ final class AppModel: NSObject, ObservableObject {
             lastError = "Saved thoughts are unavailable. App closing still works."
             return false
         }
-        notesSaveInProgress = true
+        precondition(notesMutationGate.beginIfAvailable())
         defer { finishNotesSave() }
         do {
             let note = try TomorrowNote(text: text)
@@ -1490,46 +1500,24 @@ final class AppModel: NSObject, ObservableObject {
 
     @discardableResult
     func retryConfigurationLoad() async -> Bool {
-        guard beginRecovery() else {
-            return false
-        }
-        defer { isRecoveryInProgress = false }
-        cancelAllEnforcement()
-        presentationCoordinator.setRecoveryActive(true)
-        await notificationService.removeAllOwned()
-        await waitForConfigurationSave()
-        configurationSaveInProgress = true
-        do {
+        await performConfigurationRecovery(
+            failureMessage:
+                "App closing is paused because settings could not be verified."
+        ) {
             configuration = try await repository.loadConfiguration()
                 ?? HomewardConfiguration.initial()
-            configurationRevision &+= 1
-            finishConfigurationSave()
-            await activateRuntime(clearingError: true)
-            return true
-        } catch {
-            finishConfigurationSave()
-            health = .configurationUnavailable
-            lastError = "App closing is paused because settings could not be verified."
-            return false
+            return .activate(resetOnboarding: false)
         }
     }
 
     @discardableResult
     func restorePreviousConfiguration() async -> Bool {
-        guard beginRecovery() else {
-            return false
-        }
-        defer { isRecoveryInProgress = false }
-        cancelAllEnforcement()
-        presentationCoordinator.setRecoveryActive(true)
-        await notificationService.removeAllOwned()
-        await waitForConfigurationSave()
-        configurationSaveInProgress = true
-        do {
+        await performConfigurationRecovery(
+            failureMessage:
+                "Previous settings could not be restored. App closing remains paused."
+        ) {
             guard let candidate = try await repository.configurationRecoveryCandidate() else {
-                finishConfigurationSave()
-                lastError = "No previous settings are available."
-                return false
+                return .reject(message: "No previous settings are available.")
             }
             var recovered = candidate
             recovered.advancePolicyGeneration(
@@ -1537,54 +1525,30 @@ final class AppModel: NSObject, ObservableObject {
             )
             configuration = try await repository
                 .replaceConfigurationDuringRecovery(recovered)
-            configurationRevision &+= 1
-            finishConfigurationSave()
-            await activateRuntime(clearingError: true)
-            return true
-        } catch {
-            finishConfigurationSave()
-            lastError = "Previous settings could not be restored. App closing remains paused."
-            return false
+            return .activate(resetOnboarding: false)
         }
     }
 
     @discardableResult
     func replaceWithFreshSetup() async -> Bool {
-        guard beginRecovery() else {
-            return false
-        }
-        defer { isRecoveryInProgress = false }
-        cancelAllEnforcement()
-        presentationCoordinator.setRecoveryActive(true)
-        await notificationService.removeAllOwned()
-        await waitForConfigurationSave()
-        configurationSaveInProgress = true
-        do {
+        await performConfigurationRecovery(
+            failureMessage:
+                "A fresh setup could not be saved. App closing remains paused."
+        ) {
             var initial = try HomewardConfiguration.initial()
             initial.advancePolicyGeneration(
                 after: configuration.policyGeneration
             )
             configuration = try await repository
                 .replaceConfigurationDuringRecovery(initial)
-            configurationRevision &+= 1
-            finishConfigurationSave()
-            UserDefaults.standard.set(
-                0,
-                forKey: HomewardPreferenceKeys.onboardingStep
-            )
-            await activateRuntime(clearingError: true)
-            return true
-        } catch {
-            finishConfigurationSave()
-            lastError = "A fresh setup could not be saved. App closing remains paused."
-            return false
+            return .activate(resetOnboarding: true)
         }
     }
 
     @discardableResult
     func resetSavedThoughts() async -> Bool {
         await waitForNotesSave()
-        notesSaveInProgress = true
+        precondition(notesMutationGate.beginIfAvailable())
         defer { finishNotesSave() }
         do {
             try await notesResetter()
@@ -1618,7 +1582,7 @@ final class AppModel: NSObject, ObservableObject {
     @discardableResult
     func restorePreviousNotes() async -> Bool {
         await waitForNotesSave()
-        notesSaveInProgress = true
+        precondition(notesMutationGate.beginIfAvailable())
         defer { finishNotesSave() }
         do {
             guard let candidate = try await repository
@@ -1661,7 +1625,7 @@ final class AppModel: NSObject, ObservableObject {
         await waitForPendingSavesBeforeTermination()
     }
 
-    func quit() async {
+    func quit() {
         NSApplication.shared.terminate(nil)
     }
 
@@ -1674,7 +1638,7 @@ final class AppModel: NSObject, ObservableObject {
         do {
             try loginItemService.disable()
             loginItemStatus = loginItemService.status
-            await quit()
+            quit()
             return true
         } catch {
             loginItemStatus = loginItemService.status
@@ -1689,6 +1653,49 @@ final class AppModel: NSObject, ObservableObject {
 
     func clearTodayExplanation() {
         todayExplanation = nil
+    }
+
+    private func performConfigurationRecovery(
+        failureMessage: String,
+        operation: () async throws -> ConfigurationRecoveryOutcome
+    ) async -> Bool {
+        guard !isRecoveryInProgress else {
+            return false
+        }
+        isRecoveryInProgress = true
+        defer { isRecoveryInProgress = false }
+
+        cancelAllEnforcement()
+        presentationCoordinator.setRecoveryActive(true)
+        await notificationService.removeAllOwned()
+        await configurationMutationGate.beginAfterWaiting()
+
+        let outcome: ConfigurationRecoveryOutcome
+        do {
+            outcome = try await operation()
+        } catch {
+            finishConfigurationSave()
+            health = .configurationUnavailable
+            lastError = failureMessage
+            return false
+        }
+        finishConfigurationSave()
+
+        switch outcome {
+        case let .activate(resetOnboarding):
+            configurationRevision &+= 1
+            if resetOnboarding {
+                UserDefaults.standard.set(
+                    0,
+                    forKey: HomewardPreferenceKeys.onboardingStep
+                )
+            }
+            await activateRuntime(clearingError: true)
+            return true
+        case let .reject(message):
+            lastError = message
+            return false
+        }
     }
 
     @discardableResult
@@ -1708,11 +1715,10 @@ final class AppModel: NSObject, ObservableObject {
                 "These changes are based on older settings. Review the current settings and try again."
             return false
         }
-        guard !configurationSaveInProgress else {
+        guard configurationMutationGate.beginIfAvailable() else {
             lastError = "Another settings change is still being saved. Try again."
             return false
         }
-        configurationSaveInProgress = true
         defer { finishConfigurationSave() }
         let confirmationRevision = onboardingConfirmationRevision
         do {
@@ -1742,26 +1748,11 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     private func waitForConfigurationSave() async {
-        while configurationSaveInProgress {
-            await withCheckedContinuation { continuation in
-                configurationSaveWaiters.append(continuation)
-            }
-        }
+        await configurationMutationGate.waitUntilAvailable()
     }
 
     private func finishConfigurationSave() {
-        configurationSaveInProgress = false
-        let waiters = configurationSaveWaiters
-        configurationSaveWaiters.removeAll()
-        waiters.forEach { $0.resume() }
-    }
-
-    private func beginRecovery() -> Bool {
-        guard !isRecoveryInProgress else {
-            return false
-        }
-        isRecoveryInProgress = true
-        return true
+        configurationMutationGate.finish()
     }
 
     private func commitNotes(_ updated: NotesDocument) async -> Bool {
@@ -1769,11 +1760,10 @@ final class AppModel: NSObject, ObservableObject {
             lastError = "Saved thoughts are unavailable. App closing still works."
             return false
         }
-        guard !notesSaveInProgress else {
+        guard notesMutationGate.beginIfAvailable() else {
             lastError = "Another saved-thought change is still in progress."
             return false
         }
-        notesSaveInProgress = true
         defer { finishNotesSave() }
         do {
             notes = try await notesSaver(updated)
@@ -1786,25 +1776,19 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     private func waitForNotesSave() async {
-        while notesSaveInProgress {
-            await withCheckedContinuation { continuation in
-                notesSaveWaiters.append(continuation)
-            }
-        }
+        await notesMutationGate.waitUntilAvailable()
     }
 
     private func finishNotesSave() {
-        notesSaveInProgress = false
-        let waiters = notesSaveWaiters
-        notesSaveWaiters.removeAll()
-        waiters.forEach { $0.resume() }
+        notesMutationGate.finish()
     }
 
     private func waitForPendingSavesBeforeTermination() async {
         let deadline = elapsedClock.now().advanced(
             by: Self.terminationSaveWait
         )
-        while configurationSaveInProgress || notesSaveInProgress {
+        while configurationMutationGate.isInProgress
+                || notesMutationGate.isInProgress {
             guard elapsedClock.now() < deadline else {
                 return
             }
@@ -1847,7 +1831,6 @@ final class AppModel: NSObject, ObservableObject {
         }
 
         previewProcessSessionID = target.id
-        previewProcessIdentifier = target.process.processIdentifier
         let accepted = runningController.requestNormalTermination(for: target.id)
         previewState = accepted
             ? .waitingForSecondExit(selection.displayName)
@@ -1857,24 +1840,16 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     private func handlePreviewTermination(
-        processIdentifier: Int32,
         sessionID: ProcessSessionID?
     ) -> Bool {
         guard Self.terminationMatches(
             expectedSessionID: previewProcessSessionID,
-            expectedProcessIdentifier: previewProcessIdentifier,
-            terminatedSessionID: sessionID,
-            terminatedProcessIdentifier: processIdentifier,
-            hasLiveSessionForProcessIdentifier:
-                runningController.liveSessionID(
-                    processIdentifier: processIdentifier
-                ) != nil
+            terminatedSessionID: sessionID
         ) else {
             return false
         }
         previewTimeoutTask?.cancel()
         previewProcessSessionID = nil
-        previewProcessIdentifier = nil
         switch previewState {
         case let .waitingForFirstExit(applicationName):
             previewState = .waitingForRelaunch(applicationName)
@@ -1890,12 +1865,9 @@ final class AppModel: NSObject, ObservableObject {
 
     static func terminationMatches(
         expectedSessionID: ProcessSessionID?,
-        expectedProcessIdentifier: Int32?,
-        terminatedSessionID: ProcessSessionID?,
-        terminatedProcessIdentifier: Int32,
-        hasLiveSessionForProcessIdentifier: Bool
+        terminatedSessionID: ProcessSessionID?
     ) -> Bool {
-        guard let terminatedSessionID else {
+        guard let expectedSessionID, let terminatedSessionID else {
             return false
         }
         return terminatedSessionID == expectedSessionID
@@ -2084,9 +2056,10 @@ final class AppModel: NSObject, ObservableObject {
             presentedNoteIntervalIDs.removeAll()
         }
 
-        guard !configurationSaveInProgress else {
+        guard configurationMutationGate.beginIfAvailable() else {
             return
         }
+        defer { finishConfigurationSave() }
         var updated = configuration
         var changed = updated.removeExpiredOverrides(at: now)
         if resolvedSchedule.isAvailable,
@@ -2099,8 +2072,6 @@ final class AppModel: NSObject, ObservableObject {
             return
         }
         do {
-            configurationSaveInProgress = true
-            defer { finishConfigurationSave() }
             updated.advancePolicyGeneration(
                 after: configuration.policyGeneration
             )
@@ -2439,18 +2410,11 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     private func handleProcessTermination(
-        processIdentifier: Int32,
         sessionID: ProcessSessionID?
     ) {
-        if handlePreviewTermination(
-            processIdentifier: processIdentifier,
-            sessionID: sessionID
-        ) {
-            if let sessionID {
-                runningController.remove(sessionID: sessionID)
-            } else {
-                runningController.remove(processIdentifier: processIdentifier)
-            }
+        if handlePreviewTermination(sessionID: sessionID),
+           let sessionID {
+            runningController.remove(sessionID: sessionID)
             return
         }
 
@@ -2469,8 +2433,6 @@ final class AppModel: NSObject, ObservableObject {
 
         gentleExemptProcesses.removeValue(forKey: sessionID)
         removeClosingRow(sessionID: sessionID)
-        runningController.remove(sessionID: sessionID)
-        refreshClosingPanel()
     }
 
     private func showClosingPanel(activating: Bool = false) {
@@ -2696,10 +2658,7 @@ extension AppModel: WorkspaceMonitorDelegate {
         launchMetadataTasks.removeValue(
             forKey: application.processIdentifier
         )
-        handleProcessTermination(
-            processIdentifier: application.processIdentifier,
-            sessionID: snapshot.processSessionID
-        )
+        handleProcessTermination(sessionID: snapshot.processSessionID)
     }
 
     func workspaceMonitorRequiresReconciliation(_ monitor: WorkspaceMonitor) {

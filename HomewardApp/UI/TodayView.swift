@@ -34,7 +34,7 @@ struct TodayView: View {
                             }
                         }
                     }
-                    .accessibilityIdentifier("overview.explanation")
+                    .accessibilityIdentifier("today.explanation")
                 }
                 if let lastError = model.lastError {
                     InlineErrorView(message: lastError) {
@@ -90,17 +90,20 @@ struct TodayView: View {
             }
         }
         .confirmationDialog(
-            "Take today off?",
+            TodayActionPresentation.takeDayOffConfirmationTitle,
             isPresented: $showTakeDayOffConfirmation
         ) {
-            Button("Take Today Off", role: .destructive) {
+            Button(
+                TodayActionPresentation.takeDayOffConfirmationActionTitle,
+                role: .destructive
+            ) {
                 Task { await model.takeTodayOff() }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Homeward will apply the configured closing behavior now and keep work apps unavailable through today.")
+            Text(TodayActionPresentation.takeDayOffConfirmationMessage)
         }
-        .accessibilityIdentifier("overview.view")
+        .accessibilityIdentifier("today.view")
         .onChange(of: model.isSessionActive) { _, isActive in
             if !isActive {
                 activeSheet = nil
@@ -183,7 +186,7 @@ struct TodayView: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("overview.state")
+        .accessibilityIdentifier("today.state")
     }
 
     private var stateBadge: some View {
@@ -335,7 +338,7 @@ struct TodayView: View {
             .tint(stateTone.color)
             .controlSize(.large)
             .focused($primaryActionFocused)
-            .accessibilityIdentifier("overview.endWork")
+            .accessibilityIdentifier("today.endWork")
         } else {
             Button("Save a Thought…") {
                 activeSheet = .noteCapture
@@ -344,42 +347,23 @@ struct TodayView: View {
             .tint(stateTone.color)
             .controlSize(.large)
             .focused($primaryActionFocused)
-            .accessibilityIdentifier("overview.saveThought")
+            .accessibilityIdentifier("today.saveThought")
         }
     }
 
     private var changeTodayMenu: some View {
-        Menu("Change Today Only…") {
-            if model.canExtendToday {
-                ForEach(
-                    HomewardPolicy.extensionDurationsMinutes,
-                    id: \.self
-                ) { minutes in
-                    Button("Extend by \(minutes) Minutes") {
-                        Task { await model.createExtension(minutes: minutes) }
-                    }
+        Menu(TodayActionPresentation.menuTitle) {
+            ForEach(model.todayActions, id: \.self) { action in
+                if action == .returnToWeeklySchedule {
+                    Divider()
                 }
-            }
-            Button("Choose Another Cutoff…") {
-                activeSheet = .customCutoff
-            }
-            if !model.resolvedSchedule.isAvailable {
-                Button("Make Work Available Now") {
-                    Task { await model.makeWorkAvailableNow() }
-                }
-            }
-            Button("Take Today Off…") {
-                showTakeDayOffConfirmation = true
-            }
-            if model.hasAvailabilityOverride {
-                Divider()
-                Button("Return to Weekly Schedule") {
-                    Task { await model.returnToWeeklySchedule() }
+                Button(action.title) {
+                    performTodayAction(action)
                 }
             }
         }
         .controlSize(.large)
-        .accessibilityIdentifier("overview.changeToday")
+        .accessibilityIdentifier("today.changeToday")
     }
 
     private var detailsSection: some View {
@@ -424,7 +408,7 @@ struct TodayView: View {
                     .font(.headline)
             }
         }
-        .accessibilityIdentifier("overview.details")
+        .accessibilityIdentifier("today.details")
     }
 
     private func detailRow(title: String, value: String) -> some View {
@@ -439,7 +423,7 @@ struct TodayView: View {
 
     private var stateDescription: String {
         if model.forceEscalationPaused {
-            return "Work apps are still unavailable. Resume starts a new 30-second grace period."
+            return model.presentationSnapshot.transitionText ?? ""
         }
         if !model.closingRows.isEmpty {
             let count = model.closingRows.count
@@ -563,206 +547,21 @@ struct TodayView: View {
             openSettings()
         }
     }
-}
 
-@MainActor
-final class CustomCutoffPanelController: HomewardInvokedPanelController {
-    init(model: AppModel) {
-        let panel = HomewardPanelFactory.make(
-            title: "Choose Another Cutoff",
-            size: NSSize(width: 440, height: 220)
-        )
-        panel.contentViewController = NSHostingController(
-            rootView: CustomCutoffView(
-                model: model,
-                onClose: { [weak panel] in panel?.close() }
-            )
-        )
-        super.init(window: panel)
-        panel.delegate = self
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        nil
-    }
-
-    func show() {
-        showInvoked()
-    }
-}
-
-struct CustomCutoffView: View {
-    @ObservedObject var model: AppModel
-    @State private var cutoff: Date
-    private let earliestCutoff: Date
-    private let latestCutoff: Date
-    let onClose: () -> Void
-
-    init(model: AppModel, onClose: @escaping () -> Void) {
-        self.model = model
-        self.onClose = onClose
-        let now = Date()
-        let calendar = Calendar.autoupdatingCurrent
-        let midnight = ScheduleResolver().nextLocalDayBoundary(
-            after: now,
-            calendar: calendar
-        )
-        earliestCutoff = now
-        latestCutoff = midnight
-        _cutoff = State(
-            initialValue: min(
-                now.addingTimeInterval(
-                    HomewardPolicy.customCutoffDefaultLeadTime
-                ),
-                midnight
-            )
-        )
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: HomewardSpacing.large) {
-            Text("Choose another cutoff")
-                .font(.title2.bold())
-            DatePicker(
-                "Work apps available until",
-                selection: $cutoff,
-                in: earliestCutoff...latestCutoff
-            )
-            Text(cutoff.formatted(date: .abbreviated, time: .shortened))
-                .foregroundStyle(.secondary)
-            if let error = model.lastError {
-                InlineErrorView(message: error) {
-                    model.clearError()
-                }
-            }
-            HStack {
-                Spacer()
-                Button("Cancel") {
-                    onClose()
-                }
-                .keyboardShortcut(.cancelAction)
-                Button("Apply Cutoff") {
-                    Task {
-                        model.clearError()
-                        if await model.chooseCutoff(cutoff) {
-                            onClose()
-                        }
-                    }
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(20)
-        .frame(minWidth: 420)
-        .accessibilityIdentifier("today.customCutoff")
-    }
-
-}
-
-@MainActor
-final class TodayChangePanelController: HomewardInvokedPanelController {
-    init(model: AppModel) {
-        let panel = HomewardPanelFactory.make(
-            title: "Change Today Only",
-            size: NSSize(width: 420, height: 320)
-        )
-        panel.contentViewController = NSHostingController(
-            rootView: TodayChangePanelView(
-                model: model,
-                onClose: { [weak panel] in panel?.close() }
-            )
-        )
-        super.init(window: panel)
-        panel.delegate = self
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        nil
-    }
-
-    func show() {
-        showInvoked()
-    }
-}
-
-private struct TodayChangePanelView: View {
-    @ObservedObject var model: AppModel
-    let onClose: () -> Void
-    @State private var confirmTakeDayOff = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Change today only")
-                .font(.title2.bold())
-            Text("Your weekly schedule will not change.")
-                .foregroundStyle(.secondary)
-            if let error = model.lastError {
-                InlineErrorView(message: error) {
-                    model.clearError()
-                }
-            }
-
-            if model.canExtendToday {
-                ForEach(
-                    HomewardPolicy.extensionDurationsMinutes,
-                    id: \.self
-                ) { minutes in
-                    Button("Extend by \(minutes) Minutes") {
-                        apply { await model.createExtension(minutes: minutes) }
-                    }
-                }
-            }
-            Button("Choose Another Cutoff…") {
-                onClose()
-                model.showCustomCutoff()
-            }
-            if !model.resolvedSchedule.isAvailable {
-                Button("Make Work Available Now") {
-                    apply { await model.makeWorkAvailableNow() }
-                }
-            }
-            Button("Take Today Off…") {
-                confirmTakeDayOff = true
-            }
-            if model.hasAvailabilityOverride {
-                Button("Return to Weekly Schedule") {
-                    apply { await model.returnToWeeklySchedule() }
-                }
-            }
-
-            HStack {
-                Spacer()
-                Button("Cancel", action: onClose)
-                    .keyboardShortcut(.cancelAction)
-            }
-        }
-        .padding(20)
-        .frame(minWidth: 400, minHeight: 300)
-        .confirmationDialog(
-            "Take today off?",
-            isPresented: $confirmTakeDayOff
-        ) {
-            Button("Take Today Off", role: .destructive) {
-                apply { await model.takeTodayOff() }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(
-                "Homeward will apply the configured closing flow and keep "
-                    + "work apps unavailable through today."
-            )
-        }
-        .accessibilityIdentifier("today.changePanel")
-    }
-
-    private func apply(_ action: @escaping @MainActor () async -> Bool) {
-        model.clearError()
-        Task {
-            if await action() {
-                onClose()
-            }
+    private func performTodayAction(
+        _ action: TodayActionPresentation.Action
+    ) {
+        switch action {
+        case let .extend(minutes):
+            Task { await model.createExtension(minutes: minutes) }
+        case .chooseCutoff:
+            activeSheet = .customCutoff
+        case .makeAvailable:
+            Task { await model.makeWorkAvailableNow() }
+        case .takeDayOff:
+            showTakeDayOffConfirmation = true
+        case .returnToWeeklySchedule:
+            Task { await model.returnToWeeklySchedule() }
         }
     }
 }

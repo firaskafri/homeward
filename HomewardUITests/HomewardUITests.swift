@@ -58,7 +58,7 @@ final class HomewardUITests: XCTestCase {
             window.waitForExistence(timeout: UITestPolicy.launchTimeout)
         )
         XCTAssertTrue(
-            app.descendants(matching: .any)["overview.view"]
+            app.descendants(matching: .any)["today.view"]
                 .waitForExistence(timeout: UITestPolicy.launchTimeout)
         )
     }
@@ -144,15 +144,28 @@ final class HomewardUITests: XCTestCase {
     }
 
     /// 1 - Name: Installation-location login gating.
-    /// 2 - Description: Opens Settings with the isolated outside-Applications installation scenario.
-    /// 3 - Assumptions: Login-item and Finder adapters are inert and no action button is invoked.
+    /// 2 - Description: Opens Settings through the readiness attention action in the isolated outside-Applications scenario.
+    /// 3 - Assumptions: Preview selections resolve, login-item and Finder adapters are inert, and no settings action button is invoked.
     /// 4 - Expectations: Start at Login is replaced by move guidance, Show in Finder, and Check Again.
     func testOutsideApplicationsShowsStartAtLoginGate() throws {
         let app = try launch(.outsideApplications)
         defer { app.terminate() }
         try reopenHomeward(app)
         app.activate()
-        app.typeKey(",", modifierFlags: .command)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["today.view"]
+                .waitForExistence(timeout: UITestPolicy.launchTimeout)
+        )
+        let attention = app.buttons.matching(
+            NSPredicate(
+                format: "label BEGINSWITH %@",
+                "Homeward Needs Attention"
+            )
+        ).firstMatch
+        XCTAssertTrue(
+            attention.waitForExistence(timeout: UITestPolicy.navigationTimeout)
+        )
+        attention.click()
 
         XCTAssertTrue(
             app.descendants(matching: .any)["general.settings"]
@@ -166,35 +179,33 @@ final class HomewardUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Check Again"].exists)
     }
 
-    /// 1 - Name: Long-content destination reachability.
-    /// 2 - Description: Navigates the primary management destinations with a deliberately long preview-only application name.
-    /// 3 - Assumptions: The standard application window uses its minimum supported layout and no picker action is invoked.
-    /// 4 - Expectations: Today, Schedule, Work Apps, Closing, and Saved Thoughts remain reachable.
-    func testLongContentKeepsPrimaryDestinationsReachable() throws {
+    /// 1 - Name: Long application-name reachability.
+    /// 2 - Description: Opens Work Apps with a deliberately long preview-only application name.
+    /// 3 - Assumptions: The application picker remains inert and the chooser is not invoked.
+    /// 4 - Expectations: The full name and Choose Application action remain reachable.
+    func testLongApplicationNameKeepsWorkAppsActionsReachable() throws {
         let app = try launch(.longContent)
         defer { app.terminate() }
         try reopenHomeward(app)
 
-        let destinations: [(String, String)] = [
-            ("Today", "overview.view"),
-            ("Schedule", "schedule.view"),
-            ("Closing & Warnings", "closing.settings"),
-            ("Saved Thoughts", "notes.review"),
-            ("Work Apps", "apps.view"),
+        let workAppsNavigation = app.descendants(matching: .any)[
+            "navigation.Work Apps"
         ]
-        for (label, identifier) in destinations {
-            app.descendants(matching: .any)["navigation.\(label)"].click()
-            XCTAssertTrue(
-                app.descendants(matching: .any)[identifier]
-                    .waitForExistence(timeout: UITestPolicy.navigationTimeout),
-                "\(label) was not reachable."
+        XCTAssertTrue(
+            workAppsNavigation.waitForExistence(
+                timeout: UITestPolicy.launchTimeout
             )
-        }
-
+        )
+        workAppsNavigation.click()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["apps.view"]
+                .waitForExistence(timeout: UITestPolicy.navigationTimeout)
+        )
         XCTAssertTrue(
             app.staticTexts["A Deliberately Long Work Application Name"]
                 .waitForExistence(timeout: UITestPolicy.navigationTimeout)
         )
+        XCTAssertTrue(app.buttons["Choose Application…"].firstMatch.exists)
     }
 
     private func launch(

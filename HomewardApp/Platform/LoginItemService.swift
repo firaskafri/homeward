@@ -68,19 +68,11 @@ final class LoginItemService {
         case unavailable
     }
 
-    enum ServiceStatus {
-        case notRegistered
-        case enabled
-        case requiresApproval
-        case notFound
-        case unavailable
-    }
-
     enum ServiceError: Error, Equatable {
         case unavailable
     }
 
-    private let statusProvider: () -> ServiceStatus
+    private let statusProvider: () -> Status
     private let register: () throws -> Void
     private let unregister: () throws -> Void
     private let openSettings: () -> Void
@@ -112,7 +104,7 @@ final class LoginItemService {
     }
 
     init(
-        statusProvider: @escaping () -> ServiceStatus,
+        statusProvider: @escaping () -> Status,
         register: @escaping () throws -> Void = {},
         unregister: @escaping () throws -> Void = {},
         openSettings: @escaping () -> Void = {}
@@ -128,18 +120,7 @@ final class LoginItemService {
     }
 
     var status: Status {
-        switch statusProvider() {
-        case .notRegistered:
-            .notRegistered
-        case .enabled:
-            .enabled
-        case .requiresApproval:
-            .requiresApproval
-        case .notFound:
-            .notFound
-        case .unavailable:
-            .unavailable
-        }
+        statusProvider()
     }
 
     func enable() throws {

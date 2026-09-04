@@ -6,29 +6,27 @@ struct RootView: View {
     @State private var confirmReset = false
 
     var body: some View {
-        switch model.health {
+        switch model.presentationSnapshot.state {
         case .starting:
-            ProgressView("Starting Homeward…")
+            ProgressView(model.presentationSnapshot.title)
                 .frame(minWidth: 420, minHeight: 260)
         case .startupDelayed:
             delayedStartupView
-        case .configurationUnavailable:
+        case .configurationRecovery:
             recoveryView
-        case .applicationResolutionUnavailable:
+        case .applicationResolutionRecovery:
             applicationResolutionRecoveryView
-        case .ready:
-            if model.isOnboardingComplete {
-                ManagementView(model: model, navigation: navigation)
-            } else {
-                OnboardingView(model: model)
-            }
+        case .onboarding:
+            OnboardingView(model: model)
+        case .operational:
+            ManagementView(model: model, navigation: navigation)
         }
     }
 
     private var delayedStartupView: some View {
         VStack(spacing: HomewardSpacing.large) {
-            ProgressView("Starting Homeward…")
-            Text("This is taking longer than expected. App closing has not started.")
+            ProgressView(model.presentationSnapshot.title)
+            Text(model.presentationSnapshot.transitionText ?? "")
                 .foregroundStyle(.secondary)
             Button("Retry") {
                 model.retryStartup()
@@ -42,14 +40,11 @@ struct RootView: View {
     private var applicationResolutionRecoveryView: some View {
         VStack(alignment: .leading, spacing: HomewardSpacing.large) {
             Label(
-                "App closing has not started",
+                model.presentationSnapshot.title,
                 systemImage: "exclamationmark.triangle"
             )
             .font(.title2.bold())
-            Text(
-                "Homeward could not verify the selected applications. "
-                    + "Your saved settings were kept."
-            )
+            Text(model.presentationSnapshot.transitionText ?? "")
             .foregroundStyle(.secondary)
             if let error = model.lastError {
                 Text(error)
@@ -68,11 +63,11 @@ struct RootView: View {
     private var recoveryView: some View {
         VStack(alignment: .leading, spacing: HomewardSpacing.large) {
             Label(
-                "App closing is paused",
+                model.presentationSnapshot.title,
                 systemImage: "exclamationmark.triangle"
             )
             .font(.title2.bold())
-            Text("Homeward could not verify its saved settings, so it will not close any applications.")
+            Text(model.presentationSnapshot.transitionText ?? "")
                 .foregroundStyle(.secondary)
             if let error = model.lastError {
                 Text(error)

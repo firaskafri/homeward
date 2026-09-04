@@ -10,10 +10,6 @@ actor HomewardRepository {
     private var configurationStore: AtomicFileStore<HomewardConfiguration>?
     private var notesStore: AtomicFileStore<NotesDocument>?
 
-    init() {
-        self.init(environment: ProcessInfo.processInfo.environment)
-    }
-
     init(environment: [String: String]) {
         directoryProvider = {
             try Self.defaultDirectoryURL(environment: environment)

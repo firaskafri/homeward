@@ -62,8 +62,8 @@ final class HomewardNotificationService {
         let authorizationStatus: () async -> AuthorizationStatus
         let requestAuthorization: () async throws -> Bool
         let add: (UNNotificationRequest) async throws -> Void
-        let pendingWarningIdentifiers: () async -> [String]
-        let deliveredWarningIdentifiers: () async -> [String]
+        let pendingIdentifiers: () async -> [String]
+        let deliveredIdentifiers: () async -> [String]
         let removePending: ([String]) -> Void
         let removeDelivered: ([String]) -> Void
         let setCategories: (Set<UNNotificationCategory>) -> Void
@@ -102,11 +102,11 @@ final class HomewardNotificationService {
             add: { request in
                 try await center.add(request)
             },
-            pendingWarningIdentifiers: {
+            pendingIdentifiers: {
                 await center.pendingNotificationRequests()
                     .map(\.identifier)
             },
-            deliveredWarningIdentifiers: {
+            deliveredIdentifiers: {
                 await center.deliveredNotifications()
                     .map(\.request.identifier)
             },
@@ -140,8 +140,8 @@ final class HomewardNotificationService {
                 authorizationStatus: { .unavailable },
                 requestAuthorization: { false },
                 add: { _ in },
-                pendingWarningIdentifiers: { [] },
-                deliveredWarningIdentifiers: { [] },
+                pendingIdentifiers: { [] },
+                deliveredIdentifiers: { [] },
                 removePending: { _ in },
                 removeDelivered: { _ in },
                 setCategories: { _ in },
@@ -321,12 +321,12 @@ final class HomewardNotificationService {
         statusOperation &+= 1
         let warningOperation = warningOperation
         let statusOperation = statusOperation
-        let pending = await client.pendingWarningIdentifiers()
+        let pending = await client.pendingIdentifiers()
         guard warningOperation == self.warningOperation,
               statusOperation == self.statusOperation else {
             return
         }
-        let delivered = await client.deliveredWarningIdentifiers()
+        let delivered = await client.deliveredIdentifiers()
         guard warningOperation == self.warningOperation,
               statusOperation == self.statusOperation else {
             return
@@ -337,11 +337,11 @@ final class HomewardNotificationService {
     }
 
     private func removeWarnings(ifCurrent operation: Int) async -> Bool {
-        let pending = await client.pendingWarningIdentifiers()
+        let pending = await client.pendingIdentifiers()
         guard operation == warningOperation else {
             return false
         }
-        let delivered = await client.deliveredWarningIdentifiers()
+        let delivered = await client.deliveredIdentifiers()
         guard operation == warningOperation else {
             return false
         }

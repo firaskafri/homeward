@@ -1,7 +1,6 @@
 @MainActor
 final class PresentationCoordinator {
     enum Priority: Int, Comparable {
-        case informational
         case thoughtAvailability
         case blockedLaunch
         case saveOrError

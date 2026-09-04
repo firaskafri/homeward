@@ -115,3 +115,22 @@ availability, process identity, and focus identifiers. Manual evidence is
 still required for assistive technologies, notification presentation,
 save-dialog focus, display placement, and real third-party application
 behavior.
+
+### Version 0.1.0 automated evidence
+
+- **Passed by deterministic unit/native tests:** startup mutation gating and
+  delayed Retry handoff; configuration/notes recovery isolation; stale and
+  current notification-action routing; Saved Thoughts session concealment and
+  completion Restore; Firm Stop persistence ordering and presentation
+  precedence; outside-Applications Start at Login gating.
+- **Passed by isolated UI scenarios:** first launch, completed-setup reopen,
+  delayed-startup safety copy and Retry, configuration recovery without
+  schedule state, notes-only recovery while runtime remains available,
+  outside-Applications guidance, and Work Apps reachability with a
+  representative long application name.
+- **NOT RUN / manual blockers:** VoiceOver, Voice Control, Switch Control, Full
+  Keyboard Access, real notification authorization/actions, real login-item
+  approval, lock/sleep/Fast User Switching, Spaces, multiple displays,
+  save-dialog focus, third-party applications, compact resizing and largest
+  text settings, other long-copy surfaces, clean-machine
+  signing/notarization/Gatekeeper, and dogfood.

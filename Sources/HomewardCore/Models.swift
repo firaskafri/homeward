@@ -482,7 +482,7 @@ public struct TomorrowNote: Codable, Equatable, Identifiable, Sendable {
         guard id == previousValue.id,
               text == previousValue.text,
               createdAt == previousValue.createdAt else {
-            throw ConfigurationError.noteNotFound(previousValue.id)
+            throw NotesError.noteNotFound(previousValue.id)
         }
         lastPresentedIntervalID = previousValue.lastPresentedIntervalID
         try validate()

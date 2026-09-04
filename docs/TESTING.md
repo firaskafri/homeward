@@ -27,7 +27,9 @@ for example `HOMEWARD_DERIVED_DATA_PATH=.build/xcode-agent-1
   enforcement-planning tests.
 - `HomewardAppTests`: app composition and fixture-backed public macOS
   lifecycle tests.
-- `HomewardUITests`: first-launch and explicit completed-setup accessibility
+- `HomewardUITests`: first-launch and completed-setup reopening, delayed
+  startup and Retry, configuration-versus-notes recovery, outside-Applications
+  Start at Login gating, and representative long-English Work Apps
   reachability.
 - `xcodebuild analyze`: static analysis under the production project settings.
 - Release build inspection: arm64 architecture, menu-bar accessory property,
@@ -66,26 +68,47 @@ adjacent `HomewardFixture.app` identity. Normal app runs retain the product's
 user-selected app behavior; the Slack-only requirement applies to manual and
 agent-driven validation.
 
-The completed-setup launch test copies the canonical
-`TestFixtures/HomewardCompletedSetup/configuration.json` resource into isolated
-storage. Its preview-only application identities cannot match real running
-applications. UI launches also set `HOMEWARD_UI_TESTING=1`, which replaces
-notification, login-item, and catalog integrations with inert test adapters.
+The UI suite uses one named `IsolatedApplicationFixture.Scenario` mechanism.
+Each scenario creates unique temporary storage, copies only its declared
+configuration or notes resources, and supplies one
+`HOMEWARD_UI_TEST_SCENARIO` value. The completed and long-content resources use
+preview-only application identities that cannot match real running
+applications. UI launches also set `HOMEWARD_UI_TESTING=1`, which restricts
+lifecycle control to the adjacent `HomewardFixture.app` identity and replaces
+notification, login-item, catalog, installation-location, and delayed-startup
+dependencies with scenario-owned adapters.
 Hosted native tests set `HOMEWARD_TESTING=1` and use isolated temporary
 storage, so the test host cannot load or enforce the user’s real policy.
 Test invocations disable the bundle’s multiple-instance lock to prevent stale
 LaunchServices registrations from another DerivedData directory blocking the
 isolated host; Release verification still requires the lock.
 
+## Automated evidence boundary
+
+The deterministic suite covers startup mutation gating and delayed Retry;
+configuration and notes recovery separation; stale/current notification action
+routing and shared confirmation intent; Saved Thoughts concealment, session
+transitions, completion Restore, and recovery; Firm Stop ordering and
+presentation precedence; installation-location gating; and representative
+long-application-name reachability.
+
+The long-English UI scenario proves that the Work Apps row and chooser remain
+reachable with a representative long application name. It does not certify
+compact resizing, system text-size settings, other long-copy surfaces, or
+assistive-technology navigation modes.
+
 ## Manual gates
 
 These cannot be certified by unattended automation:
 
-- Notification authorization and actions.
-- Start-at-login approval, logout/login, and restart.
-- Sleep/wake, screen lock, Fast User Switching, and Spaces.
-- Countdown visibility and focus interaction with real save dialogs.
-- VoiceOver, Voice Control, Full Keyboard Access, Zoom, contrast, and reduced
-  motion/transparency.
+- Real Notification Center authorization, presentation, and action delivery.
+- Real Start at Login approval, logout/login, and restart.
+- Sleep/wake, screen lock, Fast User Switching, Spaces, and multiple displays.
+- Countdown visibility and focus interaction with real save dialogs and
+  third-party applications.
+- VoiceOver, Voice Control, Switch Control, Full Keyboard Access, Zoom,
+  contrast, and reduced motion/transparency.
+- Compact resizing and largest supported macOS text settings beyond the
+  deterministic long-English reachability scenario.
 - Developer ID signing, notarization, Gatekeeper, and clean-machine install.
 - Seven-day safety and two-week behavioral dogfood.

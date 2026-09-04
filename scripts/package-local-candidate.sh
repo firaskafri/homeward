@@ -2,6 +2,9 @@
 
 set -euo pipefail
 
+# Development evidence only. This script never performs Developer ID signing
+# or notarization; use package-public-release.sh for public artifacts.
+
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 derived_data="${HOMEWARD_DERIVED_DATA_PATH:-$repository_root/.build/xcode}"
 app="$derived_data/Build/Products/Release/Homeward.app"
@@ -9,6 +12,7 @@ dist="$repository_root/dist"
 verification_marker="${HOMEWARD_VERIFICATION_MARKER:-$derived_data/verified-release.json}"
 
 cd "$repository_root"
+# shellcheck source=scripts/release-evidence.sh
 source "$repository_root/scripts/release-evidence.sh"
 
 if [[ -n "$(git status --porcelain)" ]]; then
@@ -38,60 +42,10 @@ dsym="$derived_data/Build/Products/Release/Homeward.app.dSYM"
 }
 version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")"
 build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")"
-evidence="$(
-  /usr/bin/python3 - "$verification_marker" <<'PY'
-import json
-import re
-import sys
-
-with open(sys.argv[1], encoding="utf-8") as source:
-    evidence = json.load(source)
-expected_keys = {
-    "appTreeSHA256",
-    "binaryUUID",
-    "build",
-    "dSYMTreeSHA256",
-    "schemaVersion",
-    "sourceSHA",
-    "version",
-}
-if set(evidence) != expected_keys or evidence["schemaVersion"] != 1:
-    raise SystemExit("Invalid verified release evidence schema")
-for key in expected_keys - {"schemaVersion"}:
-    if not isinstance(evidence[key], str) or "\t" in evidence[key]:
-        raise SystemExit(f"Invalid verified release evidence field: {key}")
-if not re.fullmatch(r"[0-9a-f]{64}", evidence["appTreeSHA256"]):
-    raise SystemExit("Invalid app tree hash")
-if not re.fullmatch(r"[0-9a-f]{64}", evidence["dSYMTreeSHA256"]):
-    raise SystemExit("Invalid dSYM tree hash")
-if not re.fullmatch(r"[0-9a-f]{40}", evidence["sourceSHA"]):
-    raise SystemExit("Invalid source SHA")
-if not re.fullmatch(
-    r"[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}",
-    evidence["binaryUUID"],
-):
-    raise SystemExit("Invalid binary UUID")
-if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", evidence["version"]):
-    raise SystemExit("Invalid version")
-if not re.fullmatch(r"[1-9][0-9]*", evidence["build"]):
-    raise SystemExit("Invalid build")
-print(
-    "\t".join(
-        [
-            evidence["sourceSHA"],
-            evidence["appTreeSHA256"],
-            evidence["binaryUUID"],
-            evidence["dSYMTreeSHA256"],
-            evidence["version"],
-            evidence["build"],
-        ]
-    )
-)
-PY
-)"
+evidence="$(homeward_read_release_evidence "$verification_marker" 0)"
 IFS=$'\t' read -r verified_source_sha verified_app_tree_sha \
   verified_binary_uuid verified_dsym_tree_sha verified_version \
-  verified_build <<<"$evidence"
+  verified_build verified_ui_tests <<<"$evidence"
 source_sha="$(git rev-parse HEAD)"
 [[ "$verified_source_sha" == "$source_sha" &&
    "$verified_app_tree_sha" == "$(homeward_tree_sha256 "$app")" &&
@@ -149,6 +103,7 @@ SIGNATURE="$signature" \
 SIZE="$size" \
 SOURCE_SHA="$source_sha" \
 SWIFT_VERSION="$swift_version" \
+UI_TESTS_ENABLED="$verified_ui_tests" \
 VERSION="$version" \
 XCODE_VERSION="$xcode_version" \
 /usr/bin/python3 - "$output_root/${artifact_name}.manifest.json" <<'PY'
@@ -171,6 +126,7 @@ manifest = {
     "size": int(os.environ["SIZE"]),
     "sourceSHA": os.environ["SOURCE_SHA"],
     "swift": os.environ["SWIFT_VERSION"],
+    "uiTestsEnabled": os.environ["UI_TESTS_ENABLED"] == "true",
     "version": os.environ["VERSION"],
     "xcode": os.environ["XCODE_VERSION"],
 }
@@ -198,5 +154,5 @@ rm -f \
   "$dist/${artifact_name}.manifest.json"
 mv "$output_root"/* "$dist/"
 
-printf 'Created %s\n' "$dist/${artifact_name}.dmg"
+printf 'Created development-only candidate %s\n' "$dist/${artifact_name}.dmg"
 printf 'SHA-256 %s\n' "$checksum"

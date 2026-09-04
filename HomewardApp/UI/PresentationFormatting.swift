@@ -1,20 +1,18 @@
 import HomewardCore
 
 struct HomewardPresentationSnapshot: Equatable {
-    enum PrimaryAction: Equatable {
-        case none
-        case retryStartup
-        case openRecovery
-        case finishSetup
-        case showClosing
-        case resumeFirmClosing
-        case endWork
-        case saveThought
+    enum State: Equatable {
+        case starting
+        case startupDelayed
+        case configurationRecovery
+        case applicationResolutionRecovery
+        case onboarding
+        case operational
     }
 
+    let state: State
     let title: String
     let transitionText: String?
-    let primaryAction: PrimaryAction
     let savedThoughtCount: Int
     let attentionCount: Int
 
@@ -36,36 +34,36 @@ struct HomewardPresentationSnapshot: Equatable {
         switch health {
         case .starting:
             return Self(
+                state: .starting,
                 title: "Starting Homeward…",
                 transitionText: nil,
-                primaryAction: .none,
                 savedThoughtCount: 0,
                 attentionCount: attentionCount
             )
         case .startupDelayed:
             return Self(
+                state: .startupDelayed,
                 title: "Starting Homeward…",
                 transitionText:
                     "This is taking longer than expected. App closing has not started.",
-                primaryAction: .retryStartup,
                 savedThoughtCount: 0,
                 attentionCount: attentionCount
             )
         case .configurationUnavailable:
             return Self(
+                state: .configurationRecovery,
                 title: "App closing is paused",
                 transitionText:
                     "Homeward could not verify its saved settings, so it will not close any applications.",
-                primaryAction: .openRecovery,
                 savedThoughtCount: 0,
                 attentionCount: attentionCount
             )
         case .applicationResolutionUnavailable:
             return Self(
+                state: .applicationResolutionRecovery,
                 title: "App closing has not started",
                 transitionText:
                     "Homeward could not verify the selected applications. Your saved settings were kept.",
-                primaryAction: .openRecovery,
                 savedThoughtCount: 0,
                 attentionCount: attentionCount
             )
@@ -74,19 +72,20 @@ struct HomewardPresentationSnapshot: Equatable {
         }
         guard onboardingComplete else {
             return Self(
+                state: .onboarding,
                 title: "Finish setting up Homeward",
                 transitionText: nil,
-                primaryAction: .finishSetup,
                 savedThoughtCount: 0,
                 attentionCount: attentionCount
             )
         }
         if forceEscalationPaused {
             return Self(
+                state: .operational,
                 title: "Force quit is paused",
                 transitionText:
-                    "Work apps are still unavailable. Resume starts a new 30-second grace period.",
-                primaryAction: .resumeFirmClosing,
+                    "Work apps are still unavailable. Resume starts a new "
+                    + "\(HomewardPolicy.firmGracePeriodDescription) grace period.",
                 savedThoughtCount: savedThoughtCount,
                 attentionCount: attentionCount
             )
@@ -96,14 +95,67 @@ struct HomewardPresentationSnapshot: Equatable {
             closingCount: closingCount
         )
         return Self(
+            state: .operational,
             title: status.title,
             transitionText: SchedulePresentation.transitionText(for: schedule),
-            primaryAction: closingCount > 0
-                ? .showClosing
-                : schedule.isAvailable ? .endWork : .saveThought,
             savedThoughtCount: savedThoughtCount,
             attentionCount: attentionCount
         )
+    }
+}
+
+enum TodayActionPresentation {
+    enum Action: Hashable {
+        case extend(minutes: Int)
+        case chooseCutoff
+        case makeAvailable
+        case takeDayOff
+        case returnToWeeklySchedule
+
+        var title: String {
+            switch self {
+            case let .extend(minutes):
+                "Extend by \(minutes) Minutes"
+            case .chooseCutoff:
+                "Choose Another Cutoff…"
+            case .makeAvailable:
+                "Make Work Available Now"
+            case .takeDayOff:
+                "Take Today Off…"
+            case .returnToWeeklySchedule:
+                "Return to Weekly Schedule"
+            }
+        }
+    }
+
+    static let menuTitle = "Change Today Only…"
+    static let contextDescription = "Your weekly schedule will not change."
+    static let takeDayOffConfirmationTitle = "Take today off?"
+    static let takeDayOffConfirmationActionTitle = "Take Today Off"
+    static let takeDayOffConfirmationMessage =
+        "Homeward will apply the configured closing flow now and keep "
+        + "work apps unavailable through today."
+
+    static func actions(
+        canExtendToday: Bool,
+        isAvailable: Bool,
+        hasAvailabilityOverride: Bool
+    ) -> [Action] {
+        var actions: [Action] = []
+        if canExtendToday {
+            actions += HomewardPolicy.extensionDurationsMinutes.map {
+                .extend(minutes: $0)
+            }
+        }
+        actions.append(.chooseCutoff)
+        if !isAvailable {
+            actions.append(.makeAvailable)
+        }
+        actions.append(.takeDayOff)
+        if hasAvailabilityOverride {
+            actions.append(.returnToWeeklySchedule)
+        }
+        return actions
     }
 }
 
@@ -246,13 +298,6 @@ enum SchedulePresentation {
                 tone: .attention
             )
         }
-    }
-
-    static func stateTitle(
-        schedule: ResolvedSchedule,
-        closingCount: Int
-    ) -> String {
-        status(schedule: schedule, closingCount: closingCount).title
     }
 
     static func transitionText(for schedule: ResolvedSchedule) -> String {

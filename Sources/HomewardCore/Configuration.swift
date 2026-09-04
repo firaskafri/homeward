@@ -226,7 +226,7 @@ public struct NotesDocument: Codable, Equatable, Sendable {
         notes: [TomorrowNote] = []
     ) throws {
         guard schemaVersion == Self.currentSchemaVersion else {
-            throw ConfigurationError.unsupportedSchemaVersion(schemaVersion)
+            throw NotesError.unsupportedSchemaVersion(schemaVersion)
         }
         self.schemaVersion = schemaVersion
         self.notes = notes.sorted(by: Self.noteOrder)
@@ -236,7 +236,7 @@ public struct NotesDocument: Codable, Equatable, Sendable {
     public mutating func append(_ note: TomorrowNote) throws {
         try note.validate()
         guard !notes.contains(where: { $0.id == note.id }) else {
-            throw ConfigurationError.duplicateNote
+            throw NotesError.duplicateNote
         }
         notes.append(note)
         notes.sort(by: Self.noteOrder)
@@ -247,7 +247,7 @@ public struct NotesDocument: Codable, Equatable, Sendable {
         in intervalID: String
     ) throws {
         guard let index = notes.firstIndex(where: { $0.id == id }) else {
-            throw ConfigurationError.noteNotFound(id)
+            throw NotesError.noteNotFound(id)
         }
         try notes[index].markPresented(in: intervalID)
     }
@@ -258,7 +258,7 @@ public struct NotesDocument: Codable, Equatable, Sendable {
         guard let index = notes.firstIndex(
             where: { $0.id == previousValue.id }
         ) else {
-            throw ConfigurationError.noteNotFound(previousValue.id)
+            throw NotesError.noteNotFound(previousValue.id)
         }
         try notes[index].restorePresentation(from: previousValue)
     }
@@ -280,12 +280,12 @@ public struct NotesDocument: Codable, Equatable, Sendable {
 
     public func validate() throws {
         guard schemaVersion == Self.currentSchemaVersion else {
-            throw ConfigurationError.unsupportedSchemaVersion(schemaVersion)
+            throw NotesError.unsupportedSchemaVersion(schemaVersion)
         }
         try notes.forEach { try $0.validate() }
         let noteIDs = notes.map(\.id)
         guard Set(noteIDs).count == noteIDs.count else {
-            throw ConfigurationError.duplicateNote
+            throw NotesError.duplicateNote
         }
     }
 
@@ -304,6 +304,10 @@ public enum ConfigurationError: Error, Equatable, Sendable {
     case duplicateApplicationIdentifier
     case protectedApplicationSelection(String)
     case duplicateOverride
+}
+
+public enum NotesError: Error, Equatable, Sendable {
+    case unsupportedSchemaVersion(Int)
     case duplicateNote
     case noteNotFound(UUID)
 }

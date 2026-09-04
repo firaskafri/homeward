@@ -8,12 +8,19 @@ project="$repository_root/Homeward.xcodeproj"
 destination="platform=macOS,arch=arm64"
 verification_marker="${HOMEWARD_VERIFICATION_MARKER:-$derived_data/verified-release.json}"
 native_test_storage="$derived_data/native-test-storage"
+run_ui_tests="${RUN_UI_TESTS:-1}"
 
 cd "$repository_root"
 rm -f "$verification_marker"
 rm -rf "$native_test_storage"
 trap 'rm -rf "$native_test_storage"' EXIT
+# shellcheck source=scripts/release-evidence.sh
 source "$repository_root/scripts/release-evidence.sh"
+
+[[ "$run_ui_tests" == "0" || "$run_ui_tests" == "1" ]] || {
+  printf 'RUN_UI_TESTS must be 0 or 1.\n' >&2
+  exit 1
+}
 
 [[ "$(uname -m)" == "arm64" ]] || {
   printf 'Homeward verification requires an Apple Silicon host.\n' >&2
@@ -98,6 +105,7 @@ xcodebuild \
   -derivedDataPath "$derived_data" \
   clean
 swift scripts/check-test-docs.swift
+./scripts/test-public-release-gates.sh
 swift test
 
 HOMEWARD_TESTING=1 \
@@ -113,7 +121,7 @@ xcodebuild \
   INFOPLIST_KEY_LSMultipleInstancesProhibited=NO \
   test
 
-if [[ "${RUN_UI_TESTS:-1}" == "1" ]]; then
+if [[ "$run_ui_tests" == "1" ]]; then
   stop_repository_test_instances
   xcodebuild \
     -project "$project" \
@@ -127,7 +135,7 @@ if [[ "${RUN_UI_TESTS:-1}" == "1" ]]; then
     test
 else
   printf 'Skipping UI automation because RUN_UI_TESTS=%s.\n' \
-    "${RUN_UI_TESTS:-0}"
+    "$run_ui_tests"
 fi
 
 xcodebuild \
@@ -198,12 +206,19 @@ if [[ "$entitlements" == *"com.apple.security.app-sandbox"* ||
 fi
 homeward_verify_dsym "$binary" "$dsym"
 
+if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
+  printf '%s\n' \
+    'Homeward verification passed; release evidence omitted because the source tree is dirty.'
+  exit 0
+fi
+
 SOURCE_SHA="$(git rev-parse HEAD)" \
 APP_TREE_SHA="$(homeward_tree_sha256 "$app")" \
 DSYM_TREE_SHA="$(homeward_tree_sha256 "$dsym")" \
 BINARY_UUID="$(homeward_macho_uuid "$binary")" \
 VERSION="$version" \
 BUILD="$build" \
+UI_TESTS_ENABLED="$run_ui_tests" \
 /usr/bin/python3 - "$verification_marker" <<'PY'
 import json
 import os
@@ -214,8 +229,9 @@ evidence = {
     "binaryUUID": os.environ["BINARY_UUID"],
     "build": os.environ["BUILD"],
     "dSYMTreeSHA256": os.environ["DSYM_TREE_SHA"],
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "sourceSHA": os.environ["SOURCE_SHA"],
+    "uiTestsEnabled": os.environ["UI_TESTS_ENABLED"] == "1",
     "version": os.environ["VERSION"],
 }
 with open(sys.argv[1], "w", encoding="utf-8") as output:

@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import HomewardCore
 
 @MainActor
 final class HomewardUITestScenarioFixture {
@@ -37,7 +39,26 @@ final class HomewardUITestScenarioFixture {
            catalogDiscoveryCount == 1 {
             try await Task.sleep(for: .seconds(30))
         }
-        return []
+        guard scenario == .outsideApplications else {
+            return []
+        }
+        return [
+            application(
+                name: "Studio",
+                bundleIdentifier: "com.homeward.preview.studio",
+                path: "/Applications/Studio.app"
+            ),
+            application(
+                name: "Team Messages",
+                bundleIdentifier: "com.homeward.preview.messages",
+                path: "/Applications/Team Messages.app"
+            ),
+            application(
+                name: "Work Mail",
+                bundleIdentifier: "com.homeward.preview.mail",
+                path: "/Applications/Work Mail.app"
+            ),
+        ]
     }
 
     var installationLocationService: InstallationLocationService {
@@ -53,5 +74,22 @@ final class HomewardUITestScenarioFixture {
         case .standard, .delayedStartupRetry:
             InstallationLocationService(statusProvider: { .applications })
         }
+    }
+
+    private func application(
+        name: String,
+        bundleIdentifier: String,
+        path: String
+    ) -> CatalogApplication {
+        CatalogApplication(
+            id: bundleIdentifier,
+            selection: SelectedApplication(
+                bundleIdentifier: bundleIdentifier,
+                bundlePath: path,
+                displayName: name,
+                developerName: "Homeward Preview"
+            ),
+            icon: NSImage(size: NSSize(width: 16, height: 16))
+        )
     }
 }

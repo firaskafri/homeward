@@ -65,21 +65,6 @@ final class RunningApplicationController {
         applicationsBySessionID.removeValue(forKey: sessionID)
     }
 
-    func remove(processIdentifier: pid_t) {
-        applicationsBySessionID = applicationsBySessionID.filter {
-            $0.value.processIdentifier != processIdentifier
-        }
-    }
-
-    func liveSessionID(
-        processIdentifier: pid_t
-    ) -> ProcessSessionID? {
-        applicationsBySessionID.first { _, application in
-            application.processIdentifier == processIdentifier
-                && !application.isTerminated
-        }?.key
-    }
-
     private func validatedApplication(
         for sessionID: ProcessSessionID
     ) -> NSRunningApplication? {

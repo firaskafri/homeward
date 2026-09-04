@@ -3,14 +3,14 @@ import Testing
 @testable import HomewardCore
 
 // 1 - Name: Domain model test file.
-// 2 - Description: Verifies model validation, canonical identifiers, deterministic ordering, defaults, and note lifecycle rules.
+// 2 - Description: Verifies model validation, domain-specific errors, canonical identifiers, deterministic ordering, defaults, and note lifecycle rules.
 // 3 - Assumptions: Domain values reject invalid input before platform or persistence layers receive it.
 // 4 - Expectations: Invalid states are unrepresentable, persisted order is stable, and defaults match the product contract.
 
 /// 1 - Name: Domain model suite.
 /// 2 - Description: Covers value validation, override normalization and ordering, and configuration-level invariants.
 /// 3 - Assumptions: UUID and Date values are supplied explicitly when deterministic comparison matters.
-/// 4 - Expectations: Models initialize canonically and deterministically or return the documented validation error.
+/// 4 - Expectations: Models initialize canonically and deterministically or return the documented configuration, note, or value-validation error.
 @Suite("Domain models")
 struct ModelTests {
     /// 1 - Name: Invalid local time.
@@ -276,7 +276,7 @@ struct ModelTests {
         #expect(document.notes.map(\.text) == ["Earlier", "Later"])
         #expect(document.remove(id: earlier.id) == earlier)
         #expect(document.notes == [later])
-        #expect(throws: ConfigurationError.duplicateNote) {
+        #expect(throws: NotesError.duplicateNote) {
             _ = try NotesDocument(notes: [later, later])
         }
     }

@@ -1,7 +1,6 @@
 import AppKit
 import XCTest
 @testable import Homeward
-@testable import Homeward
 
 // 1 - Name: macOS platform integration test file.
 // 2 - Description: Exercises normal and forced termination only against the dedicated Homeward fixture application.

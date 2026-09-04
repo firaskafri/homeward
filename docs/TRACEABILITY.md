@@ -28,8 +28,8 @@ release requirements.
 | --- | --- | --- | --- |
 | PRD-001 | Calm native macOS utility; no accounts, analytics, cloud sync, inspection, gamification, or security-boundary claim | `README.md`, `DECISIONS.md`, native SwiftUI/AppKit views | Implemented product boundary; visual Threshold redesign pending |
 | STA-001 | Startup shows no schedule-derived state until configuration is verified | `RootView.swift`, `HomewardApp.swift`, `AppModel.start()` | Implemented in source: the window and menu-bar accessibility value gate schedule state on readiness |
-| STA-002 | Delayed startup has explicit non-enforcement copy and Retry | Required by `UI-STATE-MATRIX.md` | Pending |
-| STA-003 | Configuration failure supersedes schedule state and pauses closing | `AppModel.start()`, `RootView.swift`, recovery app-model tests | Partial: recovery and warning cleanup are implemented in source; automated stale-notification cleanup evidence is still missing |
+| STA-002 | Delayed startup has explicit non-enforcement copy and Retry | `HomewardApplicationDelegate`, `RootView.swift`, delayed-startup model and isolated UI tests | Implemented with deterministic Retry handoff and UI reachability evidence |
+| STA-003 | Configuration failure supersedes schedule state and pauses closing | `AppModel.start()`, `RootView.swift`, configuration-recovery model/UI tests, notification cleanup tests | Implemented in source and deterministic automation; platform Notification Center cleanup remains manual |
 | NAV-001 | Menu is the persistent compact status surface | `HomewardApp.swift` | Implemented baseline |
 | NAV-002 | Main destinations are Today, Schedule, Work Apps, Closing, Saved Thoughts, and Settings | `HomewardRoute`, `ManagementView.swift`, native Settings scene | Implemented |
 | NAV-003 | Open, Settings, Needs Attention, Saved Thoughts, and notification actions route truthfully | `HomewardApp.swift`, `ManagementView.swift`, `PresentationCoordinator.swift`, notification-action app-model tests | Implemented in source: stale and malformed warning actions make no mutation and route to Today with an explanation; current actions route to a shared confirmation intent |
@@ -57,7 +57,7 @@ release requirements.
 | SCH-002 | Rules follow the Mac's current wall clock, locale, and time zone | `ScheduleResolver.swift`, `WorkspaceMonitor.swift` | Implemented source; manual clock/time-zone evidence required |
 | SCH-003 | Available, winding down, closed, extended, next transition, and no-future-window states are deterministic | `ScheduleResolver.swift`, `PresentationFormatting.swift`, schedule tests | Implemented baseline |
 | SCH-004 | Draft, validation, saving, success, failure, and stale-policy conflict states follow the matrix | `ScheduleEditorView.swift`, `AppModel.commit()` | Partial |
-| SCH-005 | A change that makes the current time unavailable confirms the exact Gentle/Firm consequence | `ScheduleEditorView.swift`, `OverviewView.swift`, `HomewardApp.swift` | Partial: confirmation exists but says configured closing flow |
+| SCH-005 | A change that makes the current time unavailable confirms the exact Gentle/Firm consequence | `ScheduleEditorView.swift`, `TodayView.swift`, `HomewardApp.swift` | Partial: confirmation exists but says configured closing flow |
 | SCH-006 | Today-only overrides are bounded and Return to Weekly Schedule explains immediate closing when applicable | `Models.swift`, `ScheduleResolver.swift`, `AppModel.swift` | Partial: override logic exists; consequence confirmation is incomplete |
 
 ## Application selection and fail-open behavior
@@ -111,11 +111,11 @@ release requirements.
 | NTE-002 | Capture focuses the editor, prevents duplicate saves, and preserves the draft after failure | `NotesViews.swift`, `AppModel.saveNote()` | Implemented baseline; explicit Saving/success copy is pending |
 | NTE-003 | Automatic resurfacing is generic and conceals text until deliberate review | `AppModel.presentNotesIfNeeded()`, `NotesReadyPanelController`, note-concealment tests | Implemented in source with passive title/count-only readiness and explicit review |
 | NTE-004 | Thought content is suppressed while the session is locked or inactive | `WorkspaceMonitor.swift`, `AppModel.canRevealNoteContent`, note session-transition tests | Implemented in source; lock and fast-user-switch behavior remains a manual platform gate |
-| NTE-005 | Keep defers by interval and Mark Done offers Restore until review dismissal or explicit confirmation | `NotesDocument.restorePresentation(from:)`, `NotesReviewView`, identity/order tests | Implemented in source with persistent review-session Restore and Undo Keep; no permanent archive |
+| NTE-005 | Keep defers by interval and Mark Done offers Restore until review dismissal or explicit confirmation | `NotesDocument.restorePresentation(from:)`, `NotesReviewView`, identity/order and app-model completion/restore tests | Implemented in source with persistent review-session Restore and Undo Keep; no permanent archive |
 | NTE-006 | Delete is confirmed and irreversible copy is explicit | `NotesReviewView` | Implemented in source with approved irreversible copy |
-| NTE-007 | Notes load/mutation recovery is separate from configuration recovery | `HomewardRepository.swift`, `AppModel`, `NotesReviewView`, notes-recovery tests | Implemented in source with Retry, validated-backup Restore, and notes-only Reset |
+| NTE-007 | Notes load/mutation recovery is separate from configuration recovery | `HomewardRepository.swift`, `AppModel`, `NotesReviewView`, recovery-separation model/UI tests | Implemented in source with Retry, validated-backup Restore, notes-only Reset, and UI evidence that runtime remains ready |
 | NTE-008 | A permanent notes archive is outside the version 0.1.0 baseline | `DECISIONS.md`, `UX-SPEC.md` | Deferred after version 0.1.0 |
-| REC-001 | Configuration recovery offers Retry, validated backup restore, and explicit reset while preserving notes | `RootView.swift`, `HomewardRepository.swift`, `AppModel` recovery methods | Implemented baseline |
+| REC-001 | Configuration recovery offers Retry, validated backup restore, and explicit reset while preserving notes | `RootView.swift`, `HomewardRepository.swift`, `AppModel` recovery methods, `configurationResetPreservesSavedThoughts()` | Implemented with deterministic preservation evidence |
 | REC-002 | Startup storage initialization failure is presented recoverably rather than terminating | `HomewardRepository`, `AppModel.start()`, `AppModelTests.unavailableStorageEntersRecovery()` | Implemented |
 
 ## Focus, accessibility, visual, and localization
@@ -129,7 +129,7 @@ release requirements.
 | A11Y-002 | Labels, roles, values, errors, disabled reasons, and status announcements are programmatically available | Accessibility modifiers, `lastError` announcement, note disabled reason, UI tests | Partial |
 | A11Y-003 | State and action meaning never depend on color alone | SwiftUI views and visual review | Partial/manual evidence |
 | A11Y-004 | WCAG 2.2 A/AA contrast, reflow, target size, timing, and error requirements apply where meaningful | `ACCESSIBILITY.md` | Manual evidence; no conformance claim |
-| VIS-001 | Native semantic design works in light/dark, increased contrast, reduced motion/transparency, long text, and minimum size | Semantic colors, `ViewThatFits`, opaque reduced-transparency cards, reduced-motion panel behavior | Partial/manual evidence: deterministic adaptations are implemented; visual settings, long-copy bounds, and zoom still require manual validation |
+| VIS-001 | Native semantic design works in light/dark, increased contrast, reduced motion/transparency, long text, and minimum size | Semantic colors, `ViewThatFits`, opaque reduced-transparency cards, reduced-motion panel behavior, long-application-name UI test | Partial/manual evidence: the Work Apps row and chooser remain reachable with a representative long name; compact resizing, other long-copy surfaces, visual settings, largest text, and zoom still require manual validation |
 | LOC-001 | Localization is outside the version 0.1.0 English-only baseline | `DECISIONS.md`, `ACCESSIBILITY.md`, Foundation date formatting | Deferred after version 0.1.0; locale-aware date/time formatting exists, but full string externalization, translated plurals/lists, RTL, and pseudo-localization are not claimed |
 
 ## Reliability and release evidence
@@ -139,7 +139,7 @@ release requirements.
 | REL-001 | Time-zone, clock, day, wake, and session changes trigger reconciliation | `WorkspaceMonitor.swift`, `AppModel.swift` | Implemented source; device evidence required |
 | REL-002 | Configuration and notes saves are validated and atomic | `AtomicFileStore.swift`, `HomewardRepository.swift`, store tests | Implemented source |
 | REL-003 | Failed policy saves retain the previous verified policy and explain that no new policy applied | `AppModel.commit()` | Implemented baseline |
-| REL-004 | Start at Login statuses and recovery are truthful | `LoginItemService.swift`, `InstallationLocationService`, general settings, outside-Applications tests | Implemented in source, including disabled outside-Applications guidance, Show in Finder, and Check Again; system approval/login evidence remains manual |
+| REL-004 | Start at Login statuses and recovery are truthful | `LoginItemService.swift`, `InstallationLocationService`, general settings, outside-Applications model/UI tests | Implemented in source, including disabled outside-Applications guidance, Show in Finder, and Check Again; real system approval/login evidence remains manual |
 | REL-005 | Quit paths share one termination policy and do not block OS shutdown | `HomewardApplicationDelegate.applicationShouldTerminate`, `AppModel.prepareForTermination()`, `AppModel.quit()` | Implemented in source; logout/shutdown execution remains a manual platform check |
 | REL-006 | UI placement and lifecycle work across lock, sleep/wake, Spaces, full-screen, and multiple displays | Panel factory, workspace monitor, manual test plan | Manual evidence |
 | REL-007 | Version 0.1.0 updates use manual download and replacement | `GeneralSettingsView.swift`, `DECISIONS.md`, `DISTRIBUTION.md` | Implemented with version/build, download, release-note, support, privacy, manual update, removal, and data-deletion guidance; automatic updates and in-app uninstall remain deferred |

@@ -48,15 +48,28 @@ The verification entry point regenerates the Xcode project, checks mandatory
 test documentation, runs pure-core tests, native app and UI tests, static
 analysis, and an arm64 Release build.
 
-To produce an unreleased, ad-hoc-signed DMG and provenance manifest after
-verification:
+To produce an unreleased, ad-hoc-signed development DMG and provenance
+manifest after verification:
 
 ```sh
 RUN_UI_TESTS=0 ./scripts/package-local-candidate.sh
 ```
 
-That artifact is test evidence, not a distributable release. Public
-distribution still requires Developer ID signing and notarization.
+That artifact is test evidence, not a distributable release. It remains
+development-only.
+
+Public distribution uses the separate fail-closed Developer ID workflow:
+
+```sh
+./scripts/package-public-release.sh --check \
+  --identity "Developer ID Application: Firas Al Kafri (752LD44EEA)" \
+  --team-id 752LD44EEA \
+  --notary-profile "<keychain-profile>"
+```
+
+See [`docs/DISTRIBUTION.md`](docs/DISTRIBUTION.md) for the exact tagged release
+procedure and artifact set, and [`docs/STATUS.md`](docs/STATUS.md) for the
+dated release-readiness snapshot.
 
 ## Architecture
 

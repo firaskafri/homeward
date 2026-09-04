@@ -2,6 +2,9 @@ import Foundation
 
 public enum HomewardPolicy {
     public static let firmGracePeriod: TimeInterval = 30
+    public static var firmGracePeriodDescription: String {
+        "\(Int(firmGracePeriod))-second"
+    }
     public static let gentleAttentionDelay: TimeInterval = 5
     public static let forceTerminationVerificationDelay: TimeInterval = 2
     public static let launchMetadataRetryDelay: TimeInterval = 0.25
