@@ -56,8 +56,16 @@ fi
 
 required_xcodegen_version="2.46.0"
 actual_xcodegen_version="$(xcodegen version | awk '{print $2}')"
+IFS=. read -r required_major required_minor required_patch \
+  <<<"$required_xcodegen_version"
 IFS=. read -r actual_major actual_minor _ <<<"$actual_xcodegen_version"
-if (( actual_major < 2 || (actual_major == 2 && actual_minor < 46) )); then
+actual_patch="${actual_xcodegen_version##*.}"
+if (( actual_major < required_major ||
+      (actual_major == required_major &&
+       actual_minor < required_minor) ||
+      (actual_major == required_major &&
+       actual_minor == required_minor &&
+       actual_patch < required_patch) )); then
   printf 'XcodeGen %s is required; found %s.\n' \
     "$required_xcodegen_version" "$actual_xcodegen_version" >&2
   exit 1
@@ -86,6 +94,7 @@ after_generation="$(generated_hash)"
   printf 'Homeward.xcodeproj was stale. Regenerate and review it before verification.\n' >&2
   exit 1
 }
+swift scripts/render-app-icon.swift --check
 stop_repository_test_instances
 xcodebuild \
   -project "$project" \
@@ -145,9 +154,14 @@ xcodebuild \
 app="$derived_data/Build/Products/Release/Homeward.app"
 binary="$app/Contents/MacOS/Homeward"
 plist="$app/Contents/Info.plist"
+app_icon="$app/Contents/Resources/AppIcon.icns"
 
 [[ -d "$app" ]] || {
   printf 'Release app was not produced: %s\n' "$app" >&2
+  exit 1
+}
+[[ -s "$app_icon" ]] || {
+  printf 'Release app icon was not produced: %s\n' "$app_icon" >&2
   exit 1
 }
 [[ "$(/usr/bin/lipo -archs "$binary")" == "arm64" ]] || {

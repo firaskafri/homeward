@@ -2,34 +2,74 @@ import Foundation
 import HomewardCore
 
 actor HomewardRepository {
+    nonisolated private static let configurationFilename =
+        "configuration.json"
+    nonisolated private static let notesFilename = "notes.json"
+
     private let configurationStore: AtomicFileStore<HomewardConfiguration>
     private let notesStore: AtomicFileStore<NotesDocument>
 
     init() throws {
-        let fileManager = FileManager()
+        self.init(directoryURL: try Self.defaultDirectoryURL())
+    }
+
+    init(directoryURL: URL) {
+        configurationStore = AtomicFileStore(
+            fileURL: directoryURL.appendingPathComponent(
+                Self.configurationFilename
+            )
+        )
+        notesStore = AtomicFileStore(
+            fileURL: directoryURL.appendingPathComponent(Self.notesFilename)
+        )
+    }
+
+    nonisolated static func defaultDirectoryURL(
+        fileManager: FileManager = FileManager(),
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws -> URL {
+        if let storagePath = environment["HOMEWARD_STORAGE_DIRECTORY"],
+           !storagePath.isEmpty {
+            return URL(fileURLWithPath: storagePath, isDirectory: true)
+        }
         let applicationSupport = try fileManager.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
             appropriateFor: nil,
             create: true
         )
-        let directory = applicationSupport
+        return applicationSupport
             .appendingPathComponent("Homeward", isDirectory: true)
-        configurationStore = AtomicFileStore(
-            fileURL: directory.appendingPathComponent("configuration.json")
-        )
-        notesStore = AtomicFileStore(
-            fileURL: directory.appendingPathComponent("notes.json")
-        )
     }
 
-    init(directoryURL: URL) {
-        configurationStore = AtomicFileStore(
-            fileURL: directoryURL.appendingPathComponent("configuration.json")
-        )
-        notesStore = AtomicFileStore(
-            fileURL: directoryURL.appendingPathComponent("notes.json")
-        )
+    nonisolated static func shouldPresentMainWindow() -> Bool {
+        guard let directoryURL = try? defaultDirectoryURL() else {
+            return true
+        }
+        return shouldPresentMainWindow(directoryURL: directoryURL)
+    }
+
+    nonisolated static func shouldPresentMainWindow(
+        directoryURL: URL
+    ) -> Bool {
+        do {
+            let configurationURL = directoryURL.appendingPathComponent(
+                configurationFilename
+            )
+            guard FileManager.default.fileExists(
+                atPath: configurationURL.path
+            ) else {
+                return true
+            }
+            let data = try Data(contentsOf: configurationURL)
+            let configuration = try JSONDecoder().decode(
+                HomewardConfiguration.self,
+                from: data
+            )
+            return !configuration.completedOnboarding
+        } catch {
+            return true
+        }
     }
 
     func loadConfiguration() async throws -> HomewardConfiguration? {

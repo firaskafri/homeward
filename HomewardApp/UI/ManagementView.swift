@@ -64,9 +64,9 @@ struct ManagementView: View {
     private var sidebarStatus: some View {
         VStack(alignment: .leading, spacing: HomewardSpacing.small) {
             HomewardStatusLabel(
-                title: sidebarStatusTitle,
-                symbol: sidebarStatusSymbol,
-                tone: sidebarStatusTone
+                title: scheduleStatus.title,
+                symbol: scheduleStatus.symbol,
+                tone: scheduleStatus.tone
             )
             Text(SchedulePresentation.transitionText(for: model.resolvedSchedule))
                 .font(.caption)
@@ -78,41 +78,11 @@ struct ManagementView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private var sidebarStatusTitle: String {
-        SchedulePresentation.stateTitle(
+    private var scheduleStatus: ScheduleStatusPresentation {
+        SchedulePresentation.status(
             schedule: model.resolvedSchedule,
             closingCount: model.closingRows.count
         )
-    }
-
-    private var sidebarStatusSymbol: String {
-        if !model.closingRows.isEmpty {
-            return "power"
-        }
-        return switch model.resolvedSchedule.phase {
-        case .workAvailable:
-            "checkmark.circle.fill"
-        case .windingDown:
-            "clock.fill"
-        case .workClosed:
-            "moon.stars.fill"
-        case .temporarilyExtended:
-            "clock.badge.plus"
-        }
-    }
-
-    private var sidebarStatusTone: HomewardTone {
-        if !model.closingRows.isEmpty {
-            return .attention
-        }
-        return switch model.resolvedSchedule.phase {
-        case .workAvailable:
-            .ready
-        case .windingDown, .temporarilyExtended:
-            .attention
-        case .workClosed:
-            .rest
-        }
     }
 
     @ViewBuilder
@@ -127,20 +97,11 @@ struct ManagementView: View {
         case .closing:
             ClosingSettingsView(model: model)
         case .savedThoughts:
-            SavedThoughtsDestinationView(
+            NotesReviewView(
                 model: model,
-                onDone: { navigation.select(.today) }
+                onClose: { navigation.select(.today) }
             )
-        }
-    }
-}
-
-private struct SavedThoughtsDestinationView: View {
-    @ObservedObject var model: AppModel
-    let onDone: () -> Void
-
-    var body: some View {
-        NotesReviewView(model: model, onClose: onDone)
             .navigationTitle("Saved Thoughts")
+        }
     }
 }

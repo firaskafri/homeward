@@ -1,3 +1,4 @@
+import Foundation
 import ServiceManagement
 
 @MainActor
@@ -9,14 +10,63 @@ final class LoginItemService {
         case notFound
     }
 
-    private let service: SMAppService
+    enum ServiceStatus {
+        case notRegistered
+        case enabled
+        case requiresApproval
+        case notFound
+        case unavailable
+    }
+
+    enum ServiceError: Error {
+        case unavailable
+    }
+
+    private let statusProvider: () -> ServiceStatus
+    private let register: () throws -> Void
+    private let unregister: () throws -> Void
+    private let openSettings: () -> Void
 
     init(service: SMAppService = .mainApp) {
-        self.service = service
+        statusProvider = {
+            switch service.status {
+            case .notRegistered:
+                return .notRegistered
+            case .enabled:
+                return .enabled
+            case .requiresApproval:
+                return .requiresApproval
+            case .notFound:
+                return .notFound
+            @unknown default:
+                return .unavailable
+            }
+        }
+        register = {
+            try service.register()
+        }
+        unregister = {
+            try service.unregister()
+        }
+        openSettings = {
+            SMAppService.openSystemSettingsLoginItems()
+        }
+    }
+
+    init(
+        statusProvider: @escaping () -> ServiceStatus,
+        register: @escaping () throws -> Void = {},
+        unregister: @escaping () throws -> Void = {},
+        openSettings: @escaping () -> Void = {}
+    ) {
+        self.statusProvider = statusProvider
+        self.register = register
+        self.unregister = unregister
+        self.openSettings = openSettings
     }
 
     var status: Status {
-        switch service.status {
+        switch statusProvider() {
         case .notRegistered:
             .notRegistered
         case .enabled:
@@ -25,20 +75,30 @@ final class LoginItemService {
             .requiresApproval
         case .notFound:
             .notFound
-        @unknown default:
+        case .unavailable:
             .notFound
         }
     }
 
     func enable() throws {
-        try service.register()
+        guard statusProvider() != .unavailable else {
+            throw ServiceError.unavailable
+        }
+        try register()
     }
 
     func disable() throws {
-        try service.unregister()
+        switch statusProvider() {
+        case .enabled, .requiresApproval:
+            try unregister()
+        case .notRegistered, .notFound:
+            return
+        case .unavailable:
+            throw ServiceError.unavailable
+        }
     }
 
     func openSystemSettings() {
-        SMAppService.openSystemSettingsLoginItems()
+        openSettings()
     }
 }

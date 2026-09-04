@@ -22,7 +22,7 @@ struct RootView: View {
     }
 
     private var recoveryView: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: HomewardSpacing.large) {
             Label(
                 "App closing is paused",
                 systemImage: "exclamationmark.triangle"
@@ -47,7 +47,7 @@ struct RootView: View {
                 }
             }
         }
-        .padding(24)
+        .padding(HomewardSpacing.xLarge)
         .frame(minWidth: 520, minHeight: 320)
         .confirmationDialog(
             "Reset Homeward setup?",

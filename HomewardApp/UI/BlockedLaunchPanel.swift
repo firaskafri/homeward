@@ -14,7 +14,7 @@ final class BlockedLaunchPanelController: NSWindowController {
             size: NSSize(width: 560, height: 360),
             minimumSize: NSSize(width: 480, height: 300),
             resizable: true,
-            floatsAutomatically: true
+            floatsAcrossSpaces: true
         )
         let view = BlockedLaunchView(
             model: model,
@@ -36,10 +36,6 @@ final class BlockedLaunchPanelController: NSWindowController {
         window?.orderFrontRegardless()
     }
 
-    var isVisible: Bool {
-        window?.isVisible == true
-            && window?.occlusionState.contains(.visible) == true
-    }
 }
 
 private struct BlockedLaunchView: View {
@@ -128,7 +124,7 @@ private struct BlockedLaunchView: View {
                     .accessibilityHint("Leaves the current schedule unchanged")
                 }
             }
-            .padding(24)
+            .padding(HomewardSpacing.xLarge)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.visible)

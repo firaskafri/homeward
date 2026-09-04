@@ -77,6 +77,46 @@ struct AppModelTests {
         #expect(Set(custom.map(\.effect)) == [.allow, .block])
     }
 
+    /// 1 - Name: Continuous schedule early ending.
+    /// 2 - Description: Ends work temporarily when every weekday is otherwise available all day.
+    /// 3 - Assumptions: A continuously available schedule has no natural weekly boundary.
+    /// 4 - Expectations: The temporary block ends at the next local day boundary, not distant future.
+    @Test
+    func continuousScheduleEndWorkExpiresAtNextDay() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let calendar = Calendar.autoupdatingCurrent
+        let now = try #require(calendar.date(from: DateComponents(
+            year: 2026,
+            month: 9,
+            day: 7,
+            hour: 12
+        )))
+        let model = try AppModel(
+            repository: HomewardRepository(directoryURL: fixture.directoryURL),
+            nowProvider: { now }
+        )
+        let rules = Dictionary(
+            uniqueKeysWithValues: Weekday.allCases.map {
+                ($0, DayRule.availableAllDay)
+            }
+        )
+        await model.setSchedule(try WeeklySchedule(rules: rules))
+
+        await model.endWorkNow()
+
+        let endWorkOverride = try #require(
+            model.configuration.overrides.first(where: {
+                $0.kind == .endWorkNow
+            })
+        )
+        let expectedExpiry = ScheduleResolver().nextLocalDayBoundary(
+            after: now,
+            calendar: calendar
+        )
+        #expect(endWorkOverride.expiresAt == expectedExpiry)
+    }
+
     /// 1 - Name: Stop Force Quit runtime latch.
     /// 2 - Description: Applies the safety action before relying on persistence.
     /// 3 - Assumptions: No running targets are required to create the blocked-interval pause.
@@ -113,10 +153,7 @@ struct AppModelTests {
             }
         )
         let pendingSave = Task { @MainActor in
-            await model.setWarningPreferences(WarningPreferences(
-                fifteenMinuteWarningEnabled: false,
-                fiveMinuteWarningEnabled: true
-            ))
+            await model.setWarning(.fifteenMinute, enabled: false)
         }
         await saveGate.waitUntilFirstSaveStarts()
         let (started, startedContinuation) = AsyncStream<Void>.makeStream()
@@ -282,10 +319,42 @@ struct AppModelTests {
         #expect(model.lastError != nil)
     }
 
+    /// 1 - Name: Initial window launch policy.
+    /// 2 - Description: Chooses visible startup for new or corrupt state and quiet startup after completed setup.
+    /// 3 - Assumptions: The synchronous launch decision reads the same validated configuration format as the repository.
+    /// 4 - Expectations: Missing and corrupt files present a window; a completed configuration suppresses it.
+    @Test
+    func initialWindowLaunchPolicy() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        #expect(HomewardRepository.shouldPresentMainWindow(
+            directoryURL: fixture.directoryURL
+        ))
+
+        var configuration = try HomewardConfiguration.initial()
+        configuration.onboardingScheduleConfirmed = true
+        configuration.completedOnboarding = true
+        _ = try await HomewardRepository(
+            directoryURL: fixture.directoryURL
+        ).saveConfiguration(configuration)
+        #expect(!HomewardRepository.shouldPresentMainWindow(
+            directoryURL: fixture.directoryURL
+        ))
+
+        try Data("corrupt".utf8).write(
+            to: fixture.directoryURL.appendingPathComponent(
+                "configuration.json"
+            )
+        )
+        #expect(HomewardRepository.shouldPresentMainWindow(
+            directoryURL: fixture.directoryURL
+        ))
+    }
+
     /// 1 - Name: Notification cutoff payload.
     /// 2 - Description: Round-trips the warning cutoff used to reject stale notification actions.
     /// 3 - Assumptions: User-notification payloads preserve numeric property-list values.
-    /// 4 - Expectations: Valid payloads recover the exact cutoff and missing context is rejected.
+    /// 4 - Expectations: Valid payloads recover the cutoff; missing or nonfinite context is rejected.
     @Test
     func notificationCutoffPayloadRoundTrips() {
         let cutoff = Date(timeIntervalSince1970: 1_789_000_000.25)
@@ -296,6 +365,9 @@ struct AppModelTests {
                 == WarningActionContext(cutoff: cutoff)
         )
         #expect(HomewardNotificationService.warningActionContext(from: [:]) == nil)
+        #expect(HomewardNotificationService.warningActionContext(
+            from: ["homeward-warning-cutoff": Double.infinity]
+        ) == nil)
     }
 
     /// 1 - Name: Stale notification action.

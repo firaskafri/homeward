@@ -1,0 +1,89 @@
+{
+  "closeMode" : "gentle",
+  "completedOnboarding" : true,
+  "consumedGentleExtensionIntervalIDs" : [
+
+  ],
+  "gentleShortcutExtensionEnabled" : false,
+  "onboardingScheduleConfirmed" : true,
+  "overrides" : [
+
+  ],
+  "schedule" : {
+    "rules" : [
+      5,
+      {
+        "blockedAllDay" : {
+
+        }
+      },
+      6,
+      {
+        "blockedAllDay" : {
+
+        }
+      },
+      7,
+      {
+        "blockedAllDay" : {
+
+        }
+      },
+      3,
+      {
+        "blockedAllDay" : {
+
+        }
+      },
+      2,
+      {
+        "blockedAllDay" : {
+
+        }
+      },
+      1,
+      {
+        "blockedAllDay" : {
+
+        }
+      },
+      4,
+      {
+        "blockedAllDay" : {
+
+        }
+      }
+    ]
+  },
+  "schemaVersion" : 1,
+  "selectedApplications" : [
+    {
+      "bundleIdentifier" : "com.homeward.preview.studio",
+      "bundlePath" : "\/Applications\/Studio.app",
+      "developerName" : "Homeward Preview",
+      "displayName" : "Studio",
+      "id" : "11111111-1111-1111-1111-111111111111",
+      "isResolvable" : true
+    },
+    {
+      "bundleIdentifier" : "com.homeward.preview.messages",
+      "bundlePath" : "\/Applications\/Team Messages.app",
+      "developerName" : "Homeward Preview",
+      "displayName" : "Team Messages",
+      "id" : "22222222-2222-2222-2222-222222222222",
+      "isResolvable" : true
+    },
+    {
+      "bundleIdentifier" : "com.homeward.preview.mail",
+      "bundlePath" : "\/Applications\/Work Mail.app",
+      "developerName" : "Homeward Preview",
+      "displayName" : "Work Mail",
+      "id" : "33333333-3333-3333-3333-333333333333",
+      "isResolvable" : true
+    }
+  ],
+  "warningPreferences" : {
+    "fifteenMinuteWarningEnabled" : true,
+    "fiveMinuteWarningEnabled" : true
+  }
+}

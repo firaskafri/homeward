@@ -28,7 +28,6 @@ struct InlineErrorView: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Error")
         .accessibilityIdentifier("inline.error")
     }
 }

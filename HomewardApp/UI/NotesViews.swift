@@ -10,7 +10,7 @@ final class NotesPanelController: NSWindowController {
             size: NSSize(width: 620, height: 500),
             minimumSize: NSSize(width: 520, height: 360),
             resizable: true,
-            floatsAutomatically: true
+            floatsAcrossSpaces: true
         )
         let view = NotesReviewView(
             model: model,
@@ -59,10 +59,6 @@ final class NoteCapturePanelController: NSWindowController {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    var isVisible: Bool {
-        window?.isVisible == true
-            && window?.occlusionState.contains(.visible) == true
-    }
 }
 
 struct NoteCaptureView: View {
@@ -71,11 +67,6 @@ struct NoteCaptureView: View {
     @State private var isSaving = false
     @FocusState private var editorFocused: Bool
     let onClose: () -> Void
-
-    init(model: AppModel, onClose: @escaping () -> Void) {
-        self.model = model
-        self.onClose = onClose
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -86,7 +77,7 @@ struct NoteCaptureView: View {
                 tone: .rest
             )
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: HomewardSpacing.small) {
                 Text("Thought")
                     .font(.headline)
 
@@ -171,7 +162,7 @@ struct NoteCaptureView: View {
                 .accessibilityIdentifier("notes.save")
             }
         }
-        .padding(24)
+        .padding(HomewardSpacing.xLarge)
         .frame(minWidth: 420, minHeight: 300)
         .onAppear {
             Task { @MainActor in
@@ -210,11 +201,6 @@ struct NotesReviewView: View {
     @State private var recentlyCompleted: TomorrowNote?
     @State private var undoTask: Task<Void, Never>?
     let onClose: () -> Void
-
-    init(model: AppModel, onClose: @escaping () -> Void) {
-        self.model = model
-        self.onClose = onClose
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -282,7 +268,7 @@ struct NotesReviewView: View {
                 .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(24)
+        .padding(HomewardSpacing.xLarge)
         .frame(minWidth: 500, minHeight: 340)
         .onDisappear {
             undoTask?.cancel()
@@ -348,7 +334,7 @@ struct NotesReviewView: View {
             }
             .controlSize(.small)
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, HomewardSpacing.small)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(
             "Thought from \(note.createdAt.formatted(date: .abbreviated, time: .shortened))"

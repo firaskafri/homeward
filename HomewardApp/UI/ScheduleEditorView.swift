@@ -6,10 +6,10 @@ struct ScheduleEditorView: View {
     let requiresOnboardingConfirmation: Bool
     @State private var rules: [Weekday: DayRule]
     @State private var validationMessage: String?
+    @State private var saveErrorMessage: String?
     @State private var isSaving = false
     @State private var copySource: Weekday = .monday
     @State private var pendingSchedule: WeeklySchedule?
-    @State private var showImmediateCloseConfirmation = false
     @State private var lastSavedScheduleWasConfirmed: Bool
     @State private var showsCopyTools = false
 
@@ -28,7 +28,7 @@ struct ScheduleEditorView: View {
     var body: some View {
         Form {
             Section {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: HomewardSpacing.small) {
                     Label("Set your work window", systemImage: "calendar.badge.clock")
                         .font(.title2.bold())
                         .accessibilityAddTraits(.isHeader)
@@ -39,7 +39,7 @@ struct ScheduleEditorView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, HomewardSpacing.xSmall)
                 .accessibilityElement(children: .combine)
             }
 
@@ -80,7 +80,7 @@ struct ScheduleEditorView: View {
                             copyDestinationMenu
                         }
                     }
-                    .padding(.top, 8)
+                    .padding(.top, HomewardSpacing.small)
                 }
             }
 
@@ -110,6 +110,15 @@ struct ScheduleEditorView: View {
                 }
             }
 
+            if let saveErrorMessage {
+                Section {
+                    InlineErrorView(message: saveErrorMessage) {
+                        self.saveErrorMessage = nil
+                        model.clearError()
+                    }
+                }
+            }
+
             Section {
                 ViewThatFits(in: .horizontal) {
                     HStack {
@@ -129,7 +138,7 @@ struct ScheduleEditorView: View {
         .navigationTitle("Schedule")
         .confirmationDialog(
             "Save and close work apps now?",
-            isPresented: $showImmediateCloseConfirmation
+            isPresented: pendingScheduleConfirmation
         ) {
             Button("Save & Close", role: .destructive) {
                 if let pendingSchedule {
@@ -196,6 +205,7 @@ struct ScheduleEditorView: View {
             Button("Reset Draft") {
                 rules = model.configuration.schedule.rules
                 validationMessage = nil
+                saveErrorMessage = nil
                 if requiresOnboardingConfirmation,
                    lastSavedScheduleWasConfirmed {
                     model.restoreOnboardingScheduleConfirmation()
@@ -301,7 +311,6 @@ struct ScheduleEditorView: View {
                model.resolvedSchedule.isAvailable,
                !result.isAvailable {
                 pendingSchedule = schedule
-                showImmediateCloseConfirmation = true
             } else {
                 performSave(schedule)
             }
@@ -312,15 +321,25 @@ struct ScheduleEditorView: View {
 
     private func performSave(_ schedule: WeeklySchedule) {
         isSaving = true
+        saveErrorMessage = nil
         model.clearError()
         Task { @MainActor in
             await model.setSchedule(schedule)
-            rules = model.configuration.schedule.rules
-            validationMessage = model.lastError
-            lastSavedScheduleWasConfirmed =
-                model.configuration.onboardingScheduleConfirmed
+            saveErrorMessage = model.lastError
+            if saveErrorMessage == nil {
+                rules = model.configuration.schedule.rules
+                lastSavedScheduleWasConfirmed =
+                    model.configuration.onboardingScheduleConfirmed
+            }
             isSaving = false
         }
+    }
+
+    private var pendingScheduleConfirmation: Binding<Bool> {
+        Binding(
+            get: { pendingSchedule != nil },
+            set: { if !$0 { pendingSchedule = nil } }
+        )
     }
 
     private func scheduleValidationMessage(_ error: Error) -> String {
@@ -355,14 +374,17 @@ private struct DayRuleRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ViewThatFits(in: .horizontal) {
-                HStack(alignment: .firstTextBaseline, spacing: 16) {
+                HStack(
+                    alignment: .firstTextBaseline,
+                    spacing: HomewardSpacing.large
+                ) {
                     Text(weekdayName)
                         .font(.headline)
                         .frame(minWidth: 92, alignment: .leading)
                     Spacer()
                     modePicker
                 }
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: HomewardSpacing.small) {
                     Text(weekdayName)
                         .font(.headline)
                     modePicker
@@ -377,7 +399,7 @@ private struct DayRuleRow: View {
                             .accessibilityHidden(true)
                         timeControls
                     }
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: HomewardSpacing.small) {
                         timeControls
                     }
                 }
@@ -393,7 +415,7 @@ private struct DayRuleRow: View {
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, HomewardSpacing.xSmall)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("schedule.day.\(weekday.rawValue)")
     }

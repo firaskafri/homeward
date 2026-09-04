@@ -23,7 +23,9 @@ struct OverviewView: View {
             VStack(alignment: .leading, spacing: HomewardSpacing.xLarge) {
                 stateHero
                 if let lastError = model.lastError {
-                    errorCard(lastError)
+                    InlineErrorView(message: lastError) {
+                        model.clearError()
+                    }
                 }
                 readinessSection
                 actionSection
@@ -165,24 +167,18 @@ struct OverviewView: View {
             ) {
                 readinessCard(
                     title: "Start at Login",
-                    status: loginReadiness.status,
-                    detail: loginReadiness.detail,
-                    symbol: "power",
-                    tone: loginReadiness.tone
+                    leadingSymbol: "power",
+                    presentation: loginReadiness
                 )
                 readinessCard(
                     title: "Notifications",
-                    status: notificationReadiness.status,
-                    detail: notificationReadiness.detail,
-                    symbol: "bell",
-                    tone: notificationReadiness.tone
+                    leadingSymbol: "bell",
+                    presentation: notificationReadiness
                 )
                 readinessCard(
                     title: "Work Apps",
-                    status: applicationReadiness.status,
-                    detail: applicationReadiness.detail,
-                    symbol: "square.grid.2x2",
-                    tone: applicationReadiness.tone
+                    leadingSymbol: "square.grid.2x2",
+                    presentation: applicationReadiness
                 )
             }
         }
@@ -190,29 +186,25 @@ struct OverviewView: View {
 
     private func readinessCard(
         title: String,
-        status: String,
-        detail: String,
-        symbol: String,
-        tone: HomewardTone
+        leadingSymbol: String,
+        presentation: ReadinessPresentation
     ) -> some View {
         HomewardCard(padding: HomewardSpacing.medium) {
             VStack(alignment: .leading, spacing: HomewardSpacing.small) {
                 HStack {
-                    Image(systemName: symbol)
-                        .foregroundStyle(tone.color)
+                    Image(systemName: leadingSymbol)
+                        .foregroundStyle(presentation.tone.color)
                         .accessibilityHidden(true)
                     Spacer()
                     HomewardStatusLabel(
-                        title: status,
-                        symbol: tone == .ready
-                            ? "checkmark.circle.fill"
-                            : "exclamationmark.circle.fill",
-                        tone: tone
+                        title: presentation.status,
+                        symbol: presentation.symbol,
+                        tone: presentation.tone
                     )
                 }
                 Text(title)
                     .font(.headline)
-                Text(detail)
+                Text(presentation.detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -369,21 +361,6 @@ struct OverviewView: View {
         }
     }
 
-    private func errorCard(_ message: String) -> some View {
-        HomewardCard {
-            HStack(alignment: .firstTextBaseline, spacing: HomewardSpacing.medium) {
-                Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(HomewardTone.critical.color)
-                Spacer()
-                Button("Dismiss") {
-                    model.clearError()
-                }
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("inline.error")
-    }
-
     private var stateDescription: String {
         if !model.closingRows.isEmpty {
             let count = model.closingRows.count
@@ -404,111 +381,66 @@ struct OverviewView: View {
     }
 
     private var stateBadgeTitle: String {
-        if !model.closingRows.isEmpty {
-            return "Closing"
-        }
-        return switch model.resolvedSchedule.phase {
-        case .workAvailable:
-            "Available"
-        case .windingDown:
-            "Ending soon"
-        case .workClosed:
-            "Protected"
-        case .temporarilyExtended:
-            "Extended"
-        }
+        scheduleStatus.badgeTitle
     }
 
     private var stateTone: HomewardTone {
-        if !model.closingRows.isEmpty {
-            return .attention
-        }
-        return switch model.resolvedSchedule.phase {
-        case .workAvailable:
-            .ready
-        case .windingDown, .temporarilyExtended:
-            .attention
-        case .workClosed:
-            .rest
-        }
+        scheduleStatus.tone
     }
 
-    private var loginReadiness: (status: String, detail: String, tone: HomewardTone) {
-        switch model.loginItemStatus {
-        case .enabled:
-            ("Ready", "Homeward starts automatically when you log in.", .ready)
-        case .notRegistered:
-            ("Off", "Homeward works only while it is open.", .attention)
-        case .requiresApproval:
-            ("Approval required", "Allow Homeward in Login Items.", .attention)
-        case .notFound:
-            ("Unavailable", "Start at Login could not be found.", .attention)
-        }
+    private var loginReadiness: ReadinessPresentation {
+        .login(model.loginItemStatus, readyTitle: "Ready")
     }
 
-    private var notificationReadiness: (
-        status: String,
-        detail: String,
-        tone: HomewardTone
-    ) {
-        switch model.notificationStatus {
-        case .authorized:
-            ("Ready", "Wind-down notices are enabled.", .ready)
-        case .notDetermined:
-            ("Not requested", "Wind-down notifications are off.", .attention)
-        case .denied:
-            ("Off", "App closing still works without notifications.", .attention)
-        case .unavailable:
-            ("Unavailable", "Notifications cannot be checked right now.", .attention)
-        }
+    private var notificationReadiness: ReadinessPresentation {
+        .notifications(model.notificationStatus, readyTitle: "Ready")
     }
 
-    private var applicationReadiness: (
-        status: String,
-        detail: String,
-        tone: HomewardTone
-    ) {
+    private var applicationReadiness: ReadinessPresentation {
         let applications = model.configuration.selectedApplications
         let unresolvedCount = applications.count(where: { !$0.isResolvable })
         if applications.isEmpty {
-            return ("Needs setup", "Choose at least one work app.", .attention)
+            return ReadinessPresentation(
+                status: "Needs setup",
+                detail: "Choose at least one work app.",
+                symbol: "exclamationmark.circle.fill",
+                tone: .attention
+            )
         }
         if unresolvedCount > 0 {
             let detail = unresolvedCount == 1
                 ? "One app needs to be selected again."
                 : "\(unresolvedCount) apps need to be selected again."
-            return ("Needs attention", detail, .attention)
+            return ReadinessPresentation(
+                status: "Needs attention",
+                detail: detail,
+                symbol: "exclamationmark.circle.fill",
+                tone: .attention
+            )
         }
-        return (
-            "Ready",
-            applications.count == 1
+        return ReadinessPresentation(
+            status: "Ready",
+            detail: applications.count == 1
                 ? "One work app is selected."
                 : "\(applications.count) work apps are selected.",
-            .ready
+            symbol: "checkmark.circle.fill",
+            tone: .ready
         )
     }
 
     private var stateTitle: String {
-        SchedulePresentation.stateTitle(
+        scheduleStatus.title
+    }
+
+    private var scheduleStatus: ScheduleStatusPresentation {
+        SchedulePresentation.status(
             schedule: model.resolvedSchedule,
             closingCount: model.closingRows.count
         )
     }
 
     private var stateSymbol: String {
-        if !model.closingRows.isEmpty {
-            return "power"
-        }
-        return switch model.resolvedSchedule.phase {
-        case .workAvailable:
-            "checkmark.circle.fill"
-        case .windingDown:
-            "clock.fill"
-        case .workClosed:
-            "moon.stars.fill"
-        case .temporarilyExtended:
-            "clock.badge.plus"
-        }
+        scheduleStatus.symbol
     }
 
     private var transitionText: String {
@@ -567,12 +499,9 @@ struct CustomCutoffView: View {
         self.onClose = onClose
         let now = Date()
         let calendar = Calendar.autoupdatingCurrent
-        let midnight = calendar.date(
-            byAdding: .day,
-            value: 1,
-            to: calendar.startOfDay(for: now)
-        ) ?? now.addingTimeInterval(
-            HomewardPolicy.nextLocalMidnightFallbackInterval
+        let midnight = ScheduleResolver().nextLocalDayBoundary(
+            after: now,
+            calendar: calendar
         )
         earliestCutoff = now
         latestCutoff = midnight
@@ -587,7 +516,7 @@ struct CustomCutoffView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: HomewardSpacing.large) {
             Text("Choose another cutoff")
                 .font(.title2.bold())
             DatePicker(

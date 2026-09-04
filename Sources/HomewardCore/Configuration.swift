@@ -45,7 +45,7 @@ public struct HomewardConfiguration: Codable, Equatable, Sendable {
         self.closeMode = closeMode
         self.warningPreferences = warningPreferences
         self.gentleShortcutExtensionEnabled = gentleShortcutExtensionEnabled
-        self.overrides = overrides.sorted(by: { $0.effectiveAt < $1.effectiveAt })
+        self.overrides = overrides.sorted(by: ScheduleOverride.precedenceOrder)
         self.consumedGentleExtensionIntervalIDs = consumedGentleExtensionIntervalIDs
         self.onboardingScheduleConfirmed = onboardingScheduleConfirmed
         self.completedOnboarding = completedOnboarding
@@ -99,7 +99,7 @@ public struct HomewardConfiguration: Codable, Equatable, Sendable {
             $0.kind != .forceEscalationPaused && $0.isActive(at: date)
         }
         overrides.append(contentsOf: replacements)
-        overrides.sort(by: { $0.effectiveAt < $1.effectiveAt })
+        overrides.sort(by: ScheduleOverride.precedenceOrder)
     }
 
     public mutating func replaceUnexpiredAvailabilityOverrides(
@@ -110,7 +110,7 @@ public struct HomewardConfiguration: Codable, Equatable, Sendable {
             $0.kind != .forceEscalationPaused && $0.expiresAt > date
         }
         overrides.append(contentsOf: replacements)
-        overrides.sort(by: { $0.effectiveAt < $1.effectiveAt })
+        overrides.sort(by: ScheduleOverride.precedenceOrder)
     }
 
     public mutating func clearAvailabilityOverrides() {
@@ -122,7 +122,7 @@ public struct HomewardConfiguration: Codable, Equatable, Sendable {
     ) {
         overrides.removeAll { $0.kind == .forceEscalationPaused }
         overrides.append(pause)
-        overrides.sort(by: { $0.effectiveAt < $1.effectiveAt })
+        overrides.sort(by: ScheduleOverride.precedenceOrder)
     }
 
     public mutating func clearForceEscalationPause() {

@@ -15,7 +15,7 @@ final class ClosingPanelController: NSWindowController, NSWindowDelegate {
             size: NSSize(width: 560, height: 440),
             minimumSize: NSSize(width: 480, height: 320),
             resizable: true,
-            floatsAutomatically: true
+            floatsAcrossSpaces: true
         )
         panel.contentViewController = hostingController
         super.init(window: panel)
@@ -28,8 +28,7 @@ final class ClosingPanelController: NSWindowController, NSWindowDelegate {
     }
 
     var isVisible: Bool {
-        window?.isVisible == true
-            && window?.occlusionState.contains(.visible) == true
+        window?.isVisibleAndUnoccluded == true
     }
 
     func show(activating: Bool = false) {
@@ -161,7 +160,7 @@ private struct ClosingPanelView: View {
                 }
             }
         }
-        .padding(24)
+        .padding(HomewardSpacing.xLarge)
         .frame(minWidth: 460, minHeight: 300)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("closing.panel")
@@ -195,15 +194,17 @@ private struct ClosingPanelView: View {
 
     @ViewBuilder
     private func closingRow(_ row: AppModel.ClosingRow) -> some View {
+        let rowTone = tone(for: row.status)
+        let rowStatusText = statusText(for: row)
         HomewardCard(padding: HomewardSpacing.medium) {
             VStack(alignment: .leading, spacing: HomewardSpacing.medium) {
                 HStack(alignment: .top, spacing: HomewardSpacing.medium) {
                     Image(systemName: symbol(for: row.status))
                         .font(.body.weight(.semibold))
-                        .foregroundStyle(tone(for: row.status).color)
+                        .foregroundStyle(rowTone.color)
                         .frame(width: 32, height: 32)
                         .background(
-                            tone(for: row.status).color.opacity(0.12),
+                            rowTone.color.opacity(0.12),
                             in: RoundedRectangle(
                                 cornerRadius: HomewardMetrics.compactCornerRadius,
                                 style: .continuous
@@ -214,7 +215,7 @@ private struct ClosingPanelView: View {
                     VStack(alignment: .leading, spacing: HomewardSpacing.xSmall) {
                         Text(row.applicationName)
                             .font(.headline)
-                        Text(statusText(for: row))
+                        Text(rowStatusText)
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -257,7 +258,7 @@ private struct ClosingPanelView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(row.applicationName)
-        .accessibilityValue(statusText(for: row))
+        .accessibilityValue(rowStatusText)
         .accessibilityIdentifier("closing.row.\(row.id)")
     }
 

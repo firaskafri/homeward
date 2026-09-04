@@ -8,7 +8,7 @@ struct ClosingSettingsView: View {
     var body: some View {
         Form {
             Section {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: HomewardSpacing.small) {
                     Label("Choose how work apps close", systemImage: "power")
                         .font(.title2.bold())
                         .accessibilityAddTraits(.isHeader)
@@ -19,7 +19,7 @@ struct ClosingSettingsView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, HomewardSpacing.xSmall)
                 .accessibilityElement(children: .combine)
             }
 
@@ -179,7 +179,7 @@ struct ClosingSettingsView: View {
                 HStack {
                     Label(title, systemImage: symbol)
                         .font(.headline)
-                    Spacer(minLength: 8)
+                    Spacer(minLength: HomewardSpacing.small)
                     HomewardStatusLabel(
                         title: isSelected ? "Selected" : badge,
                         symbol: isSelected ? "checkmark.circle.fill" : "info.circle",

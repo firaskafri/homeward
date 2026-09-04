@@ -8,7 +8,7 @@ enum HomewardPanelFactory {
         size: NSSize,
         minimumSize: NSSize? = nil,
         resizable: Bool = false,
-        floatsAutomatically: Bool = false
+        floatsAcrossSpaces: Bool = false
     ) -> NSPanel {
         var style: NSWindow.StyleMask = [.titled, .closable, .utilityWindow]
         if resizable {
@@ -29,7 +29,7 @@ enum HomewardPanelFactory {
         if let minimumSize {
             panel.contentMinSize = minimumSize
         }
-        if floatsAutomatically {
+        if floatsAcrossSpaces {
             panel.level = .floating
             panel.hidesOnDeactivate = false
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -38,23 +38,17 @@ enum HomewardPanelFactory {
     }
 }
 
+extension NSWindow {
+    var isVisibleAndUnoccluded: Bool {
+        isVisible && occlusionState.contains(.visible)
+    }
+}
+
 struct HomewardPanelHeader: View {
     let title: String
     let message: String
     let systemImage: String
     let tone: HomewardTone
-
-    init(
-        title: String,
-        message: String,
-        systemImage: String,
-        tone: HomewardTone = .neutral
-    ) {
-        self.title = title
-        self.message = message
-        self.systemImage = systemImage
-        self.tone = tone
-    }
 
     var body: some View {
         HStack(alignment: .top, spacing: HomewardSpacing.medium) {

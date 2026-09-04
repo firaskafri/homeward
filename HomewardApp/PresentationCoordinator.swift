@@ -39,7 +39,7 @@ final class PresentationCoordinator {
             applicationName: applicationName,
             availabilityText: availabilityText
         )
-        if blockedLaunchPanel?.isVisible == true,
+        if blockedLaunchPanel?.window?.isVisibleAndUnoccluded == true,
            blockedLaunchIdentity == identity {
             blockedLaunchPanel?.show()
             return
@@ -56,7 +56,7 @@ final class PresentationCoordinator {
     }
 
     func showNoteCapture(model: AppModel) {
-        if noteCapturePanel?.isVisible == true {
+        if noteCapturePanel?.window?.isVisibleAndUnoccluded == true {
             noteCapturePanel?.show()
             return
         }
@@ -72,7 +72,7 @@ final class PresentationCoordinator {
     }
 
     func showCustomCutoff(model: AppModel) {
-        if customCutoffPanel?.window?.isVisible == true {
+        if customCutoffPanel?.window?.isVisibleAndUnoccluded == true {
             customCutoffPanel?.show()
             return
         }
@@ -81,7 +81,7 @@ final class PresentationCoordinator {
     }
 
     func showTodayChange(model: AppModel) {
-        if todayChangePanel?.window?.isVisible == true {
+        if todayChangePanel?.window?.isVisibleAndUnoccluded == true {
             todayChangePanel?.show()
             return
         }

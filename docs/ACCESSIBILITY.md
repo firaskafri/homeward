@@ -5,8 +5,8 @@ and AA where a web success criterion meaningfully maps to a macOS app. WCAG is
 not itself a native-app certification standard. Passing automated checks or
 meeting this written contract does not establish conformance.
 
-This document separates required behavior from the current implementation and
-manual evidence.
+This document defines required behavior and manual evidence. Current
+implementation status is tracked in `TRACEABILITY.md`.
 
 ## Required behavior
 
@@ -199,29 +199,3 @@ Gentle/Firm closing, blocked launch, and today-only changes with:
 No unresolved keyboard, focus, name, role, value, announcement, contrast,
 clipping, timing, privacy, or target-size barrier may remain before dogfood
 approval.
-
-## Current baseline and evidence boundary
-
-The current source includes several foundations: visible text plus symbols,
-native controls, Choose Application alongside drag-and-drop, accessible names
-for many controls, stable identifiers on critical flows, focused note capture,
-30/15/5 countdown announcements, and Reduce Motion-compatible lack of
-continuous custom animation.
-
-The following contract items remain partial or pending:
-
-- Normal automatic Firm presentation does not guarantee initial focus on Stop
-  Force Quit.
-- Focus restoration is implemented only for some closing-panel paths.
-- Automatic Saved Thoughts review can expose full thought text without an
-  explicit reveal or session-active privacy gate.
-- Notification copy can expose selected-app names.
-- Disabled onboarding actions do not consistently expose their reason.
-- Errors and validation are not consistently associated with the failing
-  control.
-- User-facing strings are not yet externalized.
-- No completed manual assistive-technology, contrast, Zoom, localization, or
-  multi-display evidence is recorded.
-
-Therefore, the repository must not claim WCAG conformance or accessibility
-release readiness yet.

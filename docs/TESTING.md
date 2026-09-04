@@ -23,7 +23,8 @@ certify a release.
   enforcement-planning tests.
 - `HomewardAppTests`: app composition and fixture-backed public macOS
   lifecycle tests.
-- `HomewardUITests`: first-launch accessibility reachability.
+- `HomewardUITests`: first-launch accessibility reachability and
+  completed-setup reopen behavior.
 - `xcodebuild analyze`: static analysis under the production project settings.
 - Release build inspection: arm64 architecture, menu-bar accessory property,
   and fixture exclusion.
@@ -44,6 +45,11 @@ Destructive lifecycle tests target only `HomewardFixture.app`, built from
 `com.firaskafri.homeward.fixture`. Tests verify both the exact build-products
 path and bundle identifier before force termination. Real user applications
 must never be force-terminated by automated tests.
+
+The UI reopen test copies the canonical
+`TestFixtures/HomewardCompletedSetup/configuration.json` resource into isolated
+storage. Its preview-only application identities cannot match real running
+applications.
 
 ## Manual gates
 

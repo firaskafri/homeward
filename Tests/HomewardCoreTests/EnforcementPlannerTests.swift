@@ -3,14 +3,14 @@ import Testing
 @testable import HomewardCore
 
 // 1 - Name: Enforcement planner test file.
-// 2 - Description: Verifies application matching and fail-open Firm eligibility.
+// 2 - Description: Verifies safe application matching, deterministic target ownership, and fail-open Firm eligibility.
 // 3 - Assumptions: Platform adapters provide immutable snapshots and retain real AppKit process handles separately.
-// 4 - Expectations: Only current, selected, identifiable processes can become termination targets.
+// 4 - Expectations: Only current, selected, identifiable, non-protected processes become uniquely owned targets.
 
 /// 1 - Name: Enforcement planner suite.
-/// 2 - Description: Exercises process-target planning without invoking macOS termination APIs.
-/// 3 - Assumptions: Bundle identity intentionally applies to every matching running copy.
-/// 4 - Expectations: Missing identity, availability, policy, and liveness always prevent force eligibility.
+/// 2 - Description: Exercises protected-process filtering, target deduplication, and force planning without termination APIs.
+/// 3 - Assumptions: Bundle identity applies to every matching copy and UUID order resolves overlapping selections.
+/// 4 - Expectations: Safety failures exclude targets and each process session has one deterministic selection owner.
 @Suite("Enforcement planner")
 struct EnforcementPlannerTests {
     /// 1 - Name: Bundle identifier matches every copy.
@@ -58,6 +58,46 @@ struct EnforcementPlannerTests {
         )
 
         #expect(targets.map(\.process.processIdentifier) == [10])
+    }
+
+    /// 1 - Name: Duplicate process target ownership.
+    /// 2 - Description: Matches one process through bundle and path selections supplied in both orders.
+    /// 3 - Assumptions: Selection UUID text is a stable ownership tie-break independent of caller order.
+    /// 4 - Expectations: One process-session target remains and the lower UUID selection owns it.
+    @Test
+    func duplicateProcessTargetsUseDeterministicSelectionOwner() {
+        let lowerIDSelection = SelectedApplication(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+            bundleIdentifier: "com.example.editor",
+            bundlePath: "/Applications/Editor.app",
+            displayName: "Editor"
+        )
+        let higherIDSelection = SelectedApplication(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+            bundleIdentifier: nil,
+            bundlePath: "/Applications/Editor.app",
+            displayName: "Editor by path"
+        )
+        let running = process(
+            pid: 10,
+            bundleIdentifier: "com.example.editor",
+            path: "/Applications/Editor.app"
+        )
+        let planner = EnforcementPlanner()
+
+        let forward = planner.targets(
+            selections: [lowerIDSelection, higherIDSelection],
+            runningApplications: [running]
+        )
+        let reversed = planner.targets(
+            selections: [higherIDSelection, lowerIDSelection],
+            runningApplications: [running]
+        )
+
+        #expect(forward.count == 1)
+        #expect(reversed.count == 1)
+        #expect(forward.first?.selectionID == lowerIDSelection.id)
+        #expect(reversed.first?.selectionID == lowerIDSelection.id)
     }
 
     /// 1 - Name: Missing launch identity fails open.
@@ -186,6 +226,54 @@ struct EnforcementPlannerTests {
         #expect(forceEligible.isEmpty)
     }
 
+    /// 1 - Name: Path-only selection cannot target protected process.
+    /// 2 - Description: Revalidates the running process bundle identity when an unprotected path-only selection matches it.
+    /// 3 - Assumptions: A protected running app reports its protected bundle identifier even if selection metadata omits it.
+    /// 4 - Expectations: Finder is excluded from normal targeting and from force eligibility for a crafted session.
+    @Test
+    func pathOnlySelectionCannotTargetProtectedRunningApplication() throws {
+        let selection = SelectedApplication(
+            bundleIdentifier: nil,
+            bundlePath: "/System/Library/CoreServices/Finder.app",
+            displayName: "Finder by path"
+        )
+        let running = process(
+            pid: 10,
+            bundleIdentifier: "com.apple.finder",
+            path: "/System/Library/CoreServices/Finder.app"
+        )
+        let planner = EnforcementPlanner()
+        let targets = planner.targets(
+            selections: [selection],
+            runningApplications: [running]
+        )
+        let craftedTarget = try EnforcementTarget(
+            selectionID: selection.id,
+            process: running
+        )
+        let forceEligible = planner.forceEligibleTargetIDs(
+            session: EnforcementSession(
+                mode: .firm,
+                startedAt: Date(timeIntervalSince1970: 0),
+                targets: [craftedTarget]
+            ),
+            at: Date(timeIntervalSince1970: 60),
+            schedule: ResolvedSchedule(
+                phase: .workClosed,
+                isAvailable: false,
+                activeBaseInterval: nil,
+                activeOverride: nil,
+                nextTransition: nil,
+                nextAvailability: nil
+            ),
+            currentSelections: [selection],
+            currentlyRunning: [running]
+        )
+
+        #expect(targets.isEmpty)
+        #expect(forceEligible.isEmpty)
+    }
+
     /// 1 - Name: Firm force eligibility.
     /// 2 - Description: Requires elapsed grace, blocked policy, current selection, and exact live process identity.
     /// 3 - Assumptions: The session began with a normal quit request at its start time.
@@ -224,7 +312,7 @@ struct EnforcementPlannerTests {
         let before = EnforcementPlanner().forceEligibleTargetIDs(
             session: session,
             at: startedAt.addingTimeInterval(
-                EnforcementSession.firmGracePeriod - 0.001
+                HomewardPolicy.firmGracePeriod - 0.001
             ),
             schedule: blocked,
             currentSelections: [selection],
@@ -233,7 +321,7 @@ struct EnforcementPlannerTests {
         let after = EnforcementPlanner().forceEligibleTargetIDs(
             session: session,
             at: startedAt.addingTimeInterval(
-                EnforcementSession.firmGracePeriod
+                HomewardPolicy.firmGracePeriod
             ),
             schedule: blocked,
             currentSelections: [selection],
@@ -288,7 +376,7 @@ struct EnforcementPlannerTests {
             nextAvailability: nil
         )
         let deadline = startedAt.addingTimeInterval(
-            EnforcementSession.firmGracePeriod
+            HomewardPolicy.firmGracePeriod
         )
         let planner = EnforcementPlanner()
         let pausedResult = planner.forceEligibleTargetIDs(

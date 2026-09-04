@@ -48,6 +48,7 @@ public struct ResolvedSchedule: Equatable, Sendable {
     public let activeOverride: ScheduleOverride?
     public let nextTransition: ScheduleTransition?
     public let nextAvailability: Date?
+    public let nextOverrideEffectiveAt: Date?
 
     public init(
         phase: SchedulePhase,
@@ -55,7 +56,8 @@ public struct ResolvedSchedule: Equatable, Sendable {
         activeBaseInterval: ScheduleInterval?,
         activeOverride: ScheduleOverride?,
         nextTransition: ScheduleTransition?,
-        nextAvailability: Date?
+        nextAvailability: Date?,
+        nextOverrideEffectiveAt: Date? = nil
     ) {
         self.phase = phase
         self.isAvailable = isAvailable
@@ -63,10 +65,14 @@ public struct ResolvedSchedule: Equatable, Sendable {
         self.activeOverride = activeOverride
         self.nextTransition = nextTransition
         self.nextAvailability = nextAvailability
+        self.nextOverrideEffectiveAt = nextOverrideEffectiveAt
     }
 }
 
 public struct ScheduleResolver: Sendable {
+    private static let intervalLookbackDayCount = 8
+    private static let intervalSearchDayCount = 24
+
     public init() {}
 
     public func resolve(
@@ -87,9 +93,11 @@ public struct ScheduleResolver: Sendable {
             ? ScheduleInterval(start: .distantPast, end: .distantFuture)
             : intervals.first(where: { $0.contains(now) })
         let baseAvailable = baseInterval != nil
-        let activeOverride = overrides
-            .filter { $0.isActive(at: now) && $0.effect != .unchanged }
-            .max(by: { $0.effectiveAt < $1.effectiveAt })
+        let activeOverride = highestPrecedenceOverride(
+            in: overrides
+        ) {
+            $0.isActive(at: now) && $0.effect != .unchanged
+        }
 
         let isAvailable: Bool
         switch activeOverride?.effect {
@@ -123,6 +131,10 @@ public struct ScheduleResolver: Sendable {
         } else {
             nextTransition = nil
         }
+        let nextOverrideStart = overrides
+            .filter { $0.effect != .unchanged && $0.effectiveAt > now }
+            .map(\.effectiveAt)
+            .min()
 
         let warningOffsets = warnings.enabledOffsets
         let phase: SchedulePhase
@@ -150,7 +162,8 @@ public struct ScheduleResolver: Sendable {
                 now: now,
                 nextBaseStart: nextBaseStart,
                 continuouslyAvailable: continuouslyAvailable
-            )
+            ),
+            nextOverrideEffectiveAt: nextOverrideStart
         )
     }
 
@@ -160,12 +173,16 @@ public struct ScheduleResolver: Sendable {
         calendar: Calendar
     ) -> [ScheduleInterval] {
         let referenceDay = calendar.startOfDay(for: date)
-        guard let firstDay = calendar.date(byAdding: .day, value: -8, to: referenceDay) else {
+        guard let firstDay = calendar.date(
+            byAdding: .day,
+            value: -Self.intervalLookbackDayCount,
+            to: referenceDay
+        ) else {
             return []
         }
 
         var rawIntervals: [ScheduleInterval] = []
-        for offset in 0..<24 {
+        for offset in 0..<Self.intervalSearchDayCount {
             guard let day = calendar.date(byAdding: .day, value: offset, to: firstDay),
                   let weekday = Weekday(rawValue: calendar.component(.weekday, from: day))
             else {
@@ -226,22 +243,44 @@ public struct ScheduleResolver: Sendable {
         return intervals.first(where: { $0.start > date })?.start
     }
 
+    public func nextLocalDayBoundary(
+        after date: Date,
+        calendar: Calendar
+    ) -> Date {
+        calendar.date(
+            byAdding: .day,
+            value: 1,
+            to: calendar.startOfDay(for: date)
+        ) ?? date.addingTimeInterval(
+            HomewardPolicy.nextLocalMidnightFallbackInterval
+        )
+    }
+
     public func nextRefreshDate(
         for schedule: ResolvedSchedule,
         after date: Date,
         warnings: WarningPreferences
     ) -> Date? {
-        guard let transition = schedule.nextTransition,
-              transition.date > date else {
-            return nil
+        let transitionRefreshDate: Date?
+        if let transition = schedule.nextTransition,
+           transition.date > date {
+            if transition.cause == .workWindowEnds {
+                transitionRefreshDate = warnings.enabledOffsets
+                    .map { transition.date.addingTimeInterval(-$0) }
+                    .filter { $0 > date }
+                    .min() ?? transition.date
+            } else {
+                transitionRefreshDate = transition.date
+            }
+        } else {
+            transitionRefreshDate = nil
         }
-        guard transition.cause == .workWindowEnds else {
-            return transition.date
+        let overrideRefreshDate = schedule.nextOverrideEffectiveAt.flatMap {
+            $0 > date ? $0 : nil
         }
-        return warnings.enabledOffsets
-            .map { transition.date.addingTimeInterval(-$0) }
-            .filter { $0 > date }
-            .min() ?? transition.date
+        return [transitionRefreshDate, overrideRefreshDate]
+            .compactMap { $0 }
+            .min()
     }
 
     public func blockedIntervalID(
@@ -293,9 +332,18 @@ public struct ScheduleResolver: Sendable {
         in overrides: [ScheduleOverride],
         at date: Date
     ) -> ScheduleOverride? {
+        highestPrecedenceOverride(in: overrides) {
+            $0.isActive(at: date) && $0.effect == .block
+        }
+    }
+
+    private func highestPrecedenceOverride(
+        in overrides: [ScheduleOverride],
+        matching predicate: (ScheduleOverride) -> Bool
+    ) -> ScheduleOverride? {
         overrides
-            .filter { $0.isActive(at: date) && $0.effect == .block }
-            .max(by: { $0.effectiveAt < $1.effectiveAt })
+            .filter(predicate)
+            .max(by: ScheduleOverride.precedenceOrder)
     }
 
     private func isInsideWarningPeriod(

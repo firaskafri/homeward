@@ -7,11 +7,10 @@ struct AppPickerView: View {
     @ObservedObject var model: AppModel
     @State private var searchText = ""
     @State private var pendingSelection: SelectedApplication?
-    @State private var showImmediateCloseConfirmation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: HomewardSpacing.small) {
                 Label("Choose the apps that end with work", systemImage: "square.grid.2x2")
                     .font(.title2.bold())
                     .accessibilityAddTraits(.isHeader)
@@ -21,7 +20,7 @@ struct AppPickerView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             }
-            .padding([.horizontal, .top], 24)
+            .padding([.horizontal, .top], HomewardSpacing.xLarge)
             .padding(.bottom, 18)
             .accessibilityElement(children: .combine)
 
@@ -29,12 +28,12 @@ struct AppPickerView: View {
                 InlineErrorView(message: error) {
                     model.clearError()
                 }
-                .padding(.horizontal, 24)
+                .padding(.horizontal, HomewardSpacing.xLarge)
                 .padding(.bottom, 12)
             }
 
             selectedApplications
-                .padding(.horizontal, 24)
+                .padding(.horizontal, HomewardSpacing.xLarge)
                 .padding(.bottom, 18)
 
             Divider()
@@ -49,7 +48,7 @@ struct AppPickerView: View {
                         }
                         .accessibilityIdentifier("apps.choose")
                     }
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: HomewardSpacing.small) {
                         catalogHeading
                         Button("Choose Application…") {
                             chooseApplication()
@@ -73,7 +72,7 @@ struct AppPickerView: View {
                 .foregroundStyle(.secondary)
                 .accessibilityElement(children: .combine)
             }
-            .padding(24)
+            .padding(HomewardSpacing.xLarge)
         }
         .navigationTitle("Work Apps")
         .dropDestination(for: URL.self) { urls, _ in
@@ -96,7 +95,7 @@ struct AppPickerView: View {
         .accessibilityIdentifier("apps.view")
         .confirmationDialog(
             "Add and close this work app now?",
-            isPresented: $showImmediateCloseConfirmation
+            isPresented: pendingSelectionConfirmation
         ) {
             Button("Add & Close", role: .destructive) {
                 if let pendingSelection {
@@ -231,15 +230,11 @@ struct AppPickerView: View {
                             if selected {
                                 if requiresImmediateCloseConfirmation {
                                     pendingSelection = application.selection
-                                    showImmediateCloseConfirmation = true
                                 } else {
                                     await model.addApplication(application.selection)
                                 }
-                            } else if let existing = model.configuration.selectedApplications.first(
-                                where: {
-                                    $0.stableSelectionKey
-                                        == application.selection.stableSelectionKey
-                                }
+                            } else if let existing = selectedApplication(
+                                matching: application.selection
                             ) {
                                 await model.removeApplication(id: existing.id)
                             }
@@ -343,7 +338,7 @@ struct AppPickerView: View {
                         )
                 }
 
-                Spacer(minLength: 4)
+                Spacer(minLength: HomewardSpacing.xSmall)
 
                 Menu {
                     if !application.isResolvable {
@@ -368,7 +363,7 @@ struct AppPickerView: View {
 
     private func icon(for application: SelectedApplication) -> NSImage {
         if let catalogApplication = model.catalog.first(where: {
-            $0.selection.stableSelectionKey == application.stableSelectionKey
+            selectionsMatch($0.selection, application)
         }) {
             return catalogApplication.icon
         }
@@ -376,19 +371,30 @@ struct AppPickerView: View {
     }
 
     private func isSelected(_ application: SelectedApplication) -> Bool {
-        model.configuration.selectedApplications.contains {
-            $0.stableSelectionKey == application.stableSelectionKey
+        selectedApplication(matching: application) != nil
+    }
+
+    private func selectedApplication(
+        matching application: SelectedApplication
+    ) -> SelectedApplication? {
+        model.configuration.selectedApplications.first {
+            selectionsMatch($0, application)
         }
     }
 
+    private func selectionsMatch(
+        _ lhs: SelectedApplication,
+        _ rhs: SelectedApplication
+    ) -> Bool {
+        lhs.stableSelectionKey == rhs.stableSelectionKey
+    }
+
     private func chooseApplication() {
-        let panel = NSOpenPanel()
-        panel.title = "Choose a Work Application"
-        panel.prompt = "Choose"
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowedContentTypes = [.applicationBundle]
+        let panel = applicationPanel(
+            title: "Choose a Work Application",
+            prompt: "Choose",
+            allowsMultipleSelection: true
+        )
         guard panel.runModal() == .OK,
               !panel.urls.isEmpty,
               !requiresImmediateCloseConfirmation || confirmImmediateClose()
@@ -417,13 +423,11 @@ struct AppPickerView: View {
     }
 
     private func chooseReplacement(for id: UUID) {
-        let panel = NSOpenPanel()
-        panel.title = "Reselect Work Application"
-        panel.prompt = "Reselect"
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowedContentTypes = [.applicationBundle]
+        let panel = applicationPanel(
+            title: "Reselect Work Application",
+            prompt: "Reselect",
+            allowsMultipleSelection: false
+        )
         guard panel.runModal() == .OK,
               let url = panel.url,
               !requiresImmediateCloseConfirmation || confirmImmediateClose()
@@ -431,5 +435,25 @@ struct AppPickerView: View {
             return
         }
         Task { await model.replaceApplication(id: id, with: url) }
+    }
+
+    private var pendingSelectionConfirmation: Binding<Bool> {
+        Binding(
+            get: { pendingSelection != nil },
+            set: { if !$0 { pendingSelection = nil } }
+        )
+    }
+
+    private func applicationPanel(
+        title: String,
+        prompt: String,
+        allowsMultipleSelection: Bool
+    ) -> NSOpenPanel {
+        let panel = NSOpenPanel()
+        panel.title = title
+        panel.prompt = prompt
+        panel.allowsMultipleSelection = allowsMultipleSelection
+        panel.allowedContentTypes = [.applicationBundle]
+        return panel
     }
 }

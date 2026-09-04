@@ -2,12 +2,10 @@
 
 This document is the normative product and interaction contract for the
 Homeward Threshold direction. It describes required behavior, including work
-that is not implemented yet. Current implementation status is called out
-explicitly and is summarized in `TRACEABILITY.md`.
+that is not implemented yet. `TRACEABILITY.md` is the sole source for current
+implementation status.
 
-The words **must**, **should**, and **may** describe requirements. A statement
-under **Current baseline** describes repository behavior observed during the
-September 2026 documentation review; it is not a release-readiness claim.
+The words **must**, **should**, and **may** describe requirements.
 
 ## Product promise
 
@@ -45,15 +43,6 @@ These requirements override visual or convenience goals:
    is locked or inactive.
 10. A save failure must leave the previously verified policy in effect and
     explain what was not applied.
-
-**Current baseline:** onboarding gating, configuration fail-safe recovery,
-normal-quit-first Firm closing, the 30-second countdown, visible Stop Force
-Quit, session/visibility force pausing, and save-failure copy exist. Unresolved
-selections are marked for reselection, but enforcement does not yet explicitly
-exclude them. Warning and blocked-launch notifications can include app names.
-Automatic thought review can display note text without an explicit reveal or
-session-privacy check. Those differences are pending requirements, not shipped
-behavior.
 
 ## Shared state model
 
@@ -124,12 +113,6 @@ actions must route to their named destination. Reopening from Finder or
 Spotlight must bring the existing window forward, including when the menu-bar
 item is hidden.
 
-**Current baseline:** the window uses Overview, Schedule, Work Apps, Closing,
-and General. Open Homeward, Settings, and Needs Attention all open the same
-window without selecting a destination. Saved Thoughts has no persistent
-window destination. The Threshold route model and native Settings scene remain
-pending.
-
 ## Interaction contract
 
 ### Actions and consequences
@@ -172,12 +155,6 @@ pending.
   or explicitly identified. Action scope must say whether it affects one
   process, one selected app, or all selected apps.
 
-**Current baseline:** blocked-launch and automatic notes panels are
-nonactivating. User-invoked capture and today-change panels activate. Firm
-panels can activate when opened from Show Closing Details, but normal Firm
-presentation is currently nonactivating; initial focus and full focus
-restoration are not yet consistently specified or implemented.
-
 ### Notifications
 
 - Notifications are optional. Closing continues when authorization is denied
@@ -193,19 +170,13 @@ restoration are not yet consistently specified or implemented.
   off-by-default preference. The preference must explain lock-screen exposure.
 - No notification may contain saved-thought text.
 
-**Current baseline:** notifications are optional and warning requests are
-replaced as schedule state changes. Warning bodies and blocked-launch titles
-can expose app names, action routing carries only an action identifier, and
-status notifications are not generation-bound. Privacy-safe copy and stale
-action protection remain pending.
-
 ## Onboarding and preview
 
 Onboarding is resumable and must not enable closing before the final confirmed
 action. Completion requires:
 
 - a valid, explicitly confirmed schedule; and
-- at least one resolvable, non-protected selected app.
+- at least one resolvable selected app that Homeward is allowed to manage.
 
 Start at Login and notifications are recommended readiness steps, not blockers.
 The Ready step must summarize the saved schedule, selected apps, closing mode,
@@ -225,11 +196,6 @@ Preview is optional and non-destructive:
 - A normal quit already accepted by an app cannot be undone. Cancelling only
   prevents subsequent preview steps.
 - Preview completion is never required to start Homeward.
-
-**Current baseline:** Test Setup is optional because Start Homeward remains
-available beside it, and preview uses normal quit only. There is no explicit
-Skip Preview control or recorded skip, and onboarding completion checks only
-for a confirmed schedule and a non-empty selection list, not resolvability.
 
 ## Work Apps
 
@@ -280,11 +246,6 @@ action, and never retries force in a hidden loop.
 - Storage failure must distinguish unavailable reading from failed mutation.
   Configuration recovery must never reset notes. Notes recovery must never
   reset configuration.
-
-**Current baseline:** notes are separate from configuration, capture validates
-500 characters, delete is confirmed, and configuration reset preserves notes.
-Automatic review currently displays text immediately, Mark Done offers only a
-ten-second undo, and notes load failure has no dedicated retry/restore flow.
 
 ## Recovery and readiness
 

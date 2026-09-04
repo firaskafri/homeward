@@ -3,14 +3,14 @@ import Testing
 @testable import HomewardCore
 
 // 1 - Name: Schedule resolver test file.
-// 2 - Description: Verifies weekly schedule resolution, warnings, overrides, overnight windows, and DST boundaries.
+// 2 - Description: Verifies weekly resolution, warning refreshes, deterministic overrides, overnight windows, and DST boundaries.
 // 3 - Assumptions: Tests use fixed calendars and time zones so host locale and clock cannot affect results.
-// 4 - Expectations: Availability, phases, transitions, and validation remain deterministic at every tested boundary.
+// 4 - Expectations: Availability, precedence, phases, transitions, and validation remain deterministic at tested boundaries.
 
 /// 1 - Name: Schedule resolver suite.
-/// 2 - Description: Exercises pure schedule behavior without timers, persistence, or macOS framework state.
+/// 2 - Description: Exercises pure schedule behavior, including future policy refresh and civil-day boundaries.
 /// 3 - Assumptions: Work intervals are half-open and the schedule follows the supplied calendar time zone.
-/// 4 - Expectations: The resolver derives current state and next transition solely from explicit inputs.
+/// 4 - Expectations: The resolver derives current state and the earliest policy transition solely from explicit inputs.
 @Suite("Schedule resolver")
 struct ScheduleResolverTests {
 
@@ -238,6 +238,99 @@ struct ScheduleResolverTests {
         #expect(result.nextTransition == ScheduleTransition(date: expiry, cause: .overrideExpires))
     }
 
+    /// 1 - Name: Equal-time override precedence.
+    /// 2 - Description: Resolves conflicting active overrides with identical effective times in both input orders.
+    /// 3 - Assumptions: Lexically greater UUID text has later precedence when effective times tie.
+    /// 4 - Expectations: The same higher-UUID blocking override wins regardless of array order.
+    @Test
+    func equalTimeOverridesUseUUIDPrecedence() throws {
+        let calendar = utcCalendar()
+        let now = date(2026, 9, 7, 10, 0, calendar: calendar)
+        let expiry = date(2026, 9, 7, 11, 0, calendar: calendar)
+        let allow = try ScheduleOverride(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+            kind: .fixedExtension,
+            effect: .allow,
+            effectiveAt: now,
+            expiresAt: expiry
+        )
+        let block = try ScheduleOverride(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+            kind: .takeDayOff,
+            effect: .block,
+            effectiveAt: now,
+            expiresAt: expiry
+        )
+        let resolver = ScheduleResolver()
+        let schedule = try WeeklySchedule.defaultWorkWeek()
+
+        let forward = resolver.resolve(
+            schedule: schedule,
+            overrides: [allow, block],
+            at: now,
+            calendar: calendar,
+            warnings: WarningPreferences()
+        )
+        let reversed = resolver.resolve(
+            schedule: schedule,
+            overrides: [block, allow],
+            at: now,
+            calendar: calendar,
+            warnings: WarningPreferences()
+        )
+
+        #expect(forward.activeOverride == block)
+        #expect(reversed.activeOverride == block)
+        #expect(!forward.isAvailable)
+        #expect(!reversed.isAvailable)
+    }
+
+    /// 1 - Name: Future override refresh.
+    /// 2 - Description: Schedules refresh at an upcoming availability override before the base work-window cutoff.
+    /// 3 - Assumptions: Force-pause overrides do not change availability and therefore do not require schedule refresh.
+    /// 4 - Expectations: The base transition remains intact while the policy-changing effective time refreshes first.
+    @Test
+    func futurePolicyOverrideStartsNextRefresh() throws {
+        let calendar = utcCalendar()
+        let now = date(2026, 9, 7, 10, 0, calendar: calendar)
+        let pauseStart = date(2026, 9, 7, 10, 30, calendar: calendar)
+        let blockStart = date(2026, 9, 7, 11, 0, calendar: calendar)
+        let blockEnd = date(2026, 9, 7, 12, 0, calendar: calendar)
+        let pause = try ScheduleOverride(
+            kind: .forceEscalationPaused,
+            effect: .unchanged,
+            effectiveAt: pauseStart,
+            expiresAt: blockEnd,
+            relatedIntervalID: "blocked-1"
+        )
+        let block = try ScheduleOverride(
+            kind: .takeDayOff,
+            effect: .block,
+            effectiveAt: blockStart,
+            expiresAt: blockEnd
+        )
+        let resolver = ScheduleResolver()
+        let warnings = WarningPreferences()
+        let resolved = resolver.resolve(
+            schedule: try WeeklySchedule.defaultWorkWeek(),
+            overrides: [pause, block],
+            at: now,
+            calendar: calendar,
+            warnings: warnings
+        )
+
+        #expect(resolved.nextTransition == ScheduleTransition(
+            date: date(2026, 9, 7, 17, 0, calendar: calendar),
+            cause: .workWindowEnds
+        ))
+        #expect(resolved.nextOverrideEffectiveAt == blockStart)
+        #expect(resolver.nextRefreshDate(
+            for: resolved,
+            after: now,
+            warnings: warnings
+        ) == blockStart)
+    }
+
     /// 1 - Name: Force-pause override leaves schedule unchanged.
     /// 2 - Description: Verifies that a safety-only force pause does not grant or block application availability.
     /// 3 - Assumptions: Force-pause policy is enforced by the application coordinator, not the schedule resolver.
@@ -451,7 +544,7 @@ struct ScheduleResolverTests {
     /// 1 - Name: Spring-forward schedule.
     /// 2 - Description: Resolves a window across the America/New_York DST gap.
     /// 3 - Assumptions: A nonexistent local boundary advances to the next valid wall-clock instant.
-    /// 4 - Expectations: Resolution produces a valid interval and does not depend on a fixed 24-hour day.
+    /// 4 - Expectations: The scheduled interval remains available and ends at the requested post-gap local time.
     @Test
     func springForwardSchedule() throws {
         var calendar = Calendar(identifier: .gregorian)
@@ -473,6 +566,21 @@ struct ScheduleResolverTests {
 
         #expect(result.isAvailable)
         #expect(result.nextTransition?.date == date(2026, 3, 8, 3, 30, calendar: calendar))
+    }
+
+    /// 1 - Name: Spring-forward next local day boundary.
+    /// 2 - Description: Computes midnight after the short civil day without reusing resolver date helpers as the oracle.
+    /// 3 - Assumptions: New York changes to UTC−04:00 on March 8, 2026, making next midnight epoch 1773028800.
+    /// 4 - Expectations: The next boundary equals the literal epoch for March 9 at 00:00 local time.
+    @Test
+    func nextLocalDayBoundaryAcrossSpringForward() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "America/New_York"))
+
+        #expect(ScheduleResolver().nextLocalDayBoundary(
+            after: date(2026, 3, 8, 1, 45, calendar: calendar),
+            calendar: calendar
+        ) == Date(timeIntervalSince1970: 1_773_028_800))
     }
 
     /// 1 - Name: Contradictory overnight rule.

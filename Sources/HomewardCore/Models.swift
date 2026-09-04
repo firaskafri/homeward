@@ -173,7 +173,9 @@ public struct WarningActionContext: Equatable, Sendable {
         for schedule: ResolvedSchedule,
         at date: Date
     ) -> Bool {
-        date < cutoff
+        cutoff.timeIntervalSinceReferenceDate.isFinite
+            && date.timeIntervalSinceReferenceDate.isFinite
+            && date < cutoff
             && schedule.isAvailable
             && schedule.nextTransition
                 == ScheduleTransition(date: cutoff, cause: .workWindowEnds)
@@ -225,8 +227,20 @@ public struct ScheduleOverride: Codable, Equatable, Identifiable, Sendable {
         self.effect = effect
         self.effectiveAt = effectiveAt
         self.expiresAt = expiresAt
-        self.relatedIntervalID = relatedIntervalID
+        self.relatedIntervalID = relatedIntervalID?.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
         try validate()
+    }
+
+    static func precedenceOrder(
+        _ lhs: ScheduleOverride,
+        _ rhs: ScheduleOverride
+    ) -> Bool {
+        if lhs.effectiveAt == rhs.effectiveAt {
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
+        return lhs.effectiveAt < rhs.effectiveAt
     }
 
     public func isActive(at date: Date) -> Bool {
@@ -251,11 +265,13 @@ public struct ScheduleOverride: Codable, Equatable, Identifiable, Sendable {
         guard validEffect else {
             throw ValidationError.invalidOverrideEffect(kind: kind, effect: effect)
         }
-        let trimmedIntervalID = relatedIntervalID?.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        )
         if kind == .forceEscalationPaused {
-            guard trimmedIntervalID?.isEmpty == false else {
+            guard relatedIntervalID?.isEmpty == false else {
+                throw ValidationError.invalidOverrideInterval(kind)
+            }
+        } else if kind == .fixedExtension {
+            guard relatedIntervalID == nil
+                    || relatedIntervalID?.isEmpty == false else {
                 throw ValidationError.invalidOverrideInterval(kind)
             }
         } else if relatedIntervalID != nil {

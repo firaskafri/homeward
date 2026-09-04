@@ -67,16 +67,14 @@ struct HomewardApplicationSummary: View {
     let applications: [SelectedApplication]
 
     private var visibleApplications: ArraySlice<SelectedApplication> {
-        applications.prefix(3)
+        applications.prefix(ApplicationListFormatter.maximumVisibleItemCount)
     }
 
     private var names: String {
-        let visibleNames = visibleApplications.map(\.displayName)
-        let remainingCount = applications.count - visibleNames.count
-        if remainingCount > 0 {
-            return visibleNames.joined(separator: ", ") + " +\(remainingCount)"
-        }
-        return visibleNames.joined(separator: ", ")
+        ApplicationListFormatter.summary(
+            names: applications.map(\.displayName),
+            emptyFallback: "No work apps selected"
+        )
     }
 
     var body: some View {
@@ -109,7 +107,7 @@ struct HomewardApplicationSummary: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(applications.isEmpty ? "No work apps selected" : names)
+                Text(names)
                     .font(.callout.weight(.medium))
                     .lineLimit(1)
                 Text(applications.count == 1 ? "1 selected app" : "\(applications.count) selected apps")

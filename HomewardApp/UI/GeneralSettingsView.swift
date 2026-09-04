@@ -13,7 +13,7 @@ struct GeneralSettingsView: View {
     var body: some View {
         Form {
             Section {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: HomewardSpacing.small) {
                     Label("Keep Homeward ready", systemImage: "checklist")
                         .font(.title2.bold())
                         .accessibilityAddTraits(.isHeader)
@@ -24,7 +24,7 @@ struct GeneralSettingsView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, HomewardSpacing.xSmall)
                 .accessibilityElement(children: .combine)
             }
 
@@ -41,11 +41,9 @@ struct GeneralSettingsView: View {
                     title: "Start at Login",
                     detail: "Restores your schedule after you sign in.",
                     requirement: "Recommended",
-                    status: loginStatusText,
-                    symbol: loginStatusHealthy
-                        ? "checkmark.circle.fill"
-                        : "exclamationmark.circle",
-                    tone: loginStatusHealthy ? .ready : .attention
+                    status: loginReadiness.status,
+                    symbol: loginReadiness.symbol,
+                    tone: loginReadiness.tone
                 )
 
                 ViewThatFits(in: .horizontal) {
@@ -53,7 +51,7 @@ struct GeneralSettingsView: View {
                         loginItemActions
                         Spacer()
                     }
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: HomewardSpacing.small) {
                         loginItemActions
                     }
                 }
@@ -69,11 +67,9 @@ struct GeneralSettingsView: View {
                     title: "Notifications",
                     detail: "Shows wind-down and status messages.",
                     requirement: "Optional",
-                    status: notificationStatusText,
-                    symbol: notificationStatusHealthy
-                        ? "checkmark.circle.fill"
-                        : "bell.slash",
-                    tone: notificationStatusHealthy ? .ready : .neutral
+                    status: notificationReadiness.status,
+                    symbol: notificationReadiness.symbol,
+                    tone: notificationReadiness.tone
                 )
 
                 ViewThatFits(in: .horizontal) {
@@ -81,7 +77,7 @@ struct GeneralSettingsView: View {
                         notificationActions
                         Spacer()
                     }
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: HomewardSpacing.small) {
                         notificationActions
                     }
                 }
@@ -128,7 +124,7 @@ struct GeneralSettingsView: View {
                         .foregroundStyle(.secondary)
                     }
                     .font(.callout)
-                    .padding(.top, 8)
+                    .padding(.top, HomewardSpacing.small)
                 }
             }
 
@@ -137,7 +133,7 @@ struct GeneralSettingsView: View {
                     "About Homeward",
                     isExpanded: $showsAboutDetails
                 ) {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: HomewardSpacing.small) {
                         LabeledContent("Version") {
                             Text(version)
                         }
@@ -146,12 +142,12 @@ struct GeneralSettingsView: View {
                                 .textSelection(.enabled)
                         }
                     }
-                    .padding(.top, 8)
+                    .padding(.top, HomewardSpacing.small)
                 }
             }
 
             Section("Reset & turn off") {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: HomewardSpacing.xSmall) {
                     Button("Reset Setup…", role: .destructive) {
                         confirmResetSetup = true
                     }
@@ -160,7 +156,7 @@ struct GeneralSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: HomewardSpacing.xSmall) {
                     Button("Reset Saved Thoughts…", role: .destructive) {
                         confirmResetNotes = true
                     }
@@ -169,7 +165,7 @@ struct GeneralSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: HomewardSpacing.xSmall) {
                     Button("Turn Off Homeward…", role: .destructive) {
                         confirmTurnOff = true
                     }
@@ -226,20 +222,20 @@ struct GeneralSettingsView: View {
         tone: HomewardTone
     ) -> some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: 16) {
+            HStack(spacing: HomewardSpacing.large) {
                 readinessIdentity(
                     title: title,
                     detail: detail,
                     requirement: requirement
                 )
-                Spacer(minLength: 16)
+                Spacer(minLength: HomewardSpacing.large)
                 HomewardStatusLabel(
                     title: status,
                     symbol: symbol,
                     tone: tone
                 )
             }
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: HomewardSpacing.small) {
                 readinessIdentity(
                     title: title,
                     detail: detail,
@@ -274,21 +270,12 @@ struct GeneralSettingsView: View {
         }
     }
 
-    private var loginStatusText: String {
-        switch model.loginItemStatus {
-        case .enabled:
-            "Enabled"
-        case .notRegistered:
-            "Off"
-        case .requiresApproval:
-            "Approval required"
-        case .notFound:
-            "Unavailable"
-        }
-    }
-
-    private var loginStatusHealthy: Bool {
-        model.loginItemStatus == .enabled
+    private var loginReadiness: ReadinessPresentation {
+        .login(
+            model.loginItemStatus,
+            readyTitle: "Enabled",
+            unhealthySymbol: "exclamationmark.circle"
+        )
     }
 
     @ViewBuilder
@@ -312,21 +299,13 @@ struct GeneralSettingsView: View {
         }
     }
 
-    private var notificationStatusText: String {
-        switch model.notificationStatus {
-        case .authorized:
-            "Enabled"
-        case .notDetermined:
-            "Not requested"
-        case .denied:
-            "Off"
-        case .unavailable:
-            "Unavailable"
-        }
-    }
-
-    private var notificationStatusHealthy: Bool {
-        model.notificationStatus == .authorized
+    private var notificationReadiness: ReadinessPresentation {
+        .notifications(
+            model.notificationStatus,
+            readyTitle: "Enabled",
+            unhealthySymbol: "bell.slash",
+            unhealthyTone: .neutral
+        )
     }
 
     @ViewBuilder

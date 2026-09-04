@@ -64,6 +64,13 @@ public struct EnforcementTarget: Equatable, Sendable {
         self.selectionID = selectionID
         self.process = process
     }
+
+    fileprivate static func hasPreferredSelectionOwner(
+        _ candidate: EnforcementTarget,
+        over current: EnforcementTarget
+    ) -> Bool {
+        candidate.selectionID.uuidString < current.selectionID.uuidString
+    }
 }
 
 public struct EnforcementIdentity: Equatable, Sendable {
@@ -97,7 +104,14 @@ public struct EnforcementIdentity: Equatable, Sendable {
 }
 
 public struct EnforcementSession: Equatable, Sendable {
-    public static let firmGracePeriod = HomewardPolicy.firmGracePeriod
+    @available(
+        *,
+        deprecated,
+        message: "Use HomewardPolicy.firmGracePeriod."
+    )
+    public static var firmGracePeriod: TimeInterval {
+        HomewardPolicy.firmGracePeriod
+    }
 
     public let mode: CloseMode
     public let startedAt: Date
@@ -114,7 +128,16 @@ public struct EnforcementSession: Equatable, Sendable {
         self.startedAt = startedAt
         self.forceEscalationPaused = forceEscalationPaused
         self.targets = targets.reduce(into: [:]) { result, target in
-            result[target.id] = target
+            guard let current = result[target.id] else {
+                result[target.id] = target
+                return
+            }
+            if EnforcementTarget.hasPreferredSelectionOwner(
+                target,
+                over: current
+            ) {
+                result[target.id] = target
+            }
         }
     }
 }
@@ -126,7 +149,7 @@ public struct EnforcementPlanner: Sendable {
         selections: [SelectedApplication],
         runningApplications: [RunningApplicationSnapshot]
     ) -> [EnforcementTarget] {
-        var targets: [EnforcementTarget] = []
+        var targetsBySessionID: [ProcessSessionID: EnforcementTarget] = [:]
         for selection in selections
         where selection.isResolvable && !selection.isProtected {
             for process in runningApplications where matches(selection: selection, process: process) {
@@ -136,10 +159,22 @@ public struct EnforcementPlanner: Sendable {
                 ) else {
                     continue
                 }
-                targets.append(target)
+                if let current = targetsBySessionID[target.id],
+                   !EnforcementTarget.hasPreferredSelectionOwner(
+                       target,
+                       over: current
+                   ) {
+                    continue
+                }
+                targetsBySessionID[target.id] = target
             }
         }
-        return targets
+        return targetsBySessionID.values.sorted {
+            if $0.id == $1.id {
+                return $0.selectionID.uuidString < $1.selectionID.uuidString
+            }
+            return $0.id.rawValue < $1.id.rawValue
+        }
     }
 
     public func forceEligibleTargetIDs(
@@ -169,7 +204,7 @@ public struct EnforcementPlanner: Sendable {
             }
         }
         let forceDeadline = session.startedAt.addingTimeInterval(
-            EnforcementSession.firmGracePeriod
+            HomewardPolicy.firmGracePeriod
         )
 
         return session.targets.values.compactMap { target in
@@ -191,6 +226,12 @@ public struct EnforcementPlanner: Sendable {
         selection: SelectedApplication,
         process: RunningApplicationSnapshot
     ) -> Bool {
+        if let bundleIdentifier = process.bundleIdentifier,
+           SelectedApplication.protectedBundleIdentifiers.contains(
+               bundleIdentifier
+           ) {
+            return false
+        }
         if let selectedBundleID = selection.bundleIdentifier {
             return process.bundleIdentifier == selectedBundleID
         }

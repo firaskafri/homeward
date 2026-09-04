@@ -38,6 +38,7 @@ targets:
         PRODUCT_NAME: Homeward
         MARKETING_VERSION: 0.1.0
         CURRENT_PROJECT_VERSION: 1
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_APP_SANDBOX: false
         ENABLE_HARDENED_RUNTIME: true
         CODE_SIGN_STYLE: Automatic
@@ -63,6 +64,8 @@ targets:
     platform: macOS
     sources:
       - path: HomewardUITests
+      - path: TestFixtures/HomewardCompletedSetup
+        buildPhase: resources
     dependencies:
       - target: Homeward
     settings:

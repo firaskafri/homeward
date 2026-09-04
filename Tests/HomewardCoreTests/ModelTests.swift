@@ -3,14 +3,14 @@ import Testing
 @testable import HomewardCore
 
 // 1 - Name: Domain model test file.
-// 2 - Description: Verifies model validation, defaults, identity keys, and tomorrow-note lifecycle rules.
+// 2 - Description: Verifies model validation, canonical identifiers, deterministic ordering, defaults, and note lifecycle rules.
 // 3 - Assumptions: Domain values reject invalid input before platform or persistence layers receive it.
-// 4 - Expectations: Invalid states are unrepresentable and defaults match the approved product contract.
+// 4 - Expectations: Invalid states are unrepresentable, persisted order is stable, and defaults match the product contract.
 
 /// 1 - Name: Domain model suite.
-/// 2 - Description: Covers value validation and configuration-level invariants.
+/// 2 - Description: Covers value validation, override normalization and ordering, and configuration-level invariants.
 /// 3 - Assumptions: UUID and Date values are supplied explicitly when deterministic comparison matters.
-/// 4 - Expectations: Every model either initializes validly or returns the documented validation error.
+/// 4 - Expectations: Models initialize canonically and deterministically or return the documented validation error.
 @Suite("Domain models")
 struct ModelTests {
     /// 1 - Name: Invalid local time.
@@ -127,6 +127,55 @@ struct ModelTests {
         }
     }
 
+    /// 1 - Name: Related interval identifier canonicalization.
+    /// 2 - Description: Trims padded identifiers and rejects blank identifiers for force pauses and fixed extensions.
+    /// 3 - Assumptions: Fixed extensions may omit interval identity, but a supplied identity must be meaningful.
+    /// 4 - Expectations: Both supported override kinds store canonical text and reject whitespace-only values.
+    @Test
+    func relatedIntervalIdentifiersAreCanonical() throws {
+        let effectiveAt = Date(timeIntervalSince1970: 1)
+        let expiresAt = Date(timeIntervalSince1970: 2)
+        let pause = try ScheduleOverride(
+            kind: .forceEscalationPaused,
+            effect: .unchanged,
+            effectiveAt: effectiveAt,
+            expiresAt: expiresAt,
+            relatedIntervalID: "  blocked-1\n"
+        )
+        let extensionOverride = try ScheduleOverride(
+            kind: .fixedExtension,
+            effect: .allow,
+            effectiveAt: effectiveAt,
+            expiresAt: expiresAt,
+            relatedIntervalID: "\tblocked-2 "
+        )
+
+        #expect(pause.relatedIntervalID == "blocked-1")
+        #expect(extensionOverride.relatedIntervalID == "blocked-2")
+        #expect(throws: ValidationError.invalidOverrideInterval(
+            .forceEscalationPaused
+        )) {
+            _ = try ScheduleOverride(
+                kind: .forceEscalationPaused,
+                effect: .unchanged,
+                effectiveAt: effectiveAt,
+                expiresAt: expiresAt,
+                relatedIntervalID: " \n "
+            )
+        }
+        #expect(throws: ValidationError.invalidOverrideInterval(
+            .fixedExtension
+        )) {
+            _ = try ScheduleOverride(
+                kind: .fixedExtension,
+                effect: .allow,
+                effectiveAt: effectiveAt,
+                expiresAt: expiresAt,
+                relatedIntervalID: "\t"
+            )
+        }
+    }
+
     /// 1 - Name: Tomorrow-note validation.
     /// 2 - Description: Rejects empty notes and content longer than the approved 500-character bound.
     /// 3 - Assumptions: Swift String count represents user-perceived extended grapheme clusters.
@@ -228,6 +277,46 @@ struct ModelTests {
             at: now
         )
         #expect(!didRemoveAnotherOverride)
+    }
+
+    /// 1 - Name: Replacement override ordering.
+    /// 2 - Description: Applies equal-time overrides through both replacement APIs in reverse UUID order.
+    /// 3 - Assumptions: Effective time is primary and UUID text is the stable tie-break for persisted policy order.
+    /// 4 - Expectations: Active and unexpired replacement methods produce the same ascending deterministic order.
+    @Test
+    func replacementMethodsUseDeterministicOverrideOrdering() throws {
+        let effectiveAt = Date(timeIntervalSince1970: 100)
+        let expiresAt = Date(timeIntervalSince1970: 200)
+        let lowerIDOverride = try ScheduleOverride(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+            kind: .fixedExtension,
+            effect: .allow,
+            effectiveAt: effectiveAt,
+            expiresAt: expiresAt
+        )
+        let higherIDOverride = try ScheduleOverride(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+            kind: .takeDayOff,
+            effect: .block,
+            effectiveAt: effectiveAt,
+            expiresAt: expiresAt
+        )
+        let replacements = [higherIDOverride, lowerIDOverride]
+        var activeConfiguration = try HomewardConfiguration.initial()
+        var unexpiredConfiguration = try HomewardConfiguration.initial()
+
+        activeConfiguration.replaceActiveAvailabilityOverrides(
+            with: replacements,
+            at: effectiveAt
+        )
+        unexpiredConfiguration.replaceUnexpiredAvailabilityOverrides(
+            with: replacements,
+            at: effectiveAt
+        )
+
+        let expectedIDs = [lowerIDOverride.id, higherIDOverride.id]
+        #expect(activeConfiguration.overrides.map(\.id) == expectedIDs)
+        #expect(unexpiredConfiguration.overrides.map(\.id) == expectedIDs)
     }
 
     /// 1 - Name: Protected persisted application.

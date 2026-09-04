@@ -1,8 +1,8 @@
 # Homeward Threshold Copy
 
 This is the approved language contract. Strings under **Required copy** are
-target requirements, not a claim that they are implemented. The final section
-records known differences in the current repository.
+target requirements, not a claim that they are implemented. Current
+implementation status is tracked in `TRACEABILITY.md`.
 
 ## Voice
 
@@ -128,7 +128,7 @@ must never be combined with **Work available** or other schedule-derived copy.
 | Unresolved explanation | **Homeward will leave this app open until you reselect or remove it.** |
 | Zero apps | **Choose at least one work app. Homeward has nothing to close.** |
 | Browser scope | **Homeward manages the whole browser, including every profile and window. Use a separate browser for personal browsing.** |
-| Protected app | **Homeward cannot manage that system application. Choose another application.** |
+| System application | **Homeward cannot manage that system application. Choose another application.** |
 | Unsupported item | **The selected item is not a supported application.** |
 
 ### Preview
@@ -223,19 +223,3 @@ No notification contains an app name, bundle identifier, file path, developer
 name, process count tied to a named app, thought text, or draft text by
 default. An optional detailed-notification preference, if implemented later,
 must be explicit, off by default, and explain lock-screen exposure.
-
-## Current implementation differences
-
-The repository already uses most core state titles and several confirmation
-strings above. The following required copy is not yet the shipped baseline:
-
-- Warning bodies can list up to three selected app names.
-- Blocked-launch panels and cooldown notifications name the app.
-- Automatic Saved Thoughts presentation reveals note text immediately.
-- Onboarding has **Test Setup…** and **Start Homeward**, but no explicit
-  **Skip Preview** action.
-- Saving and success states are not consistently visible.
-- Unresolved-app copy says **Needs reselection** but does not state the
-  fail-open consequence.
-- Some confirmation text says “configured closing flow” rather than naming
-  Gentle Close or Firm Close.

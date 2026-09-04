@@ -13,9 +13,9 @@ Status meanings:
 - **Manual evidence:** source may exist, but the behavior cannot be accepted
   without platform or assistive-technology testing.
 
-Statuses reflect source inspection during the September 2026 documentation
-review. Tests were not run for this documentation-only update; listed tests are
-evidence locations, not a claim that they currently pass.
+Statuses reflect source inspection during the September 2026 Phase 2 review.
+Listed tests identify automated evidence; platform and manual evidence remain
+separate release gates.
 
 ## Product, state, and navigation
 
@@ -26,9 +26,9 @@ evidence locations, not a claim that they currently pass.
 | STA-002 | Delayed startup has explicit non-enforcement copy and Retry | Required by `UI-STATE-MATRIX.md` | Pending |
 | STA-003 | Configuration failure supersedes schedule state and pauses closing | `AppModel.start()`, `RootView.swift`, recovery UI tests | Implemented in the main window; stale notification cleanup needs evidence |
 | NAV-001 | Menu is the persistent compact status surface | `HomewardApp.swift` | Implemented baseline |
-| NAV-002 | Main destinations are Today, Schedule, Work Apps, Closing, Saved Thoughts, and Settings | `ManagementView.swift` | Pending: baseline is Overview, Schedule, Work Apps, Closing, General |
-| NAV-003 | Open, Settings, Needs Attention, Saved Thoughts, and notification actions route truthfully | `HomewardApp.swift`, `PresentationCoordinator.swift` | Pending/partial: several commands open the same unselected window |
-| NAV-004 | Finder/Spotlight reopen and hidden-status-item fallback bring the existing window forward | App lifecycle/UI tests required | Pending or unverified |
+| NAV-002 | Main destinations are Today, Schedule, Work Apps, Closing, Saved Thoughts, and Settings | `HomewardRoute`, `ManagementView.swift`, native Settings scene | Implemented |
+| NAV-003 | Open, Settings, Needs Attention, Saved Thoughts, and notification actions route truthfully | `HomewardApp.swift`, `ManagementView.swift`, `PresentationCoordinator.swift` | Partial: named window and Settings routes exist; notification actions apply current contextual behavior but do not route stale actions to Today with an explanation |
+| NAV-004 | Finder/Spotlight reopen and hidden-status-item fallback bring the existing window forward | `HomewardApplicationDelegate.applicationShouldHandleReopen`, `HomewardUITests.testCompletedSetupReopensToday()` | Implemented source and automated UI coverage; unlocked-session execution remains required |
 | STA-004 | One shared presentation model drives Today, menu, notifications, and accessibility output | `SchedulePresentation`, `HomewardApp.swift`, `OverviewView.swift`, `HomewardNotificationService.swift` | Partial: schedule formatting is shared, event/privacy presentation is not |
 
 ## Onboarding and preview
@@ -36,7 +36,7 @@ evidence locations, not a claim that they currently pass.
 | ID | Requirement | Source or evidence | Status |
 | --- | --- | --- | --- |
 | ONB-001 | Setup is resumable and closing stays off until final completion | `OnboardingView.swift`, `AppModel.reconcile()` | Implemented |
-| ONB-002 | Completion requires a confirmed schedule and one resolvable, non-protected app | `AppModel.completeOnboarding()` | Partial: confirmed schedule and non-empty selection are checked; resolvability is not |
+| ONB-002 | Completion requires a confirmed schedule and one resolvable app that Homeward is allowed to manage | `AppModel.completeOnboarding()` | Partial: confirmed schedule and non-empty selection are checked; resolvability is not |
 | ONB-003 | Notifications and Start at Login are recommended, nonblocking readiness steps | `OnboardingView.swift` | Implemented |
 | ONB-004 | Disabled progression explains its blocker visibly and programmatically | `OnboardingView.swift`, accessibility UI tests | Partial |
 | PRE-001 | Preview is optional and offers explicit Run Preview and Skip Preview choices | `OnboardingView.swift` | Partial: preview is optional in practice, but explicit Skip Preview is missing |
@@ -60,12 +60,12 @@ evidence locations, not a claim that they currently pass.
 | ID | Requirement | Source or evidence | Status |
 | --- | --- | --- | --- |
 | APP-001 | Search, catalog loading/empty states, drag-and-drop, and Choose Application are available | `ApplicationCatalog.swift`, `AppPickerView.swift` | Implemented baseline |
-| APP-002 | Protected and unsupported apps are rejected | `Models.swift`, `ApplicationCatalog.swift`, `AppModel.addApplication()` | Implemented |
+| APP-002 | System and unsupported apps are rejected | `Models.swift`, `ApplicationCatalog.swift`, `AppModel.addApplication()` | Implemented |
 | APP-003 | Browser selection explains whole-browser scope | `AppPickerView.swift` | Implemented |
 | APP-004 | Adding or repairing an app during blocked time confirms immediate closing | `AppPickerView.swift` | Implemented baseline |
 | APP-005 | Zero apps blocks onboarding and becomes a post-setup attention state | `OnboardingView.swift`, `AppPickerView.swift` | Partial: setup blocking exists; post-setup attention is pending |
 | APP-006 | Unresolved apps remain visible and repairable | `SelectedApplication.isResolvable`, `AppModel.refreshCatalog()`, `AppPickerView.swift` | Implemented |
-| APP-007 | Unresolved apps fail open and are excluded from all normal/force closing plans | `EnforcementPlanner.targets()` | Pending: the planner does not filter `isResolvable` |
+| APP-007 | Unresolved apps fail open and are excluded from all normal/force closing plans | `EnforcementPlanner.targets()`, `forceEligibleTargetIDs()`, `EnforcementPlannerTests.unresolvedSelectionFailsOpen()` | Implemented |
 | APP-008 | Duplicate names and multiple instances are visibly disambiguated with explicit action scope | `ApplicationCatalog.swift`, `ClosingPanel.swift` | Partial |
 
 ## Gentle, Firm, and blocked-launch behavior
@@ -94,8 +94,8 @@ evidence locations, not a claim that they currently pass.
 | NOT-002 | Warning, blocked-launch, completion, and thoughts notifications are generic by default | `HomewardNotificationService.swift`, `AppModel.showBlockedLaunchFeedback()`, `COPY.md` | Partial: completion is generic; warnings and blocked launch can name apps; thoughts notification is not implemented |
 | NOT-003 | No notification contains saved-thought or draft text | Notification source and tests | Implemented in current notification paths; future thoughts notification must preserve this |
 | NOT-004 | Optional detailed notifications are explicit, off by default, and explain lock-screen exposure | Requirement only | Pending; no detailed-content preference should be inferred |
-| NOT-005 | Actions are bound to the schedule/configuration generation that created them; stale actions do nothing safely | `NotificationResponseRouter`, `AppModel.handleNotificationAction()` | Pending: only action identifiers are routed |
-| NOT-006 | Pending/delivered actions are cleaned up after reset, schedule changes, authorization changes, and quit | `replaceWarnings()`, `removeWarnings()`, `AppModel.quit()` | Partial |
+| NOT-005 | Actions are bound to the schedule/configuration generation that created them; stale actions do nothing safely | `WarningActionContext`, `NotificationResponseRouter`, `AppModel.applyNotificationAction()`, notification-context tests | Partial: warning actions carry a validated cutoff and stale or malformed contexts do nothing; full configuration-generation binding and stale-action explanation remain pending |
+| NOT-006 | Pending/delivered actions are cleaned up after reset, schedule changes, authorization changes, and quit | `replaceWarnings()`, `removeWarnings()`, `AppModel.quit()` | Partial: schedule replacement and awaited quit cleanup are implemented; reset, authorization-change, and recovery cleanup need complete evidence |
 
 ## Saved Thoughts and storage recovery
 
@@ -133,7 +133,7 @@ evidence locations, not a claim that they currently pass.
 | REL-002 | Configuration and notes saves are validated and atomic | `AtomicFileStore.swift`, `HomewardRepository.swift`, store tests | Implemented source |
 | REL-003 | Failed policy saves retain the previous verified policy and explain that no new policy applied | `AppModel.commit()` | Implemented baseline |
 | REL-004 | Start at Login statuses and recovery are truthful | `LoginItemService.swift`, onboarding/general settings | Implemented source; system approval/login evidence required |
-| REL-005 | Quit paths share one termination policy and do not block OS shutdown | `HomewardApp.swift`, `AppModel.quit()` | Partial: menu confirmation exists; unified app-menu/`⌘Q`/logout/shutdown policy is pending |
+| REL-005 | Quit paths share one termination policy and do not block OS shutdown | `HomewardApp.swift`, `AppModel.quit()` | Partial: menu and `⌘Q` share confirmation and await warning cleanup; logout/shutdown handling remains pending |
 | REL-006 | UI placement and lifecycle work across lock, sleep/wake, Spaces, full-screen, and multiple displays | Panel factory, workspace monitor, manual test plan | Manual evidence |
 
 ## Evidence required before status promotion
