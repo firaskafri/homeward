@@ -70,6 +70,7 @@ final class HomewardUITests: XCTestCase {
     func testDelayedStartupExplainsSafetyAndRetries() throws {
         let app = try launch(.delayedStartupRetry)
         defer { app.terminate() }
+        try reopenHomeward(app)
 
         XCTAssertTrue(
             app.descendants(matching: .any)["startup.delayed"]
@@ -119,11 +120,15 @@ final class HomewardUITests: XCTestCase {
         defer { app.terminate() }
         try reopenHomeward(app)
 
+        let savedThoughtsNavigation = app.descendants(matching: .any)[
+            "navigation.Saved Thoughts"
+        ]
         XCTAssertTrue(
-            app.descendants(matching: .any)["management.window"]
-                .waitForExistence(timeout: UITestPolicy.launchTimeout)
+            savedThoughtsNavigation.waitForExistence(
+                timeout: UITestPolicy.launchTimeout
+            )
         )
-        app.descendants(matching: .any)["navigation.Saved Thoughts"].click()
+        savedThoughtsNavigation.click()
         XCTAssertTrue(
             app.descendants(matching: .any)["notes.review"]
                 .waitForExistence(timeout: UITestPolicy.launchTimeout)
@@ -173,9 +178,9 @@ final class HomewardUITests: XCTestCase {
         let destinations: [(String, String)] = [
             ("Today", "overview.view"),
             ("Schedule", "schedule.view"),
-            ("Work Apps", "apps.view"),
             ("Closing & Warnings", "closing.settings"),
             ("Saved Thoughts", "notes.review"),
+            ("Work Apps", "apps.view"),
         ]
         for (label, identifier) in destinations {
             app.descendants(matching: .any)["navigation.\(label)"].click()
@@ -186,7 +191,6 @@ final class HomewardUITests: XCTestCase {
             )
         }
 
-        app.descendants(matching: .any)["navigation.Work Apps"].click()
         XCTAssertTrue(
             app.staticTexts["A Deliberately Long Work Application Name"]
                 .waitForExistence(timeout: UITestPolicy.navigationTimeout)
