@@ -6,22 +6,27 @@ actor HomewardRepository {
         "configuration.json"
     nonisolated private static let notesFilename = "notes.json"
 
-    private let configurationStore: AtomicFileStore<HomewardConfiguration>
-    private let notesStore: AtomicFileStore<NotesDocument>
+    private let directoryProvider: @Sendable () throws -> URL
+    private var configurationStore: AtomicFileStore<HomewardConfiguration>?
+    private var notesStore: AtomicFileStore<NotesDocument>?
 
-    init() throws {
-        self.init(directoryURL: try Self.defaultDirectoryURL())
+    init() {
+        directoryProvider = {
+            try Self.defaultDirectoryURL()
+        }
     }
 
     init(directoryURL: URL) {
-        configurationStore = AtomicFileStore(
-            fileURL: directoryURL.appendingPathComponent(
-                Self.configurationFilename
-            )
-        )
-        notesStore = AtomicFileStore(
-            fileURL: directoryURL.appendingPathComponent(Self.notesFilename)
-        )
+        directoryProvider = { directoryURL }
+        let stores = Self.makeStores(directoryURL: directoryURL)
+        configurationStore = stores.configuration
+        notesStore = stores.notes
+    }
+
+    init(
+        directoryProvider: @escaping @Sendable () throws -> URL
+    ) {
+        self.directoryProvider = directoryProvider
     }
 
     nonisolated static func defaultDirectoryURL(
@@ -73,6 +78,7 @@ actor HomewardRepository {
     }
 
     func loadConfiguration() async throws -> HomewardConfiguration? {
+        let configurationStore = try stores().configuration
         guard let configuration = try await configurationStore.load() else {
             return nil
         }
@@ -84,6 +90,7 @@ actor HomewardRepository {
     func saveConfiguration(
         _ configuration: HomewardConfiguration
     ) async throws -> HomewardConfiguration {
+        let configurationStore = try stores().configuration
         let validated = configuration
         try validated.validate()
         try await configurationStore.save(validated)
@@ -94,6 +101,7 @@ actor HomewardRepository {
     func replaceConfigurationDuringRecovery(
         _ configuration: HomewardConfiguration
     ) async throws -> HomewardConfiguration {
+        let configurationStore = try stores().configuration
         let validated = configuration
         try validated.validate()
         try await configurationStore.replaceDuringRecovery(validated)
@@ -101,6 +109,7 @@ actor HomewardRepository {
     }
 
     func configurationRecoveryCandidate() async throws -> HomewardConfiguration? {
+        let configurationStore = try stores().configuration
         guard let configuration = try await configurationStore
             .loadRecoveryCandidate() else {
             return nil
@@ -110,6 +119,7 @@ actor HomewardRepository {
     }
 
     func loadNotes() async throws -> NotesDocument {
+        let notesStore = try stores().notes
         let notes = try await notesStore.load() ?? NotesDocument()
         try notes.validate()
         return notes
@@ -117,6 +127,7 @@ actor HomewardRepository {
 
     @discardableResult
     func saveNotes(_ notes: NotesDocument) async throws -> NotesDocument {
+        let notesStore = try stores().notes
         let validated = notes
         try validated.validate()
         try await notesStore.save(validated)
@@ -124,6 +135,39 @@ actor HomewardRepository {
     }
 
     func resetNotes() async throws {
+        let notesStore = try stores().notes
         try await notesStore.delete()
+    }
+
+    private func stores() throws -> (
+        configuration: AtomicFileStore<HomewardConfiguration>,
+        notes: AtomicFileStore<NotesDocument>
+    ) {
+        if let configurationStore, let notesStore {
+            return (configurationStore, notesStore)
+        }
+        let directoryURL = try directoryProvider()
+        let stores = Self.makeStores(directoryURL: directoryURL)
+        configurationStore = stores.configuration
+        notesStore = stores.notes
+        return stores
+    }
+
+    nonisolated private static func makeStores(
+        directoryURL: URL
+    ) -> (
+        configuration: AtomicFileStore<HomewardConfiguration>,
+        notes: AtomicFileStore<NotesDocument>
+    ) {
+        (
+            AtomicFileStore(
+                fileURL: directoryURL.appendingPathComponent(
+                    configurationFilename
+                )
+            ),
+            AtomicFileStore(
+                fileURL: directoryURL.appendingPathComponent(notesFilename)
+            )
+        )
     }
 }

@@ -8,6 +8,7 @@ final class LoginItemService {
         case enabled
         case requiresApproval
         case notFound
+        case unavailable
     }
 
     enum ServiceStatus {
@@ -18,7 +19,7 @@ final class LoginItemService {
         case unavailable
     }
 
-    enum ServiceError: Error {
+    enum ServiceError: Error, Equatable {
         case unavailable
     }
 
@@ -65,6 +66,10 @@ final class LoginItemService {
         self.openSettings = openSettings
     }
 
+    static func isolatedForUITesting() -> LoginItemService {
+        LoginItemService(statusProvider: { .notRegistered })
+    }
+
     var status: Status {
         switch statusProvider() {
         case .notRegistered:
@@ -76,7 +81,7 @@ final class LoginItemService {
         case .notFound:
             .notFound
         case .unavailable:
-            .notFound
+            .unavailable
         }
     }
 

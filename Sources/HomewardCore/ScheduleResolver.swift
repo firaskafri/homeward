@@ -113,10 +113,15 @@ public struct ScheduleResolver: Sendable {
             ? nil
             : intervals.first(where: { $0.start > now })?.start
         let nextTransition: ScheduleTransition?
-        if let activeOverride {
-            nextTransition = ScheduleTransition(
-                date: activeOverride.expiresAt,
-                cause: .overrideExpires
+        if activeOverride != nil {
+            nextTransition = nextTransitionAfterOverride(
+                currentAvailability: isAvailable,
+                schedule: schedule,
+                overrides: overrides,
+                intervals: intervals,
+                now: now,
+                calendar: calendar,
+                continuouslyAvailable: continuouslyAvailable
             )
         } else if let baseInterval, !continuouslyAvailable {
             nextTransition = ScheduleTransition(
@@ -157,10 +162,11 @@ public struct ScheduleResolver: Sendable {
             nextTransition: nextTransition,
             nextAvailability: nextAvailability(
                 isAvailable: isAvailable,
-                activeOverride: activeOverride,
+                schedule: schedule,
+                overrides: overrides,
                 intervals: intervals,
                 now: now,
-                nextBaseStart: nextBaseStart,
+                calendar: calendar,
                 continuouslyAvailable: continuouslyAvailable
             ),
             nextOverrideEffectiveAt: nextOverrideStart
@@ -359,25 +365,102 @@ public struct ScheduleResolver: Sendable {
 
     private func nextAvailability(
         isAvailable: Bool,
-        activeOverride: ScheduleOverride?,
+        schedule: WeeklySchedule,
+        overrides: [ScheduleOverride],
         intervals: [ScheduleInterval],
         now: Date,
-        nextBaseStart: Date?,
+        calendar: Calendar,
         continuouslyAvailable: Bool
     ) -> Date? {
         guard !isAvailable else {
             return nil
         }
-        if let activeOverride, activeOverride.effect == .block {
-            if continuouslyAvailable
-                || intervals.contains(where: { $0.contains(activeOverride.expiresAt) }) {
-                return activeOverride.expiresAt
-            }
-            return intervals.first(where: {
-                $0.start >= max(now, activeOverride.expiresAt)
-            })?.start
+        let overrideBoundaries = overrides
+            .filter { $0.effect != .unchanged }
+            .flatMap { [$0.effectiveAt, $0.expiresAt] }
+        let baseBoundaries = intervals.flatMap { [$0.start, $0.end] }
+        let candidates = Set(overrideBoundaries + baseBoundaries)
+            .filter { $0 > now }
+            .sorted()
+        return candidates.first {
+            resolvedAvailability(
+                schedule: schedule,
+                overrides: overrides,
+                at: $0,
+                calendar: calendar,
+                continuouslyAvailable: continuouslyAvailable
+            )
         }
-        return nextBaseStart
+    }
+
+    private func nextTransitionAfterOverride(
+        currentAvailability: Bool,
+        schedule: WeeklySchedule,
+        overrides: [ScheduleOverride],
+        intervals: [ScheduleInterval],
+        now: Date,
+        calendar: Calendar,
+        continuouslyAvailable: Bool
+    ) -> ScheduleTransition? {
+        let activeExpiryDates = Set(
+            overrides
+                .filter {
+                    $0.effect != .unchanged && $0.isActive(at: now)
+                }
+                .map(\.expiresAt)
+        )
+        let baseBoundaries = intervals.flatMap { [$0.start, $0.end] }
+        let candidates = Set(
+            Array(activeExpiryDates) + baseBoundaries
+        )
+            .filter { $0 > now }
+            .sorted()
+
+        for candidate in candidates {
+            let availability = resolvedAvailability(
+                schedule: schedule,
+                overrides: overrides,
+                at: candidate,
+                calendar: calendar,
+                continuouslyAvailable: continuouslyAvailable
+            )
+            guard availability != currentAvailability else {
+                continue
+            }
+            let cause: TransitionCause
+            if activeExpiryDates.contains(candidate) {
+                cause = .overrideExpires
+            } else {
+                cause = availability ? .workWindowStarts : .workWindowEnds
+            }
+            return ScheduleTransition(date: candidate, cause: cause)
+        }
+        return nil
+    }
+
+    private func resolvedAvailability(
+        schedule: WeeklySchedule,
+        overrides: [ScheduleOverride],
+        at date: Date,
+        calendar: Calendar,
+        continuouslyAvailable: Bool
+    ) -> Bool {
+        let activeOverride = highestPrecedenceOverride(in: overrides) {
+            $0.isActive(at: date) && $0.effect != .unchanged
+        }
+        switch activeOverride?.effect {
+        case .allow:
+            return true
+        case .block:
+            return false
+        case .unchanged, nil:
+            return continuouslyAvailable
+                || intervals(
+                    for: schedule,
+                    around: date,
+                    calendar: calendar
+                ).contains(where: { $0.contains(date) })
+        }
     }
 
     private func isContinuouslyAvailable(_ schedule: WeeklySchedule) -> Bool {

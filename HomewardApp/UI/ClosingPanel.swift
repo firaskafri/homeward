@@ -17,6 +17,9 @@ final class ClosingPanelController: NSWindowController, NSWindowDelegate {
             resizable: true,
             floatsAcrossSpaces: true
         )
+        panel.level = NSWindow.Level(
+            rawValue: NSWindow.Level.floating.rawValue + 1
+        )
         panel.contentViewController = hostingController
         super.init(window: panel)
         panel.delegate = self
@@ -27,7 +30,7 @@ final class ClosingPanelController: NSWindowController, NSWindowDelegate {
         nil
     }
 
-    var isVisible: Bool {
+    var isVisibleAndUnoccluded: Bool {
         window?.isVisibleAndUnoccluded == true
     }
 

@@ -11,6 +11,10 @@ DMG and emits a checksum, provenance manifest, and required dSYM archive. CI
 retains these files as unreleased evidence tied to the source commit; access is
 governed by GitHub artifact permissions.
 
+Verification records the complete signed app tree, app-binary UUID, and dSYM
+tree in a strict JSON evidence file. Packaging revalidates those values and the
+code signature before producing artifacts.
+
 ## Public release prerequisites
 
 - Developer ID Application certificate and private key.

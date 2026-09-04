@@ -135,10 +135,16 @@ public enum CloseMode: String, Codable, Equatable, Sendable {
     case firm
 }
 
-public struct WarningPreferences: Codable, Equatable, Sendable {
-    public static let fifteenMinuteOffset: TimeInterval = 15 * 60
-    public static let fiveMinuteOffset: TimeInterval = 5 * 60
+public enum WarningLeadTime: Int, CaseIterable, Sendable {
+    case fifteenMinute = 15
+    case fiveMinute = 5
 
+    public var offset: TimeInterval {
+        TimeInterval(rawValue * 60)
+    }
+}
+
+public struct WarningPreferences: Codable, Equatable, Sendable {
     public var fifteenMinuteWarningEnabled: Bool
     public var fiveMinuteWarningEnabled: Bool
 
@@ -150,15 +156,19 @@ public struct WarningPreferences: Codable, Equatable, Sendable {
         self.fiveMinuteWarningEnabled = fiveMinuteWarningEnabled
     }
 
-    public var enabledOffsets: [TimeInterval] {
-        var offsets: [TimeInterval] = []
+    public var enabledLeadTimes: [WarningLeadTime] {
+        var leadTimes: [WarningLeadTime] = []
         if fifteenMinuteWarningEnabled {
-            offsets.append(Self.fifteenMinuteOffset)
+            leadTimes.append(.fifteenMinute)
         }
         if fiveMinuteWarningEnabled {
-            offsets.append(Self.fiveMinuteOffset)
+            leadTimes.append(.fiveMinute)
         }
-        return offsets.sorted(by: >)
+        return leadTimes
+    }
+
+    public var enabledOffsets: [TimeInterval] {
+        enabledLeadTimes.map(\.offset)
     }
 }
 

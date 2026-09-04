@@ -24,7 +24,7 @@ original planning PRD is owner-local and is not part of this repository.
 - macOS 15 or later
 - Apple Silicon
 - Xcode 16.4 or later / Swift 6
-- [XcodeGen](https://github.com/yonaskolb/XcodeGen) 2.46 or later
+- [XcodeGen 2.46.0](https://github.com/yonaskolb/XcodeGen/releases/tag/2.46.0)
 
 ## Build
 

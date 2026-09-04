@@ -1,5 +1,3 @@
-import Foundation
-
 @MainActor
 final class PresentationCoordinator {
     private struct BlockedLaunchIdentity: Equatable {
@@ -16,7 +14,11 @@ final class PresentationCoordinator {
     private var todayChangePanel: TodayChangePanelController?
 
     var isClosingPanelVisible: Bool {
-        closingPanel?.isVisible == true
+        closingPanel?.isVisibleAndUnoccluded == true
+    }
+
+    private var isClosingPanelPresented: Bool {
+        closingPanel?.window?.isVisible == true
     }
 
     func showClosing(model: AppModel, activating: Bool = false) {
@@ -35,11 +37,14 @@ final class PresentationCoordinator {
         applicationName: String,
         availabilityText: String
     ) {
+        guard !isClosingPanelPresented else {
+            return
+        }
         let identity = BlockedLaunchIdentity(
             applicationName: applicationName,
             availabilityText: availabilityText
         )
-        if blockedLaunchPanel?.window?.isVisibleAndUnoccluded == true,
+        if blockedLaunchPanel?.window?.isVisible == true,
            blockedLaunchIdentity == identity {
             blockedLaunchPanel?.show()
             return
@@ -56,7 +61,10 @@ final class PresentationCoordinator {
     }
 
     func showNoteCapture(model: AppModel) {
-        if noteCapturePanel?.window?.isVisibleAndUnoccluded == true {
+        guard !isClosingPanelPresented else {
+            return
+        }
+        if noteCapturePanel?.window?.isVisible == true {
             noteCapturePanel?.show()
             return
         }
@@ -65,6 +73,9 @@ final class PresentationCoordinator {
     }
 
     func showNotes(model: AppModel) {
+        guard !isClosingPanelPresented else {
+            return
+        }
         if notesPanel == nil {
             notesPanel = NotesPanelController(model: model)
         }
@@ -72,7 +83,7 @@ final class PresentationCoordinator {
     }
 
     func showCustomCutoff(model: AppModel) {
-        if customCutoffPanel?.window?.isVisibleAndUnoccluded == true {
+        if customCutoffPanel?.window?.isVisible == true {
             customCutoffPanel?.show()
             return
         }
@@ -81,7 +92,7 @@ final class PresentationCoordinator {
     }
 
     func showTodayChange(model: AppModel) {
-        if todayChangePanel?.window?.isVisibleAndUnoccluded == true {
+        if todayChangePanel?.window?.isVisible == true {
             todayChangePanel?.show()
             return
         }

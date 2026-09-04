@@ -12,7 +12,8 @@ Focus modes:
   Force Quit and restore the prior app/control on dismissal.
 
 All changing statuses must be available as text, not color alone. Dates, times,
-counts, and app lists are localized. VoiceOver announcements do not move
+counts, and app lists use locale-aware system formatting. Version 0.1.0 UI copy
+is English-only; localization is deferred. VoiceOver announcements do not move
 keyboard focus.
 
 ## Lifecycle and schedule
@@ -75,10 +76,10 @@ keyboard focus.
 | Capture editing | Show remaining characters and local-storage privacy context. Existing thoughts remain concealed while closed. | **Save** / `⌘Return`; **Cancel**. | Keep focus in editor. Announce character-limit error once, not each keystroke. | No draft notifications. | Trim surrounding whitespace on validation guidance without silently changing intent. |
 | Saving thought | **Saving…** at the Save control; prevent duplicate submission and preserve draft. | Cancel is disabled only if cancelling could create ambiguity. | Do not move focus. | None. | Success closes; failure keeps editor and draft. |
 | Thought saved | **Thought saved. It will stay private until you review it.** | **Done** or return to prior surface. | Polite announcement; restore prior focus. | No content. | Available later from Saved Thoughts. |
-| Thoughts ready | Generic **Saved thoughts are ready** with count; content stays concealed until deliberate review. Only during a normal base work window. | **Review Saved Thoughts…**; **Later** defers without marking individual notes presented. | Automatic presentation is Passive; explicit Review is Invoked. | Never include note text. Suppress all content while session is locked/inactive. | Menu and persistent Saved Thoughts destination retain access. |
+| Thoughts ready | Generic **Saved thoughts are ready** with count; content stays concealed until deliberate review. Only during a normal base work window. | **Review Saved Thoughts…**; **Later** defers without marking individual notes presented. | Automatic in-app presentation is Passive; explicit Review is Invoked. | No Saved Thoughts system notification in version 0.1.0. Never include note text in any future notification. Suppress all content while session is locked/inactive. | Menu and persistent Saved Thoughts destination retain access. |
 | Review empty | Distinguish **No saved thoughts**, **Kept for this work window**, and **Saved thoughts unavailable**. | Done, retry, or capture as context permits. | Invoked; focus heading. | None. | Follow state-specific action. |
 | Thought kept | Explain that the thought will return in a later eligible work window. | **Undo Keep** or Done. | Keep focus in the row or announce its removal from this interval. | No content outside review. | Reappears after interval changes. |
-| Thought completed | Explain removal and provide a user-controlled restore path that does not expire only with time. | **Restore** until the user dismisses or confirms completion. | Focus Restore/confirmation; announce completion. | No content outside review. | Restore the same note identity and order. |
+| Thought completed | Explain removal and provide a user-controlled restore path. | **Restore** remains available until the review is dismissed or completion is explicitly confirmed. | Focus Restore/confirmation; announce completion. | No content outside review. | Restore the same note identity and order. |
 | Thought deletion | Confirm **Delete this thought? This cannot be undone.** | **Delete**, **Cancel**. | Invoked confirmation; return focus to row on Cancel. | No notification. | No restoration after confirmed delete. |
 | Notes unavailable | **Saved thoughts are unavailable. App closing still works.** Do not render stale or partial content. | **Retry**, optional **Restore Previous Thoughts…** only with a validated candidate, **Reset Saved Thoughts…**. | Invoked if user opens Saved Thoughts; otherwise a polite attention announcement. | Generic only. | Notes-only recovery; never reset configuration. |
 
@@ -100,7 +101,8 @@ Every applicable row requires:
 - Light and dark appearance
 - Increase Contrast and Differentiate Without Color
 - Reduce Motion and Reduce Transparency
-- Largest supported macOS text settings and 2× pseudo-localized strings
+- Largest supported macOS text settings and representative long English copy;
+  pseudo-localization is deferred with localization
 - Keyboard, Full Keyboard Access, VoiceOver, Voice Control, and Switch Control
 - Zoom at 200% and 400%
 - Single and multiple displays, Spaces, and full-screen apps

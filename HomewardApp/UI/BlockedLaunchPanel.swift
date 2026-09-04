@@ -137,9 +137,10 @@ private struct BlockedLaunchView: View {
         model.clearError()
         isApplyingExtension = true
         Task { @MainActor in
-            await model.useGentleShortcutExtension()
+            let didApplyExtension =
+                await model.useGentleShortcutExtension()
             isApplyingExtension = false
-            if model.lastError == nil {
+            if didApplyExtension {
                 close()
             }
         }

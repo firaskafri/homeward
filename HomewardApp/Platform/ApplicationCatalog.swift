@@ -11,6 +11,13 @@ struct CatalogApplication: Identifiable {
 
 @MainActor
 final class ApplicationCatalog {
+    private struct ApplicationMetadata: Sendable {
+        let bundleIdentifier: String?
+        let bundlePath: String
+        let displayName: String
+        let developerName: String?
+    }
+
     static let browserBundleIdentifiers: Set<String> = [
         "com.apple.Safari",
         "com.google.Chrome",
@@ -35,8 +42,11 @@ final class ApplicationCatalog {
             uniqueByPath[standardized.path] = standardized
         }
 
-        return uniqueByPath.values
-            .compactMap(descriptor(for:))
+        let metadata = await Self.applicationMetadata(
+            for: Array(uniqueByPath.values)
+        )
+        return metadata
+            .map(catalogApplication(from:))
             .sorted {
                 $0.selection.displayName.localizedStandardCompare(
                     $1.selection.displayName
@@ -45,6 +55,38 @@ final class ApplicationCatalog {
     }
 
     func descriptor(for url: URL) -> CatalogApplication? {
+        guard let metadata = Self.applicationMetadata(for: url) else {
+            return nil
+        }
+        return catalogApplication(from: metadata)
+    }
+
+    private func catalogApplication(
+        from metadata: ApplicationMetadata
+    ) -> CatalogApplication {
+        let selection = SelectedApplication(
+            bundleIdentifier: metadata.bundleIdentifier,
+            bundlePath: metadata.bundlePath,
+            displayName: metadata.displayName,
+            developerName: metadata.developerName,
+            isResolvable: true
+        )
+        return CatalogApplication(
+            id: selection.stableSelectionKey,
+            selection: selection,
+            icon: workspace.icon(forFile: metadata.bundlePath)
+        )
+    }
+
+    private nonisolated static func applicationMetadata(
+        for urls: [URL]
+    ) async -> [ApplicationMetadata] {
+        urls.compactMap(applicationMetadata(for:))
+    }
+
+    private nonisolated static func applicationMetadata(
+        for url: URL
+    ) -> ApplicationMetadata? {
         guard url.pathExtension.lowercased() == "app",
               let bundle = Bundle(url: url),
               bundle.executableURL != nil
@@ -69,18 +111,11 @@ final class ApplicationCatalog {
             ?? (info["CFBundleName"] as? String)
             ?? url.deletingPathExtension().lastPathComponent
         let developer = info["NSHumanReadableCopyright"] as? String
-        let selection = SelectedApplication(
+        return ApplicationMetadata(
             bundleIdentifier: bundleIdentifier,
             bundlePath: url.standardizedFileURL.path,
             displayName: displayName,
-            developerName: developer,
-            isResolvable: true
-        )
-
-        return CatalogApplication(
-            id: selection.stableSelectionKey,
-            selection: selection,
-            icon: workspace.icon(forFile: url.path)
+            developerName: developer
         )
     }
 

@@ -6,9 +6,10 @@ repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 derived_data="$repository_root/.build/xcode"
 app="$derived_data/Build/Products/Release/Homeward.app"
 dist="$repository_root/dist"
-verification_marker="$repository_root/.build/verified-release.env"
+verification_marker="$repository_root/.build/verified-release.json"
 
 cd "$repository_root"
+source "$repository_root/scripts/release-evidence.sh"
 
 if [[ -n "$(git status --porcelain)" ]]; then
   printf 'Release-candidate packaging requires a clean working tree.\n' >&2
@@ -28,20 +29,82 @@ fi
   exit 1
 }
 
-# shellcheck disable=SC1090
-source "$verification_marker"
-source_sha="$(git rev-parse HEAD)"
 binary="$app/Contents/MacOS/Homeward"
 plist="$app/Contents/Info.plist"
-[[ "$SOURCE_SHA" == "$source_sha" &&
-   "$BINARY_SHA" == "$(shasum -a 256 "$binary" | awk '{print $1}')" &&
-   "$PLIST_SHA" == "$(shasum -a 256 "$plist" | awk '{print $1}')" ]] || {
+dsym="$derived_data/Build/Products/Release/Homeward.app.dSYM"
+[[ -d "$dsym" ]] || {
+  printf 'Release dSYM is missing: %s\n' "$dsym" >&2
+  exit 1
+}
+version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")"
+build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")"
+evidence="$(
+  /usr/bin/python3 - "$verification_marker" <<'PY'
+import json
+import re
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    evidence = json.load(source)
+expected_keys = {
+    "appTreeSHA256",
+    "binaryUUID",
+    "build",
+    "dSYMTreeSHA256",
+    "schemaVersion",
+    "sourceSHA",
+    "version",
+}
+if set(evidence) != expected_keys or evidence["schemaVersion"] != 1:
+    raise SystemExit("Invalid verified release evidence schema")
+for key in expected_keys - {"schemaVersion"}:
+    if not isinstance(evidence[key], str) or "\t" in evidence[key]:
+        raise SystemExit(f"Invalid verified release evidence field: {key}")
+if not re.fullmatch(r"[0-9a-f]{64}", evidence["appTreeSHA256"]):
+    raise SystemExit("Invalid app tree hash")
+if not re.fullmatch(r"[0-9a-f]{64}", evidence["dSYMTreeSHA256"]):
+    raise SystemExit("Invalid dSYM tree hash")
+if not re.fullmatch(r"[0-9a-f]{40}", evidence["sourceSHA"]):
+    raise SystemExit("Invalid source SHA")
+if not re.fullmatch(
+    r"[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}",
+    evidence["binaryUUID"],
+):
+    raise SystemExit("Invalid binary UUID")
+if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", evidence["version"]):
+    raise SystemExit("Invalid version")
+if not re.fullmatch(r"[1-9][0-9]*", evidence["build"]):
+    raise SystemExit("Invalid build")
+print(
+    "\t".join(
+        [
+            evidence["sourceSHA"],
+            evidence["appTreeSHA256"],
+            evidence["binaryUUID"],
+            evidence["dSYMTreeSHA256"],
+            evidence["version"],
+            evidence["build"],
+        ]
+    )
+)
+PY
+)"
+IFS=$'\t' read -r verified_source_sha verified_app_tree_sha \
+  verified_binary_uuid verified_dsym_tree_sha verified_version \
+  verified_build <<<"$evidence"
+source_sha="$(git rev-parse HEAD)"
+[[ "$verified_source_sha" == "$source_sha" &&
+   "$verified_app_tree_sha" == "$(homeward_tree_sha256 "$app")" &&
+   "$verified_binary_uuid" == "$(homeward_macho_uuid "$binary")" &&
+   "$verified_dsym_tree_sha" == "$(homeward_tree_sha256 "$dsym")" &&
+   "$verified_version" == "$version" &&
+   "$verified_build" == "$build" ]] || {
   printf 'Release app does not match the latest verified source/build.\n' >&2
   exit 1
 }
+/usr/bin/codesign --verify --deep --strict --verbose=2 "$app"
+homeward_verify_dsym "$binary" "$dsym"
 
-version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")"
-build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")"
 bundle_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")"
 minimum_system_version="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$plist")"
 architecture="$(/usr/bin/lipo -archs "$binary")"
@@ -74,11 +137,14 @@ xcode_version="$(xcodebuild -version | tr '\n' ' ' | sed 's/ $//')"
 swift_version="$(swift --version 2>&1 | sed -n '1p')"
 
 ARTIFACT="${artifact_name}.dmg" \
+APP_TREE_SHA="$verified_app_tree_sha" \
 ARCHITECTURE="$architecture" \
+BINARY_UUID="$verified_binary_uuid" \
 BUILD="$build" \
 BUNDLE_IDENTIFIER="$bundle_identifier" \
 CHECKSUM="$checksum" \
 MINIMUM_SYSTEM_VERSION="$minimum_system_version" \
+DSYM_TREE_SHA="$verified_dsym_tree_sha" \
 SIGNATURE="$signature" \
 SIZE="$size" \
 SOURCE_SHA="$source_sha" \
@@ -92,8 +158,11 @@ import sys
 
 manifest = {
     "artifact": os.environ["ARTIFACT"],
+    "appTreeSHA256": os.environ["APP_TREE_SHA"],
     "architecture": os.environ["ARCHITECTURE"],
+    "binaryUUID": os.environ["BINARY_UUID"],
     "build": os.environ["BUILD"],
+    "dSYMTreeSHA256": os.environ["DSYM_TREE_SHA"],
     "bundleIdentifier": os.environ["BUNDLE_IDENTIFIER"],
     "license": "All rights reserved",
     "minimumSystemVersion": os.environ["MINIMUM_SYSTEM_VERSION"],
@@ -116,11 +185,6 @@ PY
     >"${artifact_name}.dmg.sha256"
 )
 
-dsym="$derived_data/Build/Products/Release/Homeward.app.dSYM"
-[[ -d "$dsym" ]] || {
-  printf 'Release dSYM is missing: %s\n' "$dsym" >&2
-  exit 1
-}
 /usr/bin/ditto \
   -c -k --keepParent \
   "$dsym" \

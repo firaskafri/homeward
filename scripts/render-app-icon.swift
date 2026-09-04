@@ -16,29 +16,92 @@ private struct IconSlot: Codable, Equatable {
     let size: String
 }
 
+private func renderedPixelSize(for slot: IconSlot) throws -> Int {
+    let prefix = "homeward-"
+    let suffix = ".png"
+    guard slot.filename.hasPrefix(prefix),
+          slot.filename.hasSuffix(suffix),
+          let size = Int(slot.filename.dropFirst(prefix.count).dropLast(
+              suffix.count
+          )) else {
+        throw RendererError.invalidSlotFilename(slot.filename)
+    }
+    return size
+}
+
 private let repositoryRoot = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent()
     .deletingLastPathComponent()
-private let outputDirectory = URL(
-    fileURLWithPath: repositoryRoot.path
-).appendingPathComponent(
+private let outputDirectory = repositoryRoot.appendingPathComponent(
     "HomewardApp/Assets.xcassets/AppIcon.appiconset",
     isDirectory: true
 )
 
 private let requiredSlots = [
-    IconSlot(filename: "homeward-16.png", idiom: "mac", scale: "1x", size: "16x16"),
-    IconSlot(filename: "homeward-32.png", idiom: "mac", scale: "2x", size: "16x16"),
-    IconSlot(filename: "homeward-32.png", idiom: "mac", scale: "1x", size: "32x32"),
-    IconSlot(filename: "homeward-64.png", idiom: "mac", scale: "2x", size: "32x32"),
-    IconSlot(filename: "homeward-128.png", idiom: "mac", scale: "1x", size: "128x128"),
-    IconSlot(filename: "homeward-256.png", idiom: "mac", scale: "2x", size: "128x128"),
-    IconSlot(filename: "homeward-256.png", idiom: "mac", scale: "1x", size: "256x256"),
-    IconSlot(filename: "homeward-512.png", idiom: "mac", scale: "2x", size: "256x256"),
-    IconSlot(filename: "homeward-512.png", idiom: "mac", scale: "1x", size: "512x512"),
-    IconSlot(filename: "homeward-1024.png", idiom: "mac", scale: "2x", size: "512x512"),
+    IconSlot(
+        filename: "homeward-16.png",
+        idiom: "mac",
+        scale: "1x",
+        size: "16x16"
+    ),
+    IconSlot(
+        filename: "homeward-32.png",
+        idiom: "mac",
+        scale: "2x",
+        size: "16x16"
+    ),
+    IconSlot(
+        filename: "homeward-32.png",
+        idiom: "mac",
+        scale: "1x",
+        size: "32x32"
+    ),
+    IconSlot(
+        filename: "homeward-64.png",
+        idiom: "mac",
+        scale: "2x",
+        size: "32x32"
+    ),
+    IconSlot(
+        filename: "homeward-128.png",
+        idiom: "mac",
+        scale: "1x",
+        size: "128x128"
+    ),
+    IconSlot(
+        filename: "homeward-256.png",
+        idiom: "mac",
+        scale: "2x",
+        size: "128x128"
+    ),
+    IconSlot(
+        filename: "homeward-256.png",
+        idiom: "mac",
+        scale: "1x",
+        size: "256x256"
+    ),
+    IconSlot(
+        filename: "homeward-512.png",
+        idiom: "mac",
+        scale: "2x",
+        size: "256x256"
+    ),
+    IconSlot(
+        filename: "homeward-512.png",
+        idiom: "mac",
+        scale: "1x",
+        size: "512x512"
+    ),
+    IconSlot(
+        filename: "homeward-1024.png",
+        idiom: "mac",
+        scale: "2x",
+        size: "512x512"
+    ),
 ]
-private let sizes = [16, 32, 64, 128, 256, 512, 1024]
+private let sizes = try Array(
+    Set(requiredSlots.map(renderedPixelSize))
+).sorted()
 private let arguments = Array(CommandLine.arguments.dropFirst())
 private let unsupportedArguments = arguments.filter { $0 != "--check" }
 guard unsupportedArguments.isEmpty else {
@@ -66,8 +129,14 @@ private func makeColor(
     _ green: CGFloat,
     _ blue: CGFloat,
     _ alpha: CGFloat = 1
-) -> CGColor {
-    CGColor(red: red, green: green, blue: blue, alpha: alpha)
+) throws -> CGColor {
+    guard let color = CGColor(
+        colorSpace: CGColorSpaceCreateDeviceRGB(),
+        components: [red, green, blue, alpha]
+    ) else {
+        throw RendererError.colorCreationFailed
+    }
+    return color
 }
 
 private func renderIcon(size: Int) throws -> Data {
@@ -101,8 +170,8 @@ private func renderIcon(size: Int) throws -> Data {
     guard let background = CGGradient(
         colorsSpace: colorSpace,
         colors: [
-            makeColor(43 / 255, 54 / 255, 82 / 255),
-            makeColor(23 / 255, 30 / 255, 49 / 255),
+            try makeColor(43 / 255, 54 / 255, 82 / 255),
+            try makeColor(23 / 255, 30 / 255, 49 / 255),
         ] as CFArray,
         locations: [0, 1]
     ) else {
@@ -118,8 +187,8 @@ private func renderIcon(size: Int) throws -> Data {
     guard let glow = CGGradient(
         colorsSpace: colorSpace,
         colors: [
-            makeColor(249 / 255, 161 / 255, 68 / 255, 0.46),
-            makeColor(249 / 255, 161 / 255, 68 / 255, 0),
+            try makeColor(249 / 255, 161 / 255, 68 / 255, 0.46),
+            try makeColor(249 / 255, 161 / 255, 68 / 255, 0),
         ] as CFArray,
         locations: [0, 1]
     ) else {
@@ -142,7 +211,9 @@ private func renderIcon(size: Int) throws -> Data {
         transform: nil
     )
     context.addPath(border)
-    context.setStrokeColor(makeColor(238 / 255, 243 / 255, 255 / 255, 0.3))
+    context.setStrokeColor(
+        try makeColor(238 / 255, 243 / 255, 255 / 255, 0.3)
+    )
     context.setLineWidth(8)
     context.strokePath()
 
@@ -151,7 +222,9 @@ private func renderIcon(size: Int) throws -> Data {
     roof.addLine(to: CGPoint(x: 512, y: 792))
     roof.addLine(to: CGPoint(x: 776, y: 568))
     context.addPath(roof)
-    context.setStrokeColor(makeColor(247 / 255, 249 / 255, 255 / 255))
+    context.setStrokeColor(
+        try makeColor(247 / 255, 249 / 255, 255 / 255)
+    )
     context.setLineWidth(64)
     context.setLineCap(.round)
     context.setLineJoin(.round)
@@ -163,7 +236,9 @@ private func renderIcon(size: Int) throws -> Data {
     walls.addLine(to: CGPoint(x: 728, y: 400))
     walls.addLine(to: CGPoint(x: 728, y: 584))
     context.addPath(walls)
-    context.setStrokeColor(makeColor(247 / 255, 249 / 255, 255 / 255))
+    context.setStrokeColor(
+        try makeColor(247 / 255, 249 / 255, 255 / 255)
+    )
     context.setLineWidth(64)
     context.setLineCap(.round)
     context.setLineJoin(.round)
@@ -176,7 +251,9 @@ private func renderIcon(size: Int) throws -> Data {
         transform: nil
     )
     context.addPath(threshold)
-    context.setFillColor(makeColor(249 / 255, 161 / 255, 68 / 255))
+    context.setFillColor(
+        try makeColor(249 / 255, 161 / 255, 68 / 255)
+    )
     context.fillPath()
 
     let output = NSMutableData()
@@ -217,7 +294,9 @@ for size in sizes {
 }
 
 private enum RendererError: Error {
+    case colorCreationFailed
     case gradientCreationFailed
+    case invalidSlotFilename(String)
     case manifestMismatch(String)
     case missingIcon(String)
     case staleIcon(String)

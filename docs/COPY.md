@@ -4,6 +4,9 @@ This is the approved language contract. Strings under **Required copy** are
 target requirements, not a claim that they are implemented. Current
 implementation status is tracked in `TRACEABILITY.md`.
 
+Version 0.1.0 ships in English. Localization is deferred, while dates and times
+still use locale-aware system formatting.
+
 ## Voice
 
 Use calm, literal, nonjudgmental language. Say what Homeward did, what happens
@@ -214,12 +217,10 @@ Default notification content is intentionally generic.
 - Body: **Selected apps are unavailable until {localized date and time}.**
 - No-future-window body: **No work window is scheduled.**
 
-### Saved Thoughts
-
-- Title: **Saved thoughts are ready**
-- Body: **Open Homeward to review {count} saved {thought/thoughts}.**
-
 No notification contains an app name, bundle identifier, file path, developer
 name, process count tied to a named app, thought text, or draft text by
-default. An optional detailed-notification preference, if implemented later,
-must be explicit, off by default, and explain lock-screen exposure.
+default.
+
+Detailed notifications and Saved Thoughts system notifications are deferred
+after version 0.1.0. If detailed notifications are added later, they must be
+explicit, off by default, and explain lock-screen exposure.

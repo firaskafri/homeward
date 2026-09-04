@@ -104,15 +104,6 @@ public struct EnforcementIdentity: Equatable, Sendable {
 }
 
 public struct EnforcementSession: Equatable, Sendable {
-    @available(
-        *,
-        deprecated,
-        message: "Use HomewardPolicy.firmGracePeriod."
-    )
-    public static var firmGracePeriod: TimeInterval {
-        HomewardPolicy.firmGracePeriod
-    }
-
     public let mode: CloseMode
     public let startedAt: Date
     public var targets: [ProcessSessionID: EnforcementTarget]

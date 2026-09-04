@@ -7,6 +7,13 @@ implementation status.
 
 The words **must**, **should**, and **may** describe requirements.
 
+## Version 0.1.0 scope
+
+Version 0.1.0 ships in English and uses generic notification content only.
+Detailed notifications, Saved Thoughts system notifications, automatic
+updates, localization, and a permanent notes archive are deferred. Locale-aware
+date and time formatting remains required for the English release.
+
 ## Product promise
 
 Homeward is a calm native macOS utility that closes selected work applications
@@ -166,9 +173,11 @@ item is hidden.
   Stale actions must do nothing and open Today with a calm explanation.
 - Notification content and actions must be removed or replaced after reset,
   schedule changes, authorization changes, or app quit.
-- Optional detailed notification content may be added only behind an explicit,
-  off-by-default preference. The preference must explain lock-screen exposure.
+- Detailed notification content is deferred after version 0.1.0. If added
+  later, it must require an explicit, off-by-default preference that explains
+  lock-screen exposure.
 - No notification may contain saved-thought text.
+- Saved Thoughts do not produce system notifications in version 0.1.0.
 
 ## Onboarding and preview
 
@@ -238,11 +247,12 @@ action, and never retries force in a hidden loop.
 - Capture is user-invoked, opens a focused editor, and preserves the draft
   after a save failure.
 - Existing thought content stays concealed while work is closed.
-- When a normal work window next becomes available, automatic presentation
-  says only that saved thoughts are ready. The user must choose Review Saved
-  Thoughts before text appears.
+- When a normal work window next becomes available, automatic in-app
+  presentation says only that saved thoughts are ready. The user must choose
+  Review Saved Thoughts before text appears.
 - Keep defers a thought for the current interval. Mark Done removes it only
-  with a user-controlled restoration path. Delete requires confirmation.
+  with Restore available until the review is dismissed or completion is
+  explicitly confirmed. Delete requires confirmation.
 - Storage failure must distinguish unavailable reading from failed mutation.
   Configuration recovery must never reset notes. Notes recovery must never
   reset configuration.

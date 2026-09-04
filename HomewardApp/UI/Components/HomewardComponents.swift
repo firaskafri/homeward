@@ -65,6 +65,7 @@ struct HomewardStatusLabel: View {
 
 struct HomewardApplicationSummary: View {
     let applications: [SelectedApplication]
+    let iconsBySelectionKey: [String: NSImage]
 
     private var visibleApplications: ArraySlice<SelectedApplication> {
         applications.prefix(ApplicationListFormatter.maximumVisibleItemCount)
@@ -86,13 +87,11 @@ struct HomewardApplicationSummary: View {
                     .frame(width: 36, height: 36)
                     .accessibilityHidden(true)
             } else {
-                HStack(spacing: -8) {
+                HStack(spacing: -HomewardSpacing.small) {
                     ForEach(Array(visibleApplications.enumerated()), id: \.element.id) {
                         item in
                         let (index, application) = item
-                        Image(nsImage: NSWorkspace.shared.icon(forFile: application.bundlePath))
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
+                        applicationIcon(for: application)
                             .frame(width: 32, height: 32)
                             .padding(2)
                             .background(.background, in: RoundedRectangle(cornerRadius: 8))
@@ -116,5 +115,21 @@ struct HomewardApplicationSummary: View {
             }
         }
         .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private func applicationIcon(
+        for application: SelectedApplication
+    ) -> some View {
+        if let icon = iconsBySelectionKey[application.stableSelectionKey] {
+            Image(nsImage: icon)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+        } else {
+            Image(systemName: "app")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .foregroundStyle(.secondary)
+        }
     }
 }

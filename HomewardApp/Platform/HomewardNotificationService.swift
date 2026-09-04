@@ -42,6 +42,7 @@ final class HomewardNotificationService {
     private let nowProvider: () -> Date
     private let responseRouter = NotificationResponseRouter()
     private var started = false
+    private var lifecycleGeneration = 0
     private var warningOperation = 0
 
     init(
@@ -100,18 +101,36 @@ final class HomewardNotificationService {
         self.nowProvider = nowProvider
     }
 
+    static func isolatedForUITesting() -> HomewardNotificationService {
+        HomewardNotificationService(
+            client: Client(
+                authorizationStatus: { .unavailable },
+                requestAuthorization: { false },
+                add: { _ in },
+                pendingWarningIdentifiers: { [] },
+                deliveredWarningIdentifiers: { [] },
+                removePending: { _ in },
+                removeDelivered: { _ in },
+                setCategories: { _ in },
+                setDelegate: { _ in }
+            )
+        )
+    }
+
     func start(handler: HomewardNotificationHandling) {
         guard !started else {
             responseRouter.handler = handler
             return
         }
         started = true
+        lifecycleGeneration &+= 1
         responseRouter.handler = handler
         client.setDelegate(responseRouter)
         registerCategories(includeExtension: false)
     }
 
     func stop() {
+        lifecycleGeneration &+= 1
         warningOperation &+= 1
         started = false
         responseRouter.handler = nil
@@ -128,35 +147,46 @@ final class HomewardNotificationService {
 
     func replaceWarnings(
         cutoff: Date,
-        applicationNames: [String],
         preferences: HomewardCore.WarningPreferences,
         includeExtension: Bool
     ) async throws {
+        guard started else {
+            return
+        }
+        let generation = lifecycleGeneration
         warningOperation &+= 1
         let operation = warningOperation
         guard await removeWarnings(ifCurrent: operation) else {
             return
         }
+        guard generation == lifecycleGeneration, started else {
+            return
+        }
         registerCategories(includeExtension: includeExtension)
         let now = nowProvider()
         var addedIdentifiers: [String] = []
-        for offset in preferences.enabledOffsets {
-            guard operation == warningOperation else {
+        for leadTime in preferences.enabledLeadTimes {
+            guard operation == warningOperation,
+                  generation == lifecycleGeneration,
+                  started else {
                 client.removePending(addedIdentifiers)
                 return
             }
-            let minutes = Int(offset / 60)
+            let offset = leadTime.offset
+            let minutes = leadTime.rawValue
             let warningDate = cutoff.addingTimeInterval(-offset)
             guard warningDate > now else {
                 continue
             }
             let content = UNMutableNotificationContent()
-            content.title = minutes == 15
-                ? "Workday ends in 15 minutes"
-                : "5 minutes remaining"
+            content.title = switch leadTime {
+            case .fifteenMinute:
+                "Workday ends in 15 minutes"
+            case .fiveMinute:
+                "5 minutes remaining"
+            }
             content.body = warningBody(
-                minutes: minutes,
-                applicationNames: applicationNames,
+                leadTime: leadTime,
                 cutoff: cutoff
             )
             content.categoryIdentifier = Self.warningCategory
@@ -185,7 +215,9 @@ final class HomewardNotificationService {
                 throw error
             }
         }
-        guard operation == warningOperation else {
+        guard operation == warningOperation,
+              generation == lifecycleGeneration,
+              started else {
             client.removePending(addedIdentifiers)
             return
         }
@@ -210,6 +242,10 @@ final class HomewardNotificationService {
     }
 
     func postStatus(title: String, body: String) async throws {
+        guard started else {
+            return
+        }
+        let generation = lifecycleGeneration
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
@@ -220,6 +256,11 @@ final class HomewardNotificationService {
             trigger: nil
         )
         try await client.add(request)
+        guard started, generation == lifecycleGeneration else {
+            client.removePending([request.identifier])
+            client.removeDelivered([request.identifier])
+            return
+        }
     }
 
     func removeWarnings() async {
@@ -267,24 +308,17 @@ final class HomewardNotificationService {
     }
 
     private func warningBody(
-        minutes: Int,
-        applicationNames: [String],
+        leadTime: WarningLeadTime,
         cutoff: Date
     ) -> String {
-        let sorted = applicationNames.sorted {
-            $0.localizedStandardCompare($1) == .orderedAscending
-        }
-        let appSummary = ApplicationListFormatter.summary(
-            names: sorted,
-            emptyFallback: "Selected work apps become unavailable"
-        )
         let time = cutoff.formatted(date: .omitted, time: .shortened)
-        let closingStatement = sorted.isEmpty
-            ? "\(appSummary) at \(time)."
-            : "\(appSummary) will close at \(time)."
-        return minutes == 15
-            ? "Finish your current thought. \(closingStatement)"
-            : closingStatement
+        let closingStatement = "Selected work apps become unavailable at \(time)."
+        return switch leadTime {
+        case .fifteenMinute:
+            "Finish your current thought. \(closingStatement)"
+        case .fiveMinute:
+            closingStatement
+        }
     }
 }
 

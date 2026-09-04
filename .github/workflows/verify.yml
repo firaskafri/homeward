@@ -31,8 +31,20 @@ jobs:
           sudo xcode-select --switch /Applications/Xcode_16.4.app
           test "$(xcodebuild -version | sed -n '1p')" = "Xcode 16.4"
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
+      - name: Install pinned XcodeGen
+        env:
+          XCODEGEN_SHA256: 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
+          XCODEGEN_VERSION: 2.46.0
+        run: |
+          archive="$RUNNER_TEMP/xcodegen.zip"
+          install_root="$RUNNER_TEMP/xcodegen"
+          curl --fail --location --show-error \
+            "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip" \
+            --output "$archive"
+          echo "${XCODEGEN_SHA256}  ${archive}" | shasum -a 256 --check
+          unzip -q "$archive" -d "$install_root"
+          sudo bash "$install_root/xcodegen/install.sh"
+          test "$(xcodegen version | awk '{print $2}')" = "$XCODEGEN_VERSION"
 
       - name: Verify without interactive UI automation
         run: RUN_UI_TESTS=0 ./scripts/verify.sh

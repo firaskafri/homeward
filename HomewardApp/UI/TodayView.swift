@@ -2,7 +2,7 @@ import AppKit
 import HomewardCore
 import SwiftUI
 
-struct OverviewView: View {
+struct TodayView: View {
     private enum ActiveSheet: String, Identifiable {
         case noteCapture
         case notesReview
@@ -36,7 +36,7 @@ struct OverviewView: View {
             .frame(maxWidth: HomewardMetrics.contentMaxWidth)
             .frame(maxWidth: .infinity)
         }
-        .navigationTitle("Overview")
+        .navigationTitle("Today")
         .confirmationDialog(
             "End work now?",
             isPresented: $showEndWorkConfirmation
@@ -120,7 +120,8 @@ struct OverviewView: View {
 
                 HStack(alignment: .center, spacing: HomewardSpacing.xLarge) {
                     HomewardApplicationSummary(
-                        applications: model.configuration.selectedApplications
+                        applications: model.configuration.selectedApplications,
+                        iconsBySelectionKey: applicationIcons
                     )
 
                     Spacer(minLength: HomewardSpacing.large)
@@ -457,6 +458,13 @@ struct OverviewView: View {
         }
         return values.isEmpty ? "Off" : values.joined(separator: ", ")
     }
+
+    private var applicationIcons: [String: NSImage] {
+        model.catalog.reduce(into: [:]) { result, application in
+            result[application.selection.stableSelectionKey] =
+                application.icon
+        }
+    }
 }
 
 @MainActor
@@ -526,6 +534,11 @@ struct CustomCutoffView: View {
             )
             Text(cutoff.formatted(date: .abbreviated, time: .shortened))
                 .foregroundStyle(.secondary)
+            if let error = model.lastError {
+                InlineErrorView(message: error) {
+                    model.clearError()
+                }
+            }
             HStack {
                 Spacer()
                 Button("Cancel") {
@@ -535,8 +548,7 @@ struct CustomCutoffView: View {
                 Button("Apply Cutoff") {
                     Task {
                         model.clearError()
-                        await model.chooseCutoff(cutoff)
-                        if model.lastError == nil {
+                        if await model.chooseCutoff(cutoff) {
                             onClose()
                         }
                     }
@@ -649,11 +661,10 @@ private struct TodayChangePanelView: View {
         .accessibilityIdentifier("today.changePanel")
     }
 
-    private func apply(_ action: @escaping @MainActor () async -> Void) {
+    private func apply(_ action: @escaping @MainActor () async -> Bool) {
         model.clearError()
         Task {
-            await action()
-            if model.lastError == nil {
+            if await action() {
                 onClose()
             }
         }

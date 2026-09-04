@@ -30,8 +30,8 @@ enum HomewardRoute: String, CaseIterable, Identifiable {
 @MainActor
 final class HomewardNavigationState: ObservableObject {
     @Published var selection: HomewardRoute? = .today
-    private var mainWindowPresenter: ((HomewardRoute) -> Void)?
-    private var pendingMainWindowRoute: HomewardRoute?
+    private var mainWindowPresenter: (() -> Void)?
+    private var hasPendingMainWindowRequest = false
 
     func select(_ route: HomewardRoute) {
         selection = route
@@ -40,21 +40,21 @@ final class HomewardNavigationState: ObservableObject {
     func requestMainWindow(_ route: HomewardRoute = .today) {
         select(route)
         guard let mainWindowPresenter else {
-            pendingMainWindowRoute = route
+            hasPendingMainWindowRequest = true
             return
         }
-        mainWindowPresenter(route)
+        mainWindowPresenter()
     }
 
     func installMainWindowPresenter(
-        _ presenter: @escaping (HomewardRoute) -> Void
+        _ presenter: @escaping () -> Void
     ) {
         mainWindowPresenter = presenter
-        guard let pendingMainWindowRoute else {
+        guard hasPendingMainWindowRequest else {
             return
         }
-        self.pendingMainWindowRoute = nil
-        presenter(pendingMainWindowRoute)
+        hasPendingMainWindowRequest = false
+        presenter()
     }
 }
 
@@ -74,7 +74,7 @@ struct HomewardApp: App {
         do {
             instance = try AppModel.makeDefault()
         } catch {
-            fatalError("Homeward could not initialize local storage: \(error)")
+            fatalError("Homeward built-in defaults are invalid: \(error)")
         }
         _model = StateObject(wrappedValue: instance)
     }
@@ -118,7 +118,8 @@ private struct MenuBarLabel: View {
 
     var body: some View {
         Group {
-            if showNextTransitionTime,
+            if model.health == .ready,
+               showNextTransitionTime,
                let transition = model.resolvedSchedule.nextTransition {
                 Label(
                     transition.date.formatted(date: .omitted, time: .shortened),
@@ -128,15 +129,17 @@ private struct MenuBarLabel: View {
                 Image(systemName: "house")
             }
         }
-        .accessibilityLabel("Homeward")
-        .accessibilityValue(accessibilityState)
+        .accessibilityLabel("Homeward, \(accessibilityState)")
         .task {
-            navigation.installMainWindowPresenter { route in
-                navigation.select(route)
+            navigation.installMainWindowPresenter {
+                NSApp.unhide(nil)
                 NSApp.activate(ignoringOtherApps: true)
                 openWindow(id: "homeward")
             }
-            applicationDelegate.register(navigation: navigation)
+            applicationDelegate.register(
+                navigation: navigation,
+                model: model
+            )
             await model.start()
             if !model.isOnboardingComplete
                 || model.health == .configurationUnavailable {
@@ -146,6 +149,14 @@ private struct MenuBarLabel: View {
     }
 
     private var accessibilityState: String {
+        switch model.health {
+        case .starting:
+            return "Starting"
+        case .configurationUnavailable:
+            return "Needs attention. App closing is paused."
+        case .ready:
+            break
+        }
         let state = SchedulePresentation.stateTitle(
             schedule: model.resolvedSchedule,
             closingCount: model.closingRows.count
@@ -163,7 +174,13 @@ private struct MenuContent: View {
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        if requiresRecovery {
+        if model.health == .starting {
+            Text("Starting Homeward…")
+            Divider()
+            Button("Quit Homeward…") {
+                confirmQuit(model: model)
+            }
+        } else if requiresRecovery {
             Button("Open Recovery…") {
                 navigation.requestMainWindow()
             }
@@ -382,10 +399,16 @@ private struct HomewardCommands: Commands {
 @MainActor
 private final class HomewardApplicationDelegate: NSObject, NSApplicationDelegate {
     private weak var navigation: HomewardNavigationState?
+    private weak var model: AppModel?
     private var pendingReopenRoute: HomewardRoute?
+    private var terminationInProgress = false
 
-    func register(navigation: HomewardNavigationState) {
+    func register(
+        navigation: HomewardNavigationState,
+        model: AppModel
+    ) {
         self.navigation = navigation
+        self.model = model
         guard let pendingReopenRoute else {
             return
         }
@@ -403,6 +426,23 @@ private final class HomewardApplicationDelegate: NSObject, NSApplicationDelegate
             pendingReopenRoute = .today
         }
         return false
+    }
+
+    func applicationShouldTerminate(
+        _ sender: NSApplication
+    ) -> NSApplication.TerminateReply {
+        guard let model else {
+            return .terminateNow
+        }
+        guard !terminationInProgress else {
+            return .terminateLater
+        }
+        terminationInProgress = true
+        Task {
+            await model.prepareForTermination()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 }
 

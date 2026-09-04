@@ -224,7 +224,7 @@ struct ClosingSettingsView: View {
     }
 
     private func warningBinding(
-        _ option: AppModel.WarningOption
+        _ option: WarningLeadTime
     ) -> Binding<Bool> {
         Binding(
             get: {

@@ -24,8 +24,8 @@ implementation status is tracked in `TRACEABILITY.md`.
 - Reduce Transparency replaces translucent material behind meaningful content
   with an opaque semantic background.
 - Content reflows without clipping at the largest supported macOS text setting
-  and with 2× pseudo-localized strings. Horizontal scrolling must not be
-  required for primary state, consequences, or actions.
+  and with representative long English strings. Horizontal scrolling must not
+  be required for primary state, consequences, or actions.
 - At Zoom 200% and 400%, the user can reach every control and read all
   consequences without content being hidden behind a fixed panel.
 - App icons are decorative when the adjacent app name provides the same
@@ -149,13 +149,11 @@ Applicable WCAG references: 3.3.1, 3.3.2, 3.3.3, and 3.3.4.
 
 ## Localization
 
-- All user-facing UI, error, and notification strings must be externalized
-  before release.
-- Dates, times, weekdays, lists, and plurals use locale-aware formatters.
-- Do not concatenate sentence fragments around app names or counts.
-- Test right-to-left layout, long app names, missing developer names, and 2×
-  pseudo-localized strings.
-- Accessible names remain meaningful when visual labels truncate.
+Version 0.1.0 is English-only. Its dates and times use locale-aware system
+formatters, and accessible names remain meaningful when visual labels
+truncate. Full string externalization, translated plurals and lists,
+right-to-left layout, and pseudo-localization are deferred with localization
+after version 0.1.0.
 
 ## Automated evidence required
 

@@ -47,6 +47,13 @@ struct ReadinessPresentation {
                 symbol: unhealthySymbol,
                 tone: .attention
             )
+        case .unavailable:
+            Self(
+                status: "Unavailable",
+                detail: "Start at Login cannot be checked right now.",
+                symbol: unhealthySymbol,
+                tone: .attention
+            )
         }
     }
 
@@ -120,7 +127,7 @@ enum SchedulePresentation {
         case .workClosed:
             ScheduleStatusPresentation(
                 title: "Work is closed",
-                badgeTitle: "Protected",
+                badgeTitle: "Closed",
                 symbol: "moon.stars.fill",
                 tone: .rest
             )

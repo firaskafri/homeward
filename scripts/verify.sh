@@ -6,10 +6,11 @@ repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 derived_data="$repository_root/.build/xcode"
 project="$repository_root/Homeward.xcodeproj"
 destination="platform=macOS,arch=arm64"
-verification_marker="$repository_root/.build/verified-release.env"
+verification_marker="$repository_root/.build/verified-release.json"
 
 cd "$repository_root"
 rm -f "$verification_marker"
+source "$repository_root/scripts/release-evidence.sh"
 
 [[ "$(uname -m)" == "arm64" ]] || {
   printf 'Homeward verification requires an Apple Silicon host.\n' >&2
@@ -42,7 +43,7 @@ stop_repository_test_instances() {
 }
 
 command -v xcodegen >/dev/null || {
-  printf 'xcodegen is required. Install it with: brew install xcodegen\n' >&2
+  printf 'XcodeGen 2.46.0 is required; install the pinned release archive.\n' >&2
   exit 1
 }
 
@@ -56,16 +57,7 @@ fi
 
 required_xcodegen_version="2.46.0"
 actual_xcodegen_version="$(xcodegen version | awk '{print $2}')"
-IFS=. read -r required_major required_minor required_patch \
-  <<<"$required_xcodegen_version"
-IFS=. read -r actual_major actual_minor _ <<<"$actual_xcodegen_version"
-actual_patch="${actual_xcodegen_version##*.}"
-if (( actual_major < required_major ||
-      (actual_major == required_major &&
-       actual_minor < required_minor) ||
-      (actual_major == required_major &&
-       actual_minor == required_minor &&
-       actual_patch < required_patch) )); then
+if [[ "$actual_xcodegen_version" != "$required_xcodegen_version" ]]; then
   printf 'XcodeGen %s is required; found %s.\n' \
     "$required_xcodegen_version" "$actual_xcodegen_version" >&2
   exit 1
@@ -155,6 +147,7 @@ app="$derived_data/Build/Products/Release/Homeward.app"
 binary="$app/Contents/MacOS/Homeward"
 plist="$app/Contents/Info.plist"
 app_icon="$app/Contents/Resources/AppIcon.icns"
+dsym="$derived_data/Build/Products/Release/Homeward.app.dSYM"
 
 [[ -d "$app" ]] || {
   printf 'Release app was not produced: %s\n' "$app" >&2
@@ -196,13 +189,31 @@ if [[ "$entitlements" == *"com.apple.security.app-sandbox"* ||
   printf 'Release app contains a forbidden entitlement.\n' >&2
   exit 1
 fi
+homeward_verify_dsym "$binary" "$dsym"
 
-cat >"$verification_marker" <<EOF
-SOURCE_SHA=$(git rev-parse HEAD)
-BINARY_SHA=$(shasum -a 256 "$binary" | awk '{print $1}')
-PLIST_SHA=$(shasum -a 256 "$plist" | awk '{print $1}')
-VERSION=$version
-BUILD=$build
-EOF
+SOURCE_SHA="$(git rev-parse HEAD)" \
+APP_TREE_SHA="$(homeward_tree_sha256 "$app")" \
+DSYM_TREE_SHA="$(homeward_tree_sha256 "$dsym")" \
+BINARY_UUID="$(homeward_macho_uuid "$binary")" \
+VERSION="$version" \
+BUILD="$build" \
+/usr/bin/python3 - "$verification_marker" <<'PY'
+import json
+import os
+import sys
+
+evidence = {
+    "appTreeSHA256": os.environ["APP_TREE_SHA"],
+    "binaryUUID": os.environ["BINARY_UUID"],
+    "build": os.environ["BUILD"],
+    "dSYMTreeSHA256": os.environ["DSYM_TREE_SHA"],
+    "schemaVersion": 1,
+    "sourceSHA": os.environ["SOURCE_SHA"],
+    "version": os.environ["VERSION"],
+}
+with open(sys.argv[1], "w", encoding="utf-8") as output:
+    json.dump(evidence, output, indent=2, sort_keys=True)
+    output.write("\n")
+PY
 
 printf 'Homeward verification passed.\n'

@@ -37,10 +37,15 @@ final class PlatformIntegrationTests: XCTestCase {
             mode: .immediate,
             fixtureURL: fixtureURL
         )
-        defer { terminateIfNeeded(application) }
+        addTeardownBlock { @MainActor in
+            try await self.terminateFixtureIfNeeded(
+                application,
+                fixtureURL: fixtureURL
+            )
+        }
         await fulfillment(
             of: [expectation],
-            timeout: FixturePolicy.terminationTimeout
+            timeout: FixturePolicy.launchObservationTimeout
         )
 
         XCTAssertEqual(observer.processIdentifier, application.processIdentifier)
@@ -53,8 +58,17 @@ final class PlatformIntegrationTests: XCTestCase {
     /// 3 - Assumptions: The fixture delegate returns terminate-now.
     /// 4 - Expectations: The fixture exits within two seconds without a force request.
     func testNormalTerminationFixture() async throws {
-        let application = try await launchFixture(mode: .immediate)
-        defer { terminateIfNeeded(application) }
+        let fixtureURL = try fixtureURL()
+        let application = try await launchFixture(
+            mode: .immediate,
+            fixtureURL: fixtureURL
+        )
+        addTeardownBlock { @MainActor in
+            try await self.terminateFixtureIfNeeded(
+                application,
+                fixtureURL: fixtureURL
+            )
+        }
 
         XCTAssertTrue(application.terminate())
         let terminated = await waitUntilTerminated(
@@ -69,11 +83,18 @@ final class PlatformIntegrationTests: XCTestCase {
     /// 3 - Assumptions: The fixture replies after the configured short delay.
     /// 4 - Expectations: It remains alive briefly and then exits without force termination.
     func testDelayedTerminationFixture() async throws {
+        let fixtureURL = try fixtureURL()
         let application = try await launchFixture(
             mode: .delayed,
-            delay: FixturePolicy.delayedTermination
+            delay: FixturePolicy.delayedTermination,
+            fixtureURL: fixtureURL
         )
-        defer { terminateIfNeeded(application) }
+        addTeardownBlock { @MainActor in
+            try await self.terminateFixtureIfNeeded(
+                application,
+                fixtureURL: fixtureURL
+            )
+        }
 
         XCTAssertTrue(application.terminate())
         try await Task.sleep(
@@ -92,8 +113,17 @@ final class PlatformIntegrationTests: XCTestCase {
     /// 3 - Assumptions: The test validates the exact fixture path and bundle identifier before the destructive request.
     /// 4 - Expectations: Normal termination leaves it running and force termination ends it within two seconds.
     func testRefusedTerminationFixture() async throws {
-        let application = try await launchFixture(mode: .refuse)
-        defer { terminateIfNeeded(application) }
+        let fixtureURL = try fixtureURL()
+        let application = try await launchFixture(
+            mode: .refuse,
+            fixtureURL: fixtureURL
+        )
+        addTeardownBlock { @MainActor in
+            try await self.terminateFixtureIfNeeded(
+                application,
+                fixtureURL: fixtureURL
+            )
+        }
 
         _ = application.terminate()
         try await Task.sleep(
@@ -119,7 +149,7 @@ final class PlatformIntegrationTests: XCTestCase {
         } else {
             url = try self.fixtureURL()
         }
-        await terminateExistingFixtures(at: url)
+        try await terminateExistingFixtures(at: url)
         guard Bundle(url: url)?.bundleIdentifier
                 == FixturePolicy.bundleIdentifier else {
             throw FixtureError.invalidFixtureIdentity(url)
@@ -138,28 +168,35 @@ final class PlatformIntegrationTests: XCTestCase {
         guard application.bundleIdentifier == FixturePolicy.bundleIdentifier,
               application.bundleURL?.standardizedFileURL.path
                 == url.standardizedFileURL.path else {
-            terminateIfNeeded(application)
             throw FixtureError.invalidFixtureIdentity(url)
         }
         return application
     }
 
-    private func terminateExistingFixtures(at fixtureURL: URL) async {
+    private func terminateExistingFixtures(at fixtureURL: URL) async throws {
         let expectedPath = fixtureURL.standardizedFileURL.path
         for application in NSRunningApplication.runningApplications(
             withBundleIdentifier: FixturePolicy.bundleIdentifier
         ) where application.bundleURL?.standardizedFileURL.path == expectedPath {
+            guard application.bundleIdentifier
+                    == FixturePolicy.bundleIdentifier,
+                  application.bundleURL?.standardizedFileURL.path
+                    == expectedPath else {
+                throw FixtureError.invalidFixtureIdentity(fixtureURL)
+            }
             _ = application.forceTerminate()
-            _ = await waitUntilTerminated(
+            guard await waitUntilTerminated(
                 application,
                 timeout: FixturePolicy.terminationTimeout
-            )
+            ) else {
+                throw FixtureError.terminationTimedOut(fixtureURL)
+            }
         }
     }
 
     private func fixtureURL() throws -> URL {
         var productsURL = Bundle(for: Self.self).bundleURL
-        for _ in 0..<4 {
+        for _ in 0..<FixturePolicy.productsAncestorDepth {
             productsURL.deleteLastPathComponent()
         }
         let fixtureURL = productsURL.appendingPathComponent("HomewardFixture.app")
@@ -189,9 +226,24 @@ final class PlatformIntegrationTests: XCTestCase {
         return application.isTerminated
     }
 
-    private func terminateIfNeeded(_ application: NSRunningApplication) {
-        if !application.isTerminated {
-            _ = application.forceTerminate()
+    private func terminateFixtureIfNeeded(
+        _ application: NSRunningApplication,
+        fixtureURL: URL
+    ) async throws {
+        guard application.bundleIdentifier == FixturePolicy.bundleIdentifier,
+              application.bundleURL?.standardizedFileURL.path
+                == fixtureURL.standardizedFileURL.path else {
+            throw FixtureError.invalidFixtureIdentity(fixtureURL)
+        }
+        guard !application.isTerminated else {
+            return
+        }
+        _ = application.forceTerminate()
+        guard await waitUntilTerminated(
+            application,
+            timeout: FixturePolicy.terminationTimeout
+        ) else {
+            throw FixtureError.terminationTimedOut(fixtureURL)
         }
     }
 }
@@ -236,13 +288,16 @@ private final class FixtureLaunchObserver: NSObject {
 private enum FixtureError: Error {
     case fixtureNotBuilt(URL)
     case invalidFixtureIdentity(URL)
+    case terminationTimedOut(URL)
 }
 
 private enum FixturePolicy {
     static let bundleIdentifier = "com.firaskafri.homeward.fixture"
+    static let productsAncestorDepth = 4
     static let pollInterval: TimeInterval = 0.05
     static let delayedTermination: TimeInterval = 0.3
     static let preDelayObservation: TimeInterval = 0.1
+    static let launchObservationTimeout: TimeInterval = 2
     static let terminationTimeout: TimeInterval = 2
 
     enum Mode: String {

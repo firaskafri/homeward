@@ -30,7 +30,7 @@ struct ModelTests {
     /// 1 - Name: Default preferences.
     /// 2 - Description: Verifies warning and Gentle-extension defaults.
     /// 3 - Assumptions: Fifteen- and five-minute warnings begin enabled.
-    /// 4 - Expectations: The Gentle shortcut is disabled until explicitly enabled.
+    /// 4 - Expectations: Both warning lead times are enabled and the Gentle shortcut is disabled.
     @Test
     func defaultPreferences() throws {
         let preferences = WarningPreferences()
@@ -38,7 +38,43 @@ struct ModelTests {
 
         #expect(preferences.fifteenMinuteWarningEnabled)
         #expect(preferences.fiveMinuteWarningEnabled)
+        #expect(preferences.enabledLeadTimes == [
+            .fifteenMinute,
+            .fiveMinute,
+        ])
         #expect(!configuration.gentleShortcutExtensionEnabled)
+    }
+
+    /// 1 - Name: Legacy Gentle extension migration.
+    /// 2 - Description: Decodes the schema-v1 nested Gentle-extension preference used by earlier builds.
+    /// 3 - Assumptions: The top-level replacement key is absent from the legacy document.
+    /// 4 - Expectations: Decoding preserves the user's enabled Gentle extension setting.
+    @Test
+    func legacyGentleExtensionPreferenceMigrates() throws {
+        struct LegacyWarnings: Encodable {
+            let fifteenMinuteWarningEnabled = true
+            let fiveMinuteWarningEnabled = true
+            let gentleExtensionEnabled = true
+        }
+        struct LegacyConfiguration: Encodable {
+            let schemaVersion = HomewardConfiguration.currentSchemaVersion
+            let schedule: WeeklySchedule
+            let selectedApplications: [SelectedApplication] = []
+            let closeMode = CloseMode.gentle
+            let warningPreferences = LegacyWarnings()
+            let overrides: [ScheduleOverride] = []
+            let completedOnboarding = false
+        }
+        let data = try JSONEncoder().encode(
+            LegacyConfiguration(schedule: .defaultWorkWeek())
+        )
+
+        let configuration = try JSONDecoder().decode(
+            HomewardConfiguration.self,
+            from: data
+        )
+
+        #expect(configuration.gentleShortcutExtensionEnabled)
     }
 
     /// 1 - Name: Stable application selection key.

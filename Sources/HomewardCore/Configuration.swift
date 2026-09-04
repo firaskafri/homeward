@@ -1,6 +1,10 @@
 import Foundation
 
 public struct HomewardConfiguration: Codable, Equatable, Sendable {
+    private struct LegacyWarningPreferences: Decodable {
+        let gentleExtensionEnabled: Bool?
+    }
+
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
         case schedule
@@ -153,6 +157,17 @@ public struct HomewardConfiguration: Codable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let warningPreferences = try container.decode(
+            WarningPreferences.self,
+            forKey: .warningPreferences
+        )
+        let gentleExtensionEnabled = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .gentleShortcutExtensionEnabled
+        ) ?? container.decode(
+            LegacyWarningPreferences.self,
+            forKey: .warningPreferences
+        ).gentleExtensionEnabled ?? false
         try self.init(
             schemaVersion: container.decode(Int.self, forKey: .schemaVersion),
             schedule: container.decode(WeeklySchedule.self, forKey: .schedule),
@@ -161,14 +176,8 @@ public struct HomewardConfiguration: Codable, Equatable, Sendable {
                 forKey: .selectedApplications
             ),
             closeMode: container.decode(CloseMode.self, forKey: .closeMode),
-            warningPreferences: container.decode(
-                WarningPreferences.self,
-                forKey: .warningPreferences
-            ),
-            gentleShortcutExtensionEnabled: container.decodeIfPresent(
-                Bool.self,
-                forKey: .gentleShortcutExtensionEnabled
-            ) ?? false,
+            warningPreferences: warningPreferences,
+            gentleShortcutExtensionEnabled: gentleExtensionEnabled,
             overrides: container.decode(
                 [ScheduleOverride].self,
                 forKey: .overrides

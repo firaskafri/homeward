@@ -49,7 +49,8 @@ must never be force-terminated by automated tests.
 The UI reopen test copies the canonical
 `TestFixtures/HomewardCompletedSetup/configuration.json` resource into isolated
 storage. Its preview-only application identities cannot match real running
-applications.
+applications. UI launches also set `HOMEWARD_UI_TESTING=1`, which replaces
+notification, login-item, and catalog integrations with inert test adapters.
 
 ## Manual gates
 

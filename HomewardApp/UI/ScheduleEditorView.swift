@@ -300,16 +300,7 @@ struct ScheduleEditorView: View {
     private func save() {
         do {
             let schedule = try WeeklySchedule(rules: rules)
-            let result = ScheduleResolver().resolve(
-                schedule: schedule,
-                overrides: model.configuration.overrides,
-                at: Date(),
-                calendar: .autoupdatingCurrent,
-                warnings: model.configuration.warningPreferences
-            )
-            if model.configuration.completedOnboarding,
-               model.resolvedSchedule.isAvailable,
-               !result.isAvailable {
+            if model.scheduleChangeRequiresImmediateClose(schedule) {
                 pendingSchedule = schedule
             } else {
                 performSave(schedule)
@@ -324,12 +315,12 @@ struct ScheduleEditorView: View {
         saveErrorMessage = nil
         model.clearError()
         Task { @MainActor in
-            await model.setSchedule(schedule)
-            saveErrorMessage = model.lastError
-            if saveErrorMessage == nil {
+            if await model.setSchedule(schedule) {
                 rules = model.configuration.schedule.rules
                 lastSavedScheduleWasConfirmed =
                     model.configuration.onboardingScheduleConfirmed
+            } else {
+                saveErrorMessage = model.lastError
             }
             isSaving = false
         }

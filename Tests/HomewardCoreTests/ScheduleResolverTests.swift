@@ -462,6 +462,44 @@ struct ScheduleResolverTests {
         ))
     }
 
+    /// 1 - Name: Overlapping blocking overrides.
+    /// 2 - Description: Resolves a newer block that expires while an older block remains active.
+    /// 3 - Assumptions: Override precedence follows effective time and the base schedule is available.
+    /// 4 - Expectations: Transition and availability skip the newer expiry and use the final block expiry.
+    @Test
+    func overlappingBlocksUseActualAvailabilityBoundary() throws {
+        let calendar = utcCalendar()
+        let now = date(2026, 9, 7, 10, 0, calendar: calendar)
+        let finalExpiry = date(2026, 9, 7, 12, 0, calendar: calendar)
+        let olderBlock = try ScheduleOverride(
+            kind: .takeDayOff,
+            effect: .block,
+            effectiveAt: date(2026, 9, 7, 9, 0, calendar: calendar),
+            expiresAt: finalExpiry
+        )
+        let newerBlock = try ScheduleOverride(
+            kind: .endWorkNow,
+            effect: .block,
+            effectiveAt: date(2026, 9, 7, 9, 30, calendar: calendar),
+            expiresAt: date(2026, 9, 7, 11, 0, calendar: calendar)
+        )
+
+        let result = ScheduleResolver().resolve(
+            schedule: try WeeklySchedule.defaultWorkWeek(),
+            overrides: [olderBlock, newerBlock],
+            at: now,
+            calendar: calendar,
+            warnings: WarningPreferences()
+        )
+
+        #expect(!result.isAvailable)
+        #expect(result.nextAvailability == finalExpiry)
+        #expect(result.nextTransition == ScheduleTransition(
+            date: finalExpiry,
+            cause: .overrideExpires
+        ))
+    }
+
     /// 1 - Name: Blocked-interval boundary helpers.
     /// 2 - Description: Verifies the shared next-window, blocked-identity, and force-pause calculations.
     /// 3 - Assumptions: Monday after cutoff and Tuesday before opening belong to one blocked interval.

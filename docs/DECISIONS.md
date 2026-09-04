@@ -7,7 +7,9 @@
 - Process architecture: one menu-bar application process; no helper/XPC
   service in the MVP.
 - Distribution: direct download; Mac App Store deferred.
-- Update mechanism: manual download and replacement.
+- Version 0.1.0 ships in English only; localization is deferred.
+- Update mechanism: manual download and replacement. Automatic updates are
+  deferred.
 
 ## Scheduling
 
@@ -28,6 +30,8 @@
   visible.
 - Fifteen- and five-minute warnings begin enabled; the five-minute warning can
   be disabled.
+- Version 0.1.0 notifications are always generic. Detailed notifications and
+  Saved Thoughts system notifications are deferred.
 - The one-time Gentle extension begins disabled.
 - When used, it makes all selected work apps available for ten minutes.
 
@@ -36,7 +40,9 @@
 - Bundle identifier: `com.firaskafri.homeward`.
 - Configuration and notes use versioned Codable files in Application Support.
 - `UserDefaults` is reserved for presentation preferences.
-- Notes are plain text, limited to 500 characters, and have no archive.
+- Notes are plain text and limited to 500 characters. Mark Done offers Restore
+  until the review is dismissed or completion is explicitly confirmed.
+- A permanent notes archive is deferred.
 - No app-managed diagnostic log; minimal redacted unified logging only.
 
 ## Delivery

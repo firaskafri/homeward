@@ -319,9 +319,7 @@ struct AppPickerView: View {
     ) -> some View {
         HomewardCard(padding: HomewardSpacing.medium) {
             HStack(spacing: HomewardSpacing.medium) {
-                Image(nsImage: icon(for: application))
-                    .resizable()
-                    .scaledToFit()
+                applicationIcon(for: application)
                     .frame(width: 42, height: 42)
                     .accessibilityHidden(true)
 
@@ -361,13 +359,22 @@ struct AppPickerView: View {
         .accessibilityElement(children: .contain)
     }
 
-    private func icon(for application: SelectedApplication) -> NSImage {
+    @ViewBuilder
+    private func applicationIcon(
+        for application: SelectedApplication
+    ) -> some View {
         if let catalogApplication = model.catalog.first(where: {
             selectionsMatch($0.selection, application)
         }) {
-            return catalogApplication.icon
+            Image(nsImage: catalogApplication.icon)
+                .resizable()
+                .scaledToFit()
+        } else {
+            Image(systemName: "app")
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(.secondary)
         }
-        return NSWorkspace.shared.icon(forFile: application.bundlePath)
     }
 
     private func isSelected(_ application: SelectedApplication) -> Bool {

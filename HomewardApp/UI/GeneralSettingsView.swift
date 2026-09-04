@@ -296,6 +296,10 @@ struct GeneralSettingsView: View {
             Button("Check Again") {
                 Task { await model.refreshSystemStatuses() }
             }
+        case .unavailable:
+            Button("Check Again") {
+                Task { await model.refreshSystemStatuses() }
+            }
         }
     }
 

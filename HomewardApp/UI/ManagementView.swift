@@ -89,7 +89,7 @@ struct ManagementView: View {
     private func destinationView(_ destination: HomewardRoute) -> some View {
         switch destination {
         case .today:
-            OverviewView(model: model)
+            TodayView(model: model)
         case .schedule:
             ScheduleEditorView(model: model)
         case .workApps:

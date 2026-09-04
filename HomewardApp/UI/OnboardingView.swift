@@ -2,39 +2,102 @@ import HomewardCore
 import SwiftUI
 
 struct OnboardingView: View {
+    private enum AdvancementRequirement {
+        case none
+        case confirmedSchedule
+        case selectedApplications
+        case completedEssentials
+
+        func isSatisfied(by model: AppModel) -> Bool {
+            switch self {
+            case .none:
+                true
+            case .confirmedSchedule:
+                model.configuration.onboardingScheduleConfirmed
+            case .selectedApplications:
+                !model.configuration.selectedApplications.isEmpty
+            case .completedEssentials:
+                model.configuration.onboardingScheduleConfirmed
+                    && !model.configuration.selectedApplications.isEmpty
+            }
+        }
+
+        var prompt: String? {
+            switch self {
+            case .confirmedSchedule:
+                "Save and confirm the schedule to continue"
+            case .selectedApplications:
+                "Choose at least one work app to continue"
+            case .none, .completedEssentials:
+                nil
+            }
+        }
+    }
+
+    private struct StepMetadata {
+        let title: String
+        let subtitle: String
+        let symbol: String
+        let advancementRequirement: AdvancementRequirement
+    }
+
+    private enum Step: Int, CaseIterable {
+        case schedule
+        case applications
+        case closing
+        case readiness
+        case review
+
+        var metadata: StepMetadata {
+            switch self {
+            case .schedule:
+                StepMetadata(
+                    title: "Set your work window",
+                    subtitle: "Define the weekly threshold between work time and personal time.",
+                    symbol: "calendar.badge.clock",
+                    advancementRequirement: .confirmedSchedule
+                )
+            case .applications:
+                StepMetadata(
+                    title: "Choose your work apps",
+                    subtitle: "Only the apps you select will be managed by Homeward.",
+                    symbol: "square.grid.2x2",
+                    advancementRequirement: .selectedApplications
+                )
+            case .closing:
+                StepMetadata(
+                    title: "Choose a closing style",
+                    subtitle: "Start gently, or opt into stronger enforcement with clear safeguards.",
+                    symbol: "power",
+                    advancementRequirement: .none
+                )
+            case .readiness:
+                StepMetadata(
+                    title: "Keep Homeward ready",
+                    subtitle: "Choose which background conveniences you want to enable.",
+                    symbol: "checklist",
+                    advancementRequirement: .none
+                )
+            case .review:
+                StepMetadata(
+                    title: "Review and begin",
+                    subtitle: "Confirm the essentials, then preview or start Homeward.",
+                    symbol: "checkmark.seal",
+                    advancementRequirement: .completedEssentials
+                )
+            }
+        }
+    }
+
     @ObservedObject var model: AppModel
     @AppStorage(HomewardPreferenceKeys.onboardingStep) private var step = 0
     @State private var showPreview = false
-
-    private let stepTitles = [
-        "Set your work window",
-        "Choose your work apps",
-        "Choose a closing style",
-        "Keep Homeward ready",
-        "Review and begin",
-    ]
-
-    private let stepSubtitles = [
-        "Define the weekly threshold between work time and personal time.",
-        "Only the apps you select will be managed by Homeward.",
-        "Start gently, or opt into stronger enforcement with clear safeguards.",
-        "Choose which background conveniences you want to enable.",
-        "Confirm the essentials, then preview or start Homeward.",
-    ]
-
-    private let stepSymbols = [
-        "calendar.badge.clock",
-        "square.grid.2x2",
-        "power",
-        "checklist",
-        "checkmark.seal",
-    ]
 
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .center, spacing: 14) {
-                    Image(systemName: stepSymbols[currentStep])
+                    Image(systemName: currentStep.metadata.symbol)
                         .font(.title2)
                         .foregroundStyle(HomewardTone.rest.color)
                         .frame(width: 38, height: 38)
@@ -45,31 +108,33 @@ struct OnboardingView: View {
                         .accessibilityHidden(true)
 
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("STEP \(currentStep + 1) OF \(stepTitles.count)")
+                        Text(
+                            "STEP \(currentStep.rawValue + 1) OF \(Step.allCases.count)"
+                        )
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
-                        Text(stepTitles[currentStep])
+                        Text(currentStep.metadata.title)
                             .font(.largeTitle.bold())
                             .accessibilityAddTraits(.isHeader)
                     }
                 }
 
-                Text(stepSubtitles[currentStep])
+                Text(currentStep.metadata.subtitle)
                     .font(.title3)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 ProgressView(
-                    value: Double(currentStep + 1),
-                    total: Double(stepTitles.count)
+                    value: Double(currentStep.rawValue + 1),
+                    total: Double(Step.allCases.count)
                 )
                 .accessibilityLabel("Setup progress")
                 .accessibilityValue(
-                    "Step \(currentStep + 1) of \(stepTitles.count)"
+                    "Step \(currentStep.rawValue + 1) of \(Step.allCases.count)"
                 )
             }
             .frame(maxWidth: 860, alignment: .leading)
-            .padding(24)
+            .padding(HomewardSpacing.xLarge)
 
             Divider()
 
@@ -78,22 +143,22 @@ struct OnboardingView: View {
                     model.clearError()
                 }
                 .frame(maxWidth: 860)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, HomewardSpacing.xLarge)
                 .padding(.top, 12)
             }
 
             Group {
                 switch currentStep {
-                case 0:
+                case .schedule:
                     ScheduleEditorView(
                         model: model,
                         requiresOnboardingConfirmation: true
                     )
-                case 1:
+                case .applications:
                     AppPickerView(model: model)
-                case 2:
+                case .closing:
                     ClosingSettingsView(model: model)
-                case 3:
+                case .readiness:
                     permissionStep
                 default:
                     readyStep
@@ -116,36 +181,32 @@ struct OnboardingView: View {
                 }
             }
             .frame(maxWidth: 860)
-            .padding(16)
+            .padding(HomewardSpacing.large)
         }
         .frame(minWidth: 680, minHeight: 560)
         .sheet(isPresented: $showPreview) {
             PreviewView(model: model)
         }
         .onAppear {
-            if step != currentStep {
-                step = currentStep
+            if step != currentStep.rawValue {
+                step = currentStep.rawValue
             }
         }
-        .accessibilityIdentifier("onboarding.step.\(currentStep + 1)")
+        .accessibilityIdentifier("onboarding.step.\(currentStep.rawValue + 1)")
     }
 
     @ViewBuilder
     private var footerStatus: some View {
-        switch currentStep {
-        case 0 where !model.configuration.onboardingScheduleConfirmed:
-            Label("Save and confirm the schedule to continue", systemImage: "circle.dashed")
+        if let prompt = currentStep.metadata.advancementRequirement.prompt,
+           !currentStep.metadata.advancementRequirement.isSatisfied(by: model) {
+            Label(prompt, systemImage: "circle.dashed")
                 .font(.callout)
                 .foregroundStyle(.secondary)
-        case 1 where model.configuration.selectedApplications.isEmpty:
-            Label("Choose at least one work app to continue", systemImage: "circle.dashed")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-        case _ where currentStep == stepTitles.count - 1:
+        } else if currentStep == .review {
             Label("Setup stays editable after you start", systemImage: "checkmark.circle")
                 .font(.callout)
                 .foregroundStyle(.secondary)
-        default:
+        } else {
             EmptyView()
         }
     }
@@ -153,11 +214,11 @@ struct OnboardingView: View {
     private var onboardingActions: some View {
         HStack {
             Button("Back") {
-                step = max(0, currentStep - 1)
+                step = max(0, currentStep.rawValue - 1)
             }
-            .disabled(currentStep == 0)
+            .disabled(currentStep == .schedule)
 
-            if currentStep == stepTitles.count - 1 {
+            if currentStep == .review {
                 Button("Test Setup…") {
                     showPreview = true
                 }
@@ -166,33 +227,35 @@ struct OnboardingView: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(
-                    !model.configuration.onboardingScheduleConfirmed
-                        || model.configuration.selectedApplications.isEmpty
+                    !currentStep.metadata.advancementRequirement
+                        .isSatisfied(by: model)
                 )
                 .accessibilityIdentifier("onboarding.start")
             } else {
                 Button("Continue") {
-                    step = min(stepTitles.count - 1, currentStep + 1)
+                    step = min(
+                        Step.allCases.count - 1,
+                        currentStep.rawValue + 1
+                    )
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(
-                    (currentStep == 0
-                        && !model.configuration.onboardingScheduleConfirmed)
-                        || (currentStep == 1
-                            && model.configuration.selectedApplications.isEmpty)
+                    !currentStep.metadata.advancementRequirement
+                        .isSatisfied(by: model)
                 )
             }
         }
     }
 
-    private var currentStep: Int {
-        min(max(step, 0), stepTitles.count - 1)
+    private var currentStep: Step {
+        let index = min(max(step, 0), Step.allCases.count - 1)
+        return Step(rawValue: index) ?? .schedule
     }
 
     private var permissionStep: some View {
         Form {
             Section {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: HomewardSpacing.small) {
                     Label("The essentials are already in place", systemImage: "checkmark.shield")
                         .font(.title2.bold())
                     Text(
@@ -208,12 +271,7 @@ struct OnboardingView: View {
             Section("Recommended") {
                 readinessRow(
                     title: "Start at Login",
-                    detail: "Keeps your schedule active after you sign in.",
-                    status: loginSummary,
-                    symbol: model.loginItemStatus == .enabled
-                        ? "checkmark.circle.fill"
-                        : "exclamationmark.circle",
-                    tone: model.loginItemStatus == .enabled ? .ready : .attention
+                    presentation: loginReadiness
                 ) {
                     switch model.loginItemStatus {
                     case .enabled:
@@ -226,6 +284,10 @@ struct OnboardingView: View {
                         Button("Open Login Items") {
                             model.openLoginItemSettings()
                         }
+                    case .unavailable:
+                        Button("Check Again") {
+                            Task { await model.refreshSystemStatuses() }
+                        }
                     }
                 }
             }
@@ -233,12 +295,7 @@ struct OnboardingView: View {
             Section("Optional") {
                 readinessRow(
                     title: "Notifications",
-                    detail: "Shows wind-down and status messages. Closing works without them.",
-                    status: notificationSummary,
-                    symbol: model.notificationStatus == .authorized
-                        ? "checkmark.circle.fill"
-                        : "bell.slash",
-                    tone: model.notificationStatus == .authorized ? .ready : .neutral
+                    presentation: notificationReadiness
                 ) {
                     if model.notificationStatus == .notDetermined {
                         Button("Enable Notifications") {
@@ -277,29 +334,32 @@ struct OnboardingView: View {
 
     private func readinessRow<Actions: View>(
         title: String,
-        detail: String,
-        status: String,
-        symbol: String,
-        tone: HomewardTone,
+        presentation: ReadinessPresentation,
         @ViewBuilder actions: () -> Actions
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 16) {
-                    readinessIdentity(title: title, detail: detail)
-                    Spacer(minLength: 16)
+                HStack(spacing: HomewardSpacing.large) {
+                    readinessIdentity(
+                        title: title,
+                        detail: presentation.detail
+                    )
+                    Spacer(minLength: HomewardSpacing.large)
                     HomewardStatusLabel(
-                        title: status,
-                        symbol: symbol,
-                        tone: tone
+                        title: presentation.status,
+                        symbol: presentation.symbol,
+                        tone: presentation.tone
                     )
                 }
-                VStack(alignment: .leading, spacing: 8) {
-                    readinessIdentity(title: title, detail: detail)
+                VStack(alignment: .leading, spacing: HomewardSpacing.small) {
+                    readinessIdentity(
+                        title: title,
+                        detail: presentation.detail
+                    )
                     HomewardStatusLabel(
-                        title: status,
-                        symbol: symbol,
-                        tone: tone
+                        title: presentation.status,
+                        symbol: presentation.symbol,
+                        tone: presentation.tone
                     )
                 }
             }
@@ -323,7 +383,7 @@ struct OnboardingView: View {
     private var readyStep: some View {
         Form {
             Section {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: HomewardSpacing.small) {
                     Label("Ready to cross the threshold", systemImage: "house")
                         .font(.title2.bold())
                         .accessibilityAddTraits(.isHeader)
@@ -396,7 +456,7 @@ struct OnboardingView: View {
         notReadyLabel: String = "Not enabled"
     ) -> some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: 16) {
+            HStack(spacing: HomewardSpacing.large) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
                         .font(.headline)
@@ -404,13 +464,13 @@ struct OnboardingView: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
-                Spacer(minLength: 16)
+                Spacer(minLength: HomewardSpacing.large)
                 readinessMark(
                     isReady: isReady,
                     notReadyLabel: notReadyLabel
                 )
             }
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: HomewardSpacing.small) {
                 Text(title)
                     .font(.headline)
                 Text(value)
@@ -441,7 +501,8 @@ struct OnboardingView: View {
         guard !applications.isEmpty else {
             return "No apps selected"
         }
-        if applications.count <= 3 {
+        if applications.count
+            <= ApplicationListFormatter.maximumVisibleItemCount {
             return applications.map(\.displayName).joined(separator: ", ")
         }
         return "\(applications.count) apps selected"
@@ -469,7 +530,23 @@ struct OnboardingView: View {
             "Approval required"
         case .notFound:
             "Move Homeward to Applications"
+        case .unavailable:
+            "Unavailable"
         }
+    }
+
+    private var loginReadiness: ReadinessPresentation {
+        let presentation = ReadinessPresentation.login(
+            model.loginItemStatus,
+            readyTitle: loginSummary,
+            unhealthySymbol: "exclamationmark.circle"
+        )
+        return ReadinessPresentation(
+            status: loginSummary,
+            detail: "Keeps your schedule active after you sign in.",
+            symbol: presentation.symbol,
+            tone: presentation.tone
+        )
     }
 
     private var notificationSummary: String {
@@ -484,16 +561,38 @@ struct OnboardingView: View {
             "Unavailable"
         }
     }
+
+    private var notificationReadiness: ReadinessPresentation {
+        let presentation = ReadinessPresentation.notifications(
+            model.notificationStatus,
+            readyTitle: notificationSummary,
+            unhealthySymbol: "bell.slash",
+            unhealthyTone: .neutral
+        )
+        return ReadinessPresentation(
+            status: notificationSummary,
+            detail: "Shows wind-down and status messages. Closing works without them.",
+            symbol: presentation.symbol,
+            tone: presentation.tone
+        )
+    }
 }
 
 private struct PreviewView: View {
+    private struct Presentation {
+        let title: String
+        let text: String
+        let symbol: String
+        let color: Color
+    }
+
     @ObservedObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @State private var selectionID: UUID?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: HomewardSpacing.small) {
                 Label("Preview the handoff", systemImage: "play.circle")
                     .font(.title2.bold())
                     .accessibilityAddTraits(.isHeader)
@@ -518,14 +617,14 @@ private struct PreviewView: View {
 
             HomewardCard {
                 HStack(alignment: .top, spacing: HomewardSpacing.medium) {
-                    Image(systemName: statusSymbol)
+                    Image(systemName: previewPresentation.symbol)
                         .font(.title3)
-                        .foregroundStyle(statusColor)
+                        .foregroundStyle(previewPresentation.color)
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(statusTitle)
+                        Text(previewPresentation.title)
                             .font(.headline)
-                        Text(statusText)
+                        Text(previewPresentation.text)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -538,8 +637,7 @@ private struct PreviewView: View {
             ViewThatFits(in: .horizontal) {
                 HStack {
                     Button("End Preview") {
-                        model.endPreview()
-                        dismiss()
+                        endPreviewAndDismiss()
                     }
                     .keyboardShortcut(.cancelAction)
                     if case .needsAttention = model.previewState {
@@ -558,14 +656,13 @@ private struct PreviewView: View {
                         }
                     }
                     Button("End Preview") {
-                        model.endPreview()
-                        dismiss()
+                        endPreviewAndDismiss()
                     }
                     .keyboardShortcut(.cancelAction)
                 }
             }
         }
-        .padding(24)
+        .padding(HomewardSpacing.xLarge)
         .frame(minWidth: 460, minHeight: 320)
         .onDisappear {
             model.endPreview()
@@ -593,63 +690,55 @@ private struct PreviewView: View {
         }
     }
 
-    private var statusTitle: String {
+    private var previewPresentation: Presentation {
         switch model.previewState {
         case .idle:
-            "Ready to test"
-        case .waitingForFirstExit:
-            "Closing normally"
-        case .waitingForRelaunch:
-            "First close complete"
-        case .waitingForSecondExit:
-            "Relaunch detected"
-        case .needsAttention:
-            "App needs attention"
-        case .complete:
-            "Preview complete"
-        }
-    }
-
-    private var statusColor: Color {
-        switch model.previewState {
-        case .complete:
-            .green
-        case .needsAttention:
-            .orange
-        case .idle:
-            .secondary
-        case .waitingForFirstExit, .waitingForRelaunch, .waitingForSecondExit:
-            .accentColor
-        }
-    }
-
-    private var statusText: String {
-        switch model.previewState {
-        case .idle:
-            "Choose a harmless selected app, open it, then run the preview."
+            Presentation(
+                title: "Ready to test",
+                text: "Choose a harmless selected app, open it, then run the preview.",
+                symbol: "info.circle",
+                color: .secondary
+            )
         case let .waitingForFirstExit(name):
-            "Waiting for \(name) to close normally."
+            Presentation(
+                title: "Closing normally",
+                text: "Waiting for \(name) to close normally.",
+                symbol: "testtube.2",
+                color: .accentColor
+            )
         case let .waitingForRelaunch(name):
-            "Reopen \(name). Homeward will detect and close it automatically."
+            Presentation(
+                title: "First close complete",
+                text: "Reopen \(name). Homeward will detect and close it automatically.",
+                symbol: "testtube.2",
+                color: .accentColor
+            )
         case let .waitingForSecondExit(name):
-            "Homeward detected the relaunch and is waiting for \(name) to close."
+            Presentation(
+                title: "Relaunch detected",
+                text: "Homeward detected the relaunch and is waiting for \(name) to close.",
+                symbol: "testtube.2",
+                color: .accentColor
+            )
         case let .needsAttention(name):
-            "\(name) needs your attention before the preview can continue."
+            Presentation(
+                title: "App needs attention",
+                text: "\(name) needs your attention before the preview can continue.",
+                symbol: "exclamationmark.triangle",
+                color: .orange
+            )
         case let .complete(name):
-            "Preview complete. Homeward closed both \(name) launches normally."
+            Presentation(
+                title: "Preview complete",
+                text: "Preview complete. Homeward closed both \(name) launches normally.",
+                symbol: "checkmark.circle",
+                color: .green
+            )
         }
     }
 
-    private var statusSymbol: String {
-        switch model.previewState {
-        case .complete:
-            "checkmark.circle"
-        case .needsAttention:
-            "exclamationmark.triangle"
-        case .idle:
-            "info.circle"
-        case .waitingForFirstExit, .waitingForRelaunch, .waitingForSecondExit:
-            "testtube.2"
-        }
+    private func endPreviewAndDismiss() {
+        model.endPreview()
+        dismiss()
     }
 }

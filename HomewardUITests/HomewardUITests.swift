@@ -47,9 +47,17 @@ final class HomewardUITests: XCTestCase {
         defer { app.terminate() }
 
         let window = app.windows.firstMatch
-        XCTAssertFalse(window.waitForExistence(timeout: 1))
         let statusItem = app.menuBars.statusItems.firstMatch
         XCTAssertTrue(statusItem.waitForExistence(timeout: 5))
+        let ready = expectation(
+            for: NSPredicate(
+                format: "label == %@",
+                "Homeward, Work is closed"
+            ),
+            evaluatedWith: statusItem
+        )
+        wait(for: [ready], timeout: 5)
+        XCTAssertFalse(window.waitForExistence(timeout: 1))
         try reopenHomeward()
 
         XCTAssertTrue(window.waitForExistence(timeout: 5))
@@ -94,6 +102,7 @@ final class HomewardUITests: XCTestCase {
         }
         app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
         app.launchEnvironment["HOMEWARD_STORAGE_DIRECTORY"] = directory.path
+        app.launchEnvironment[UITestPolicy.runtimeIsolationEnvironment] = "1"
         app.launch()
         return app
     }
@@ -127,5 +136,6 @@ private enum FixtureError: Error {
 
 private enum UITestPolicy {
     static let onboardingStepPreference = "onboardingStep"
+    static let runtimeIsolationEnvironment = "HOMEWARD_UI_TESTING"
     static let processTerminationTimeout: TimeInterval = 5
 }
