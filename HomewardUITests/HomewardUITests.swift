@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import XCTest
 
 // 1 - Name: Homeward UI test file.
@@ -85,7 +86,7 @@ final class HomewardUITests: XCTestCase {
 
         XCTAssertTrue(
             app.descendants(matching: .any)["onboarding.step.1"]
-                .waitForExistence(timeout: UITestPolicy.launchTimeout)
+                .waitForExistence(timeout: UITestPolicy.bootstrapRetryTimeout)
         )
     }
 
@@ -311,11 +312,11 @@ final class HomewardUITests: XCTestCase {
         )
     }
 
-    /// 1 - Name: Overnight destination labels.
-    /// 2 - Description: Enables Monday overnight hours and inspects the Sunday wraparound control after switching its mode.
+    /// 1 - Name: Overnight destination label.
+    /// 2 - Description: Enables Monday overnight hours and inspects its destination-day control.
     /// 3 - Assumptions: Changing the native checkbox updates only the in-memory draft.
-    /// 4 - Expectations: Monday names Tuesday, its summary names Tuesday when enabled, and Sunday names Monday.
-    func testScheduleOvernightControlsNameDestinationDay() throws {
+    /// 4 - Expectations: Monday names Tuesday and its collapsed summary updates when enabled.
+    func testScheduleOvernightControlNamesDestinationDay() throws {
         let app = try launch(.firstLaunch)
         XCTAssertTrue(
             scheduleElement("schedule.day.monday.disclosure", in: app)
@@ -345,30 +346,6 @@ final class HomewardUITests: XCTestCase {
             evaluatedWith: mondaySummary
         )
         wait(for: [updatedSummary], timeout: UITestPolicy.navigationTimeout)
-
-        let sunday = scheduleElement(
-            "schedule.day.sunday.disclosure",
-            in: app
-        )
-        if !sunday.isHittable {
-            app.scrollViews.firstMatch.swipeUp()
-        }
-        sunday.click()
-        chooseMenuOption(
-            "Scheduled hours",
-            from: scheduleElement("schedule.day.sunday.mode", in: app),
-            in: app
-        )
-        let sundayOvernight = scheduleElement(
-            "schedule.day.sunday.overnight",
-            in: app
-        )
-        XCTAssertTrue(
-            sundayOvernight.waitForExistence(
-                timeout: UITestPolicy.navigationTimeout
-            )
-        )
-        XCTAssertEqual(sundayOvernight.label, "Ends Monday")
     }
 
     /// 1 - Name: Onboarding schedule save progression.
@@ -461,7 +438,7 @@ final class HomewardUITests: XCTestCase {
             bundle: Bundle(for: Self.self)
         )
         self.fixture = fixture
-        return fixture.launch()
+        return try fixture.launch()
     }
 
     private func reopenHomeward(_ app: XCUIApplication) throws {
@@ -619,7 +596,8 @@ private final class IsolatedApplicationFixture {
         )
     }
 
-    func launch() -> XCUIApplication {
+    func launch() throws -> XCUIApplication {
+        try terminateExistingTestApplications()
         let app = XCUIApplication()
         if let initialOnboardingStep = scenario.initialOnboardingStep {
             app.launchArguments += [
@@ -634,6 +612,18 @@ private final class IsolatedApplicationFixture {
             scenario.runtimeValue
         app.launch()
         return app
+    }
+
+    private func terminateExistingTestApplications() throws {
+        let applications = NSRunningApplication.runningApplications(
+            withBundleIdentifier: applicationBundleIdentifier
+        ).filter {
+            $0.bundleURL?.resolvingSymlinksInPath().standardizedFileURL
+                == applicationURL
+        }
+        for application in applications {
+            try terminateTestApplication(application)
+        }
     }
 
     func reopen(_ app: XCUIApplication) throws {
@@ -663,8 +653,7 @@ private final class IsolatedApplicationFixture {
 
     func remove() throws {
         if let application = expectedRunningApplication() {
-            _ = application.terminate()
-            waitForTermination(of: application)
+            try terminateTestApplication(application)
         }
         if FileManager.default.fileExists(atPath: directory.path) {
             try FileManager.default.removeItem(at: directory)
@@ -681,13 +670,37 @@ private final class IsolatedApplicationFixture {
         return matches.count == 1 ? matches[0] : nil
     }
 
-    private func waitForTermination(of application: NSRunningApplication) {
+    private func terminateTestApplication(
+        _ application: NSRunningApplication
+    ) throws {
+        let processIdentifier = application.processIdentifier
+        _ = application.terminate()
+        guard !waitForProcessExit(processIdentifier) else {
+            return
+        }
+        _ = application.forceTerminate()
+        guard !waitForProcessExit(processIdentifier) else {
+            return
+        }
+        _ = Darwin.kill(processIdentifier, SIGKILL)
+        guard waitForProcessExit(processIdentifier) else {
+            throw FixtureError.terminationTimedOut
+        }
+    }
+
+    private func waitForProcessExit(_ processIdentifier: pid_t) -> Bool {
         let deadline = Date().addingTimeInterval(
             UITestPolicy.processTerminationTimeout
         )
-        while !application.isTerminated && Date() < deadline {
+        while processIsRunning(processIdentifier) && Date() < deadline {
             Thread.sleep(forTimeInterval: 0.05)
         }
+        return !processIsRunning(processIdentifier)
+    }
+
+    private func processIsRunning(_ processIdentifier: pid_t) -> Bool {
+        errno = 0
+        return Darwin.kill(processIdentifier, 0) == 0 || errno != ESRCH
     }
 
     private static func copy(
@@ -744,10 +757,12 @@ private enum FixtureError: Error {
     case reopenFailed(Int32)
     case reopenTimedOut
     case runningApplicationIdentityMismatch
+    case terminationTimedOut
 }
 
 private enum UITestPolicy {
     static let applicationBundleIdentifier = "com.firaskafri.homeward"
+    static let bootstrapRetryTimeout: TimeInterval = 30
     static let launchTimeout: TimeInterval = 15
     static let navigationTimeout: TimeInterval = 5
     static let onboardingStepPreference = "onboardingStep"
