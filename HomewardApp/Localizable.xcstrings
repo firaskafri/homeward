@@ -1,7 +1,190 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%@" : {
 
+    },
+    "%@ characters remaining" : {
+
+    },
+    "%@ work apps" : {
+
+    },
+    "Actions" : {
+
+    },
+    "App closing still works when notifications are off." : {
+
+    },
+    "App closing still works." : {
+
+    },
+    "Available applications" : {
+
+    },
+    "Change today only" : {
+
+    },
+    "Choose an app" : {
+
+    },
+    "Choose another cutoff" : {
+
+    },
+    "Choose at least one work app" : {
+
+    },
+    "Clear your schedule, work apps, and closing preferences." : {
+
+    },
+    "Daily availability" : {
+
+    },
+    "Delete every thought saved for a future work window." : {
+
+    },
+    "Disable Start at Login and quit Homeward." : {
+
+    },
+    "Enter a thought to save." : {
+
+    },
+    "Firm Close" : {
+
+    },
+    "Gentle Close" : {
+
+    },
+    "Gentle extensions are unavailable while Firm Close is selected." : {
+
+    },
+    "Give yourself notice before the work window ends." : {
+
+    },
+    "Homeward" : {
+
+    },
+    "Homeward only manages apps you select. You can change this list at any time." : {
+
+    },
+    "Homeward was moved while open. Quit it, then reopen the copy in Applications." : {
+
+    },
+    "Homeward will cancel pending force quits, disable Start at Login, and quit. Apps already asked to quit may still close. Settings and saved thoughts remain." : {
+
+    },
+    "Homeward works only while it is running." : {
+
+    },
+    "In System Settings, choose Notifications, then Homeward." : {
+
+    },
+    "Looking for applications on this Mac…" : {
+
+    },
+    "Move Homeward to the Applications folder yourself, then choose Check Again. Homeward will not move or delete itself." : {
+
+    },
+    "NEXT TRANSITION" : {
+
+    },
+    "Optional readiness" : {
+
+    },
+    "Overnight hours belong to the day on which they begin." : {
+
+    },
+    "Readiness" : {
+
+    },
+    "Recommended readiness" : {
+
+    },
+    "Save" : {
+
+    },
+    "Saving…" : {
+
+    },
+    "Selected" : {
+
+    },
+    "Selected apps also remain visible here for quick changes." : {
+
+    },
+    "Selected work apps" : {
+
+    },
+    "Something went wrong" : {
+
+    },
+    "STEP %@ OF %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "STEP %1$@ OF %2$@"
+          }
+        }
+      }
+    },
+    "The closing flow is complete." : {
+
+    },
+    "These safeguards cannot be shortened or bypassed." : {
+
+    },
+    "This clears the schedule, selected apps, closing preferences, and today-only changes. Saved thoughts and Start at Login remain." : {
+
+    },
+    "This permanently deletes every saved thought. This cannot be undone." : {
+
+    },
+    "This permanently deletes the selected thought. This cannot be undone." : {
+
+    },
+    "This replaces unverified settings with a fresh setup. Saved thoughts remain." : {
+
+    },
+    "This thought will return in a later work window." : {
+
+    },
+    "Thought" : {
+
+    },
+    "Thought marked done" : {
+
+    },
+    "Thought text is available only during a normal work window while your session is active." : {
+
+    },
+    "To delete local data, use Reset Setup and Reset Saved Thoughts before removing the app." : {
+
+    },
+    "To remove Homeward, turn it off, quit it, then move Homeward from Applications to the Trash." : {
+
+    },
+    "TODAY" : {
+
+    },
+    "Updates are manual in version 0.1.0. Download the latest release, quit Homeward, and replace the copy in Applications." : {
+
+    },
+    "Warnings require notification permission. Closing still works without it." : {
+
+    },
+    "What do you want to remember?" : {
+
+    },
+    "Wind-down" : {
+
+    },
+    "Your personal apps remain outside Homeward’s control." : {
+
+    },
+    "Your workday boundary" : {
+
+    }
   },
   "version" : "1.0"
 }

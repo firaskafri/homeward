@@ -35,6 +35,15 @@ final class HomewardApplicationDelegate: NSObject, NSApplicationDelegate {
         beginBootstrap()
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        guard let model, model.isPolicyMutationEnabled else {
+            return
+        }
+        Task {
+            await model.refreshSystemStatuses()
+        }
+    }
+
     func applicationShouldHandleReopen(
         _ sender: NSApplication,
         hasVisibleWindows flag: Bool

@@ -1,13 +1,14 @@
 import Foundation
+import HomewardCore
 import Testing
 @testable import Homeward
 
 // 1 - Name: Running application control policy test file.
 // 2 - Description: Verifies automated tests are fixture-only while normal app
-//     launches can control user-selected applications.
+//     launches control only non-protected user selections.
 // 3 - Assumptions: Automated runtimes are identified before lifecycle control.
-// 4 - Expectations: Automated tests are fixture-only and normal runs are
-//     unrestricted.
+// 4 - Expectations: Automated tests are fixture-only and normal runs reject
+//     protected applications at the final control boundary.
 
 /// 1 - Name: Running application control policy suite.
 /// 2 - Description: Exercises the identity allowlists enforced immediately
@@ -74,11 +75,12 @@ struct RunningApplicationControlPolicyTests {
 
     /// 1 - Name: Normal runtime application control.
     /// 2 - Description: Builds the runtime policy without an automated-test
-    ///     environment.
+    ///     environment and revalidates protected identities.
     /// 3 - Assumptions: Users choose their managed applications in Homeward.
-    /// 4 - Expectations: The controller permits any selected application.
+    /// 4 - Expectations: The controller permits ordinary selections and
+    ///     rejects Cursor even if a crafted selection reaches this boundary.
     @Test
-    func normalRuntimeIsUnrestricted() {
+    func normalRuntimeAllowsOnlyUnprotectedSelections() {
         let policy = RunningApplicationControlPolicy.forRuntime(
             environment: [:],
             homewardBundleURL: URL(fileURLWithPath: "/tmp/Homeward.app")
@@ -91,6 +93,10 @@ struct RunningApplicationControlPolicyTests {
         #expect(policy.permits(
             bundleIdentifier: "com.example.communication",
             bundleURL: URL(fileURLWithPath: "/Applications/Communication.app")
+        ))
+        #expect(!policy.permits(
+            bundleIdentifier: SelectedApplication.cursorBundleIdentifier,
+            bundleURL: URL(fileURLWithPath: "/Applications/Cursor.app")
         ))
     }
 }

@@ -5,14 +5,14 @@ import UserNotifications
 import HomewardCore
 
 // 1 - Name: Homeward notification test file.
-// 2 - Description: Verifies notification payloads, scheduling races, cleanup, privacy, and model action routing.
-// 3 - Assumptions: Notification Center behavior is represented by an in-memory client and isolated model fixtures.
-// 4 - Expectations: Only current actions mutate policy and all Homeward-owned requests clean up deterministically.
+// 2 - Description: Verifies notification payloads, authorization reconciliation, scheduling races, cleanup, privacy, and model action routing.
+// 3 - Assumptions: Notification Center behavior, including request/status races, is represented by an in-memory client and isolated model fixtures.
+// 4 - Expectations: Authoritative authorization wins over request errors, only current actions mutate policy, and owned requests clean up deterministically.
 
 /// 1 - Name: Homeward notification suite.
-/// 2 - Description: Covers warning payload validation, latest-wins scheduling, lifecycle cleanup, and private copy.
-/// 3 - Assumptions: Injected notification callbacks expose all pending and delivered identifiers without system access.
-/// 4 - Expectations: Stale or malformed actions fail closed while current actions use shared confirmation.
+/// 2 - Description: Covers authorization reconciliation, warning payload validation, latest-wins scheduling, lifecycle cleanup, and private copy.
+/// 3 - Assumptions: Injected notification callbacks expose authorization races and all pending and delivered identifiers without system access.
+/// 4 - Expectations: Current system authorization clears stale errors, while stale or malformed actions fail closed and current actions use shared confirmation.
 @Suite("Homeward notifications")
 @MainActor
 struct AppModelNotificationTests {
@@ -209,6 +209,37 @@ struct AppModelNotificationTests {
         #expect(recorder.pendingIdentifiers.isEmpty)
     }
 
+    /// 1 - Name: Authorized status after request error.
+    /// 2 - Description: Reconciles a thrown authorization request whose subsequent system status is authorized.
+    /// 3 - Assumptions: Notification Center status is authoritative when its request callback reports a contradictory transient error.
+    /// 4 - Expectations: Permission succeeds and no stale error banner remains.
+    @Test
+    func authorizedStatusOverridesRequestError() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let recorder = WarningClientRecorder(
+            authorizationStatus: .notDetermined,
+            authorizationStatusAfterRequest: .authorized,
+            authorizationRequestError: NSError(
+                domain: UNErrorDomain,
+                code: 1
+            ),
+            suspendFirstAdd: false
+        )
+        let service = HomewardNotificationService(client: recorder.client)
+        let model = try AppModel(
+            repository: HomewardRepository(directoryURL: fixture.directoryURL),
+            notificationService: service
+        )
+        await model.start()
+
+        let authorized = await model.requestNotificationPermission()
+
+        #expect(authorized)
+        #expect(model.notificationStatus == .authorized)
+        #expect(model.lastError == nil)
+    }
+
     /// 1 - Name: Pre-onboarding notification action.
     /// 2 - Description: Routes a current warning action before setup activation.
     /// 3 - Assumptions: The action cutoff exactly matches the default work-window cutoff.
@@ -304,6 +335,56 @@ struct AppModelNotificationTests {
         #expect(model.notificationStatus == .denied)
         #expect(recorder.pendingIdentifiers.isEmpty)
         #expect(recorder.deliveredIdentifiers.isEmpty)
+    }
+
+    /// 1 - Name: Authorization refresh serialization.
+    /// 2 - Description: Queues a newer authorization refresh while an older denied read remains suspended.
+    /// 3 - Assumptions: App activation and a manual status check may request refreshes concurrently.
+    /// 4 - Expectations: Refreshes execute in request order and the model finishes with the newest authorization state.
+    @Test
+    func authorizationRefreshesAreSerialized() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let gate = AuthorizationStatusGate()
+        let service = HomewardNotificationService(
+            client: HomewardNotificationService.Client(
+                authorizationStatus: { await gate.status() },
+                requestAuthorization: { false },
+                add: { _ in },
+                pendingIdentifiers: { [] },
+                deliveredIdentifiers: { [] },
+                removePending: { _ in },
+                removeDelivered: { _ in },
+                setCategories: { _ in },
+                setDelegate: { _ in }
+            )
+        )
+        let model = try AppModel(
+            repository: HomewardRepository(
+                directoryURL: fixture.directoryURL
+            ),
+            loginItemService: LoginItemService(
+                statusProvider: { .notRegistered }
+            ),
+            installationLocationService: InstallationLocationService(
+                statusProvider: { .applications }
+            ),
+            notificationService: service
+        )
+        let olderRefresh = Task { @MainActor in
+            await model.refreshSystemStatuses()
+        }
+        await gate.waitUntilFirstRequestStarts()
+
+        let newerRefresh = Task { @MainActor in
+            await model.refreshSystemStatuses()
+        }
+        await Task.yield()
+        await gate.releaseFirstRequest()
+        await olderRefresh.value
+        await newerRefresh.value
+
+        #expect(model.notificationStatus == .authorized)
     }
 
     /// 1 - Name: Current notification action confirmation.

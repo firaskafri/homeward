@@ -9,6 +9,9 @@ final class HomewardUITestScenarioFixture {
     enum Scenario: String {
         case standard
         case delayedStartupRetry
+        case loginApproval
+        case loginEnabled
+        case movedToApplications
         case outsideApplications
     }
 
@@ -71,9 +74,29 @@ final class HomewardUITestScenarioFixture {
                     )
                 }
             )
-        case .standard, .delayedStartupRetry:
+        case .movedToApplications:
+            InstallationLocationService(
+                statusProvider: {
+                    .requiresRelaunch(
+                        URL(fileURLWithPath: "/Applications/Homeward.app")
+                    )
+                }
+            )
+        case .standard, .delayedStartupRetry, .loginApproval, .loginEnabled:
             InstallationLocationService(statusProvider: { .applications })
         }
+    }
+
+    var loginItemService: LoginItemService {
+        let status: LoginItemService.Status = switch scenario {
+        case .loginApproval:
+            .requiresApproval
+        case .loginEnabled:
+            .enabled
+        default:
+            .notRegistered
+        }
+        return LoginItemService(statusProvider: { status })
     }
 
     private func application(

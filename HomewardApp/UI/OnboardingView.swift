@@ -94,8 +94,17 @@ struct OnboardingView: View {
     }
 
     @ObservedObject var model: AppModel
-    @AppStorage(HomewardPreferenceKeys.onboardingStep) private var step = 0
+    @State private var step: Int
     @State private var showPreview = false
+
+    init(model: AppModel) {
+        self.model = model
+        _step = State(
+            initialValue: UserDefaults.standard.integer(
+                forKey: HomewardPreferenceKeys.onboardingStep
+            )
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -159,7 +168,10 @@ struct OnboardingView: View {
                 case .schedule:
                     ScheduleEditorView(
                         model: model,
-                        requiresOnboardingConfirmation: true
+                        requiresOnboardingConfirmation: true,
+                        onSuccessfulOnboardingSave: {
+                            step = Step.applications.rawValue
+                        }
                     )
                 case .applications:
                     AppPickerView(model: model)
@@ -173,25 +185,27 @@ struct OnboardingView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            Divider()
+            if currentStep != .schedule {
+                Divider()
 
-            ViewThatFits(in: .horizontal) {
-                HStack {
-                    footerStatus
-                    Spacer()
-                    onboardingActions
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        footerStatus
+                        Spacer()
+                        onboardingActions
+                    }
+                    VStack(
+                        alignment: .leading,
+                        spacing: HomewardSpacing.medium
+                    ) {
+                        footerStatus
+                        onboardingActions
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
                 }
-                VStack(
-                    alignment: .leading,
-                    spacing: HomewardSpacing.medium
-                ) {
-                    footerStatus
-                    onboardingActions
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
+                .frame(maxWidth: 860)
+                .padding(HomewardSpacing.large)
             }
-            .frame(maxWidth: 860)
-            .padding(HomewardSpacing.large)
         }
         .frame(minWidth: 680, minHeight: 560)
         .sheet(isPresented: $showPreview) {
@@ -201,6 +215,28 @@ struct OnboardingView: View {
             if step != currentStep.rawValue {
                 step = currentStep.rawValue
             }
+        }
+        .onChange(
+            of: model.configuration.onboardingScheduleConfirmed
+        ) { wasConfirmed, isConfirmed in
+            guard currentStep == .schedule,
+                  !wasConfirmed,
+                  isConfirmed else {
+                return
+            }
+            step = Step.applications.rawValue
+        }
+        .onChange(of: step) { _, step in
+            UserDefaults.standard.set(
+                step,
+                forKey: HomewardPreferenceKeys.onboardingStep
+            )
+        }
+        .task(id: currentStep) {
+            guard currentStep == .readiness || currentStep == .review else {
+                return
+            }
+            await model.refreshSystemStatuses()
         }
         .accessibilityIdentifier("onboarding.step.\(currentStep.rawValue + 1)")
     }
@@ -283,22 +319,10 @@ struct OnboardingView: View {
                     title: "Start at Login",
                     presentation: loginReadiness
                 ) {
-                    switch model.loginItemStatus {
-                    case .enabled:
-                        EmptyView()
-                    case .notRegistered:
-                        Button("Enable Start at Login") {
-                            model.enableStartAtLogin()
-                        }
-                    case .requiresApproval, .notFound:
-                        Button("Open Login Items") {
-                            model.openLoginItemSettings()
-                        }
-                    case .unavailable:
-                        Button("Check Again") {
-                            Task { await model.refreshSystemStatuses() }
-                        }
-                    }
+                    StartAtLoginActions(
+                        model: model,
+                        context: .onboarding
+                    )
                 }
             }
 
@@ -434,8 +458,10 @@ struct OnboardingView: View {
             Section("Readiness") {
                 reviewRow(
                     title: "Start at Login · Recommended",
-                    value: loginSummary,
-                    isReady: model.loginItemStatus == .enabled,
+                    value: loginReadiness.detail,
+                    isReady: model.loginItemStatus == .enabled
+                        && model.installationLocationStatus
+                            .supportsStartAtLogin,
                     notReadyLabel: "Recommended"
                 )
                 reviewRow(
@@ -532,32 +558,12 @@ struct OnboardingView: View {
         }
     }
 
-    private var loginSummary: String {
-        switch model.loginItemStatus {
-        case .enabled:
-            "Starts automatically"
-        case .notRegistered:
-            "Off"
-        case .requiresApproval:
-            "Approval required"
-        case .notFound:
-            "Move Homeward to Applications"
-        case .unavailable:
-            "Unavailable"
-        }
-    }
-
     private var loginReadiness: ReadinessPresentation {
-        let presentation = ReadinessPresentation.login(
+        return ReadinessPresentation.login(
             model.loginItemStatus,
-            readyTitle: loginSummary,
+            installation: model.installationLocationStatus,
+            readyTitle: "On",
             unhealthySymbol: "exclamationmark.circle"
-        )
-        return ReadinessPresentation(
-            status: loginSummary,
-            detail: "Keeps your schedule active after you sign in.",
-            symbol: presentation.symbol,
-            tone: presentation.tone
         )
     }
 

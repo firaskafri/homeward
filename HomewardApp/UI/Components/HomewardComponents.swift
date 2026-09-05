@@ -69,6 +69,81 @@ struct HomewardStatusLabel: View {
     }
 }
 
+struct StartAtLoginActions: View {
+    enum Context {
+        case onboarding
+        case settings
+    }
+
+    @ObservedObject var model: AppModel
+    let context: Context
+
+    var body: some View {
+        switch model.installationLocationStatus {
+        case .outsideApplications:
+            if context == .settings,
+               model.loginItemStatus == .enabled
+                || model.loginItemStatus == .requiresApproval {
+                Button("Disable") {
+                    model.disableStartAtLogin()
+                }
+                .accessibilityIdentifier("startAtLogin.disable")
+            }
+            Button("Show in Finder") {
+                model.showInstallationInFinder()
+            }
+            .accessibilityIdentifier("startAtLogin.showInFinder")
+            Button("Check Again") {
+                Task { await model.refreshSystemStatuses() }
+            }
+            .accessibilityIdentifier("startAtLogin.checkAgain")
+        case .requiresRelaunch:
+            Button("Show in Finder") {
+                model.showInstallationInFinder()
+            }
+            .accessibilityIdentifier("startAtLogin.showInFinder")
+            Button("Quit Homeward") {
+                model.quit()
+            }
+            .accessibilityIdentifier("startAtLogin.quit")
+        case .unavailable:
+            Button("Check Again") {
+                Task { await model.refreshSystemStatuses() }
+            }
+            .accessibilityIdentifier("startAtLogin.checkAgain")
+        case .applications:
+            switch model.loginItemStatus {
+            case .enabled:
+                if context == .settings {
+                    Button("Disable") {
+                        model.disableStartAtLogin()
+                    }
+                    .accessibilityIdentifier("startAtLogin.disable")
+                }
+            case .notRegistered:
+                Button("Enable Start at Login") {
+                    model.enableStartAtLogin()
+                }
+                .accessibilityIdentifier("startAtLogin.enable")
+            case .requiresApproval, .notFound:
+                Button("Open Login Items") {
+                    model.openLoginItemSettings()
+                }
+                .accessibilityIdentifier("startAtLogin.openSettings")
+                Button("Check Again") {
+                    Task { await model.refreshSystemStatuses() }
+                }
+                .accessibilityIdentifier("startAtLogin.checkAgain")
+            case .unavailable:
+                Button("Check Again") {
+                    Task { await model.refreshSystemStatuses() }
+                }
+                .accessibilityIdentifier("startAtLogin.checkAgain")
+            }
+        }
+    }
+}
+
 struct HomewardApplicationSummary: View {
     let applications: [SelectedApplication]
     let iconsBySelectionKey: [String: NSImage]

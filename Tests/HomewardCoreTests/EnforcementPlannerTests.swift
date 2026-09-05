@@ -177,35 +177,11 @@ struct EnforcementPlannerTests {
     }
 
     /// 1 - Name: Protected selection fails open.
-    /// 2 - Description: Revalidates protected identity at the termination-planning boundary.
+    /// 2 - Description: Revalidates system and Cursor identities at the termination-planning boundary.
     /// 3 - Assumptions: Persisted or in-memory policy may be corrupted outside the normal picker.
-    /// 4 - Expectations: Finder never becomes a normal or forced termination target.
+    /// 4 - Expectations: Finder and Cursor never become normal or forced termination targets.
     @Test
     func protectedSelectionFailsOpen() throws {
-        let selection = SelectedApplication(
-            bundleIdentifier: "com.apple.finder",
-            bundlePath: "/System/Library/CoreServices/Finder.app",
-            displayName: "Finder"
-        )
-        let running = process(
-            pid: 10,
-            bundleIdentifier: "com.apple.finder",
-            path: "/System/Library/CoreServices/Finder.app"
-        )
-
-        let targets = EnforcementPlanner().targets(
-            selections: [selection],
-            runningApplications: [running]
-        )
-        let craftedTarget = try EnforcementTarget(
-            selectionID: selection.id,
-            process: running
-        )
-        let session = EnforcementSession(
-            mode: .firm,
-            startedAt: Date(timeIntervalSince1970: 0),
-            targets: [craftedTarget]
-        )
         let blocked = ResolvedSchedule(
             phase: .workClosed,
             isAvailable: false,
@@ -214,16 +190,54 @@ struct EnforcementPlannerTests {
             nextTransition: nil,
             nextAvailability: nil
         )
-        let forceEligible = EnforcementPlanner().forceEligibleTargetIDs(
-            session: session,
-            at: Date(timeIntervalSince1970: 60),
-            schedule: blocked,
-            currentSelections: [selection],
-            currentlyRunning: [running]
-        )
+        let applications = [
+            (
+                bundleIdentifier: "com.apple.finder",
+                path: "/System/Library/CoreServices/Finder.app",
+                displayName: "Finder"
+            ),
+            (
+                bundleIdentifier: SelectedApplication.cursorBundleIdentifier,
+                path: "/Applications/Cursor.app",
+                displayName: "Cursor"
+            ),
+        ]
 
-        #expect(targets.isEmpty)
-        #expect(forceEligible.isEmpty)
+        for (index, application) in applications.enumerated() {
+            let selection = SelectedApplication(
+                bundleIdentifier: application.bundleIdentifier,
+                bundlePath: application.path,
+                displayName: application.displayName
+            )
+            let running = process(
+                pid: Int32(index + 10),
+                bundleIdentifier: application.bundleIdentifier,
+                path: application.path
+            )
+            let targets = EnforcementPlanner().targets(
+                selections: [selection],
+                runningApplications: [running]
+            )
+            let craftedTarget = try EnforcementTarget(
+                selectionID: selection.id,
+                process: running
+            )
+            let session = EnforcementSession(
+                mode: .firm,
+                startedAt: Date(timeIntervalSince1970: 0),
+                targets: [craftedTarget]
+            )
+            let forceEligible = EnforcementPlanner().forceEligibleTargetIDs(
+                session: session,
+                at: Date(timeIntervalSince1970: 60),
+                schedule: blocked,
+                currentSelections: [selection],
+                currentlyRunning: [running]
+            )
+
+            #expect(targets.isEmpty)
+            #expect(forceEligible.isEmpty)
+        }
     }
 
     /// 1 - Name: Path-only selection cannot target protected process.

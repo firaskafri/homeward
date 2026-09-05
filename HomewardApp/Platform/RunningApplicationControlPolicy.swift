@@ -1,4 +1,5 @@
 import Foundation
+import HomewardCore
 
 enum HomewardRuntime {
     static let nativeTestEnvironmentKey = "HOMEWARD_TESTING"
@@ -34,7 +35,7 @@ struct ControlledApplicationIdentity {
 }
 
 enum RunningApplicationControlPolicy {
-    case unrestricted
+    case userSelections
     case only(ControlledApplicationIdentity)
 
     private static let fixtureBundleIdentifier =
@@ -62,7 +63,7 @@ enum RunningApplicationControlPolicy {
             ))
         }
 
-        return .unrestricted
+        return .userSelections
     }
 
     func permits(
@@ -70,8 +71,10 @@ enum RunningApplicationControlPolicy {
         bundleURL: URL?
     ) -> Bool {
         switch self {
-        case .unrestricted:
-            return true
+        case .userSelections:
+            return bundleIdentifier.map {
+                !SelectedApplication.protectedBundleIdentifiers.contains($0)
+            } ?? true
         case let .only(identity):
             return identity.matches(
                 bundleIdentifier: bundleIdentifier,

@@ -54,7 +54,7 @@ keyboard focus.
 | Notifications not determined | **Notifications not requested. Wind-down alerts are optional; app closing still works.** | **Enable Notifications** opens the system prompt. | Invoked only. Return focus to status after the prompt. | Do not schedule until authorized. | Recheck status and explain denial path. |
 | Notifications denied/unavailable | **Notifications are off/unavailable. App closing still works.** | **Open System Settings** and **Check Again**. | Invoked; restore Homeward route when returning if possible. | None. | Enable in System Settings or continue without notifications. |
 | Start at Login off | **Start at Login is off. Homeward works only while it is open.** | **Enable**. | Invoked only. | None. | Enable or continue knowingly. |
-| Start at Login approval/not found | **Approval required** or **Move Homeward to Applications**. | **Open Login Items**, **Check Again**. | Invoked only. | None. | Approve in System Settings or move the app, then recheck. |
+| Start at Login approval/location issue | Show **Approval required**, **Move to Applications**, or **Restart required** according to the verified state. Confirm success with **On** and “Homeward starts automatically when you log in.” | **Open Login Items** with **Check Again** for approval; **Show in Finder** with **Check Again** before a move; **Show in Finder** with **Quit Homeward** after moving the running app. | Refresh when Homeward becomes active and when readiness first appears. | None. | Approve in System Settings, or move the app and reopen that installed copy before enabling. |
 
 ## Preview
 
@@ -126,8 +126,9 @@ behavior.
 - **Passed by isolated UI scenarios:** first launch, completed-setup reopen,
   delayed-startup safety copy and Retry, configuration recovery without
   schedule state, notes-only recovery while runtime remains available,
-  outside-Applications guidance, and Work Apps reachability with a
-  representative long application name.
+  outside-Applications guidance, moved-app restart guidance, Start-at-Login
+  approval and enabled states, and Work Apps reachability with a representative
+  long application name.
 - **NOT RUN / manual blockers:** VoiceOver, Voice Control, Switch Control, Full
   Keyboard Access, real notification authorization/actions, real login-item
   approval, lock/sleep/Fast User Switching, Spaces, multiple displays,

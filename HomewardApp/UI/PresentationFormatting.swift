@@ -1,3 +1,4 @@
+import Foundation
 import HomewardCore
 
 struct HomewardPresentationSnapshot: Equatable {
@@ -174,40 +175,68 @@ struct ReadinessPresentation {
 
     static func login(
         _ status: LoginItemService.Status,
+        installation: InstallationLocationStatus,
         readyTitle: String,
         unhealthySymbol: String = "exclamationmark.circle.fill"
     ) -> Self {
+        switch installation {
+        case .outsideApplications:
+            return Self(
+                status: "Move to Applications",
+                detail:
+                    "Start at Login is unavailable until Homeward is in the Applications folder.",
+                symbol: "folder.badge.questionmark",
+                tone: .attention
+            )
+        case .requiresRelaunch:
+            return Self(
+                status: "Restart required",
+                detail:
+                    "Homeward is in Applications. Quit and reopen it before enabling Start at Login.",
+                symbol: "arrow.clockwise.circle",
+                tone: .attention
+            )
+        case .unavailable:
+            return Self(
+                status: "Unavailable",
+                detail: "Homeward cannot verify its installation location.",
+                symbol: unhealthySymbol,
+                tone: .attention
+            )
+        case .applications:
+            break
+        }
         switch status {
         case .enabled:
-            Self(
+            return Self(
                 status: readyTitle,
                 detail: "Homeward starts automatically when you log in.",
                 symbol: "checkmark.circle.fill",
                 tone: .ready
             )
         case .notRegistered:
-            Self(
+            return Self(
                 status: "Off",
                 detail: "Homeward works only while it is open.",
                 symbol: unhealthySymbol,
                 tone: .attention
             )
         case .requiresApproval:
-            Self(
+            return Self(
                 status: "Approval required",
                 detail: "Allow Homeward in Login Items.",
                 symbol: unhealthySymbol,
                 tone: .attention
             )
         case .notFound:
-            Self(
+            return Self(
                 status: "Unavailable",
                 detail: "Start at Login could not be found.",
                 symbol: unhealthySymbol,
                 tone: .attention
             )
         case .unavailable:
-            Self(
+            return Self(
                 status: "Unavailable",
                 detail: "Start at Login cannot be checked right now.",
                 symbol: unhealthySymbol,
@@ -339,5 +368,183 @@ enum SchedulePresentation {
         case .forceEscalationPaused:
             "Force quit paused"
         }
+    }
+}
+
+struct ScheduleValidationPresentation: Equatable {
+    let message: String
+    let weekday: Weekday?
+}
+
+enum ScheduleEditorPresentation {
+    static let orderedWeekdays: [Weekday] = [
+        .monday,
+        .tuesday,
+        .wednesday,
+        .thursday,
+        .friday,
+        .saturday,
+        .sunday,
+    ]
+
+    static func weekdayName(
+        _ weekday: Weekday,
+        locale: Locale = .autoupdatingCurrent
+    ) -> String {
+        var calendar = Calendar.autoupdatingCurrent
+        calendar.locale = locale
+        return calendar.weekdaySymbols[weekday.rawValue - 1]
+    }
+
+    static func shortWeekdayName(
+        _ weekday: Weekday,
+        locale: Locale = .autoupdatingCurrent
+    ) -> String {
+        var calendar = Calendar.autoupdatingCurrent
+        calendar.locale = locale
+        return calendar.shortWeekdaySymbols[weekday.rawValue - 1]
+    }
+
+    static func nextWeekday(after weekday: Weekday) -> Weekday {
+        Weekday(rawValue: weekday.rawValue % Weekday.allCases.count + 1)
+            ?? .sunday
+    }
+
+    static func ruleSummary(
+        _ rule: DayRule,
+        for weekday: Weekday,
+        locale: Locale = .autoupdatingCurrent
+    ) -> String {
+        switch rule {
+        case let .scheduled(start, end, endsNextDay):
+            let destination = endsNextDay
+                ? " \(weekdayName(nextWeekday(after: weekday), locale: locale))"
+                : ""
+            return "\(formattedTime(start, locale: locale))–"
+                + "\(formattedTime(end, locale: locale))\(destination)"
+        case .availableAllDay:
+            return "Available all day"
+        case .blockedAllDay:
+            return "Closed all day"
+        }
+    }
+
+    static func weeklySummaryLines(
+        rules: [Weekday: DayRule],
+        locale: Locale = .autoupdatingCurrent
+    ) -> [String] {
+        var groups: [(weekdays: [Weekday], rule: DayRule)] = []
+        for weekday in orderedWeekdays {
+            let rule = rules[weekday] ?? .blockedAllDay
+            if let lastIndex = groups.indices.last,
+               groups[lastIndex].rule == rule {
+                groups[lastIndex].weekdays.append(weekday)
+            } else {
+                groups.append(([weekday], rule))
+            }
+        }
+        return groups.map { group in
+            "\(weekdayRangeName(group.weekdays, locale: locale)) · "
+                + ruleSummary(
+                    group.rule,
+                    for: group.weekdays[0],
+                    locale: locale
+                )
+        }
+    }
+
+    static func validation(
+        for error: Error,
+        locale: Locale = .autoupdatingCurrent
+    ) -> ScheduleValidationPresentation {
+        switch error {
+        case let ValidationError.equalScheduleBoundaries(weekday):
+            return ScheduleValidationPresentation(
+                message: "\(weekdayName(weekday, locale: locale))’s From and Until times must be different.",
+                weekday: weekday
+            )
+        case let ValidationError.sameDayWindowEndsBeforeStart(weekday):
+            let destination = nextWeekday(after: weekday)
+            return ScheduleValidationPresentation(
+                message: "\(weekdayName(weekday, locale: locale)) must end after it starts, or enable Ends \(weekdayName(destination, locale: locale)).",
+                weekday: weekday
+            )
+        case let ValidationError.invalidOvernightWindow(weekday):
+            let destination = nextWeekday(after: weekday)
+            return ScheduleValidationPresentation(
+                message: "\(weekdayName(weekday, locale: locale)) ends \(weekdayName(destination, locale: locale)), so Until must be earlier than From.",
+                weekday: weekday
+            )
+        case let ValidationError.overnightConflictsWithBlockedDay(
+            source,
+            destination
+        ):
+            return ScheduleValidationPresentation(
+                message: "\(weekdayName(source, locale: locale)) ends \(weekdayName(destination, locale: locale)), but \(weekdayName(destination, locale: locale)) is Closed all day.",
+                weekday: source
+            )
+        default:
+            return ScheduleValidationPresentation(
+                message: "Review the schedule and try again.",
+                weekday: nil
+            )
+        }
+    }
+
+    static func identifier(for weekday: Weekday) -> String {
+        switch weekday {
+        case .monday:
+            "monday"
+        case .tuesday:
+            "tuesday"
+        case .wednesday:
+            "wednesday"
+        case .thursday:
+            "thursday"
+        case .friday:
+            "friday"
+        case .saturday:
+            "saturday"
+        case .sunday:
+            "sunday"
+        }
+    }
+
+    private static func weekdayRangeName(
+        _ weekdays: [Weekday],
+        locale: Locale
+    ) -> String {
+        guard let first = weekdays.first else {
+            return ""
+        }
+        guard let last = weekdays.last, first != last else {
+            return shortWeekdayName(first, locale: locale)
+        }
+        return "\(shortWeekdayName(first, locale: locale))–"
+            + "\(shortWeekdayName(last, locale: locale))"
+    }
+
+    private static func formattedTime(
+        _ time: LocalTime,
+        locale: Locale
+    ) -> String {
+        var calendar = Calendar.autoupdatingCurrent
+        calendar.locale = locale
+        let date = calendar.date(
+            from: DateComponents(
+                calendar: calendar,
+                hour: time.hour,
+                minute: time.minute
+            )
+        ) ?? Date()
+        return date.formatted(
+            Date.FormatStyle(
+                date: .omitted,
+                time: .shortened,
+                locale: locale,
+                calendar: calendar,
+                timeZone: calendar.timeZone
+            )
+        )
     }
 }

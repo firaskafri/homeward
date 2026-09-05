@@ -248,14 +248,56 @@ final class NotificationHandlerSpy: HomewardNotificationHandling {
     ) {}
 }
 
+/// 1 - Name: Authorization status gate.
+/// 2 - Description: Suspends the first authorization read while a newer read returns immediately.
+/// 3 - Assumptions: Main-actor refresh tasks may interleave while awaiting an external notification client.
+/// 4 - Expectations: Tests can release an older result after a newer result to verify latest-wins state.
+actor AuthorizationStatusGate {
+    private var requestCount = 0
+    private var firstRequestContinuation:
+        CheckedContinuation<Void, Never>?
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func status() async -> HomewardNotificationService.AuthorizationStatus {
+        requestCount += 1
+        guard requestCount == 1 else {
+            return .authorized
+        }
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        await withCheckedContinuation { continuation in
+            firstRequestContinuation = continuation
+        }
+        return .denied
+    }
+
+    func waitUntilFirstRequestStarts() async {
+        guard requestCount == 0 else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func releaseFirstRequest() {
+        firstRequestContinuation?.resume()
+        firstRequestContinuation = nil
+    }
+}
+
 /// 1 - Name: Warning-center recorder.
-/// 2 - Description: Models pending warning requests while allowing the first add to complete out of order.
-/// 3 - Assumptions: Notification service client callbacks are main-actor isolated in production and tests.
-/// 4 - Expectations: Tests can verify stale cleanup, authorization cleanup, and latest-wins scheduling deterministically.
+/// 2 - Description: Models authorization transitions and pending warning requests while allowing the first add to complete out of order.
+/// 3 - Assumptions: Notification service client callbacks are main-actor isolated and injected authorization outcomes reflect system behavior.
+/// 4 - Expectations: Tests can verify authorization reconciliation, stale cleanup, and latest-wins scheduling deterministically.
 @MainActor
 final class WarningClientRecorder {
-    private let authorizationStatus:
+    private var authorizationStatus:
         HomewardNotificationService.AuthorizationStatus
+    private let authorizationStatusAfterRequest:
+        HomewardNotificationService.AuthorizationStatus?
+    private let authorizationRequestError: Error?
     private var shouldSuspendFirstAdd: Bool
     private var firstAddContinuation:
         CheckedContinuation<Void, Never>?
@@ -267,11 +309,16 @@ final class WarningClientRecorder {
     init(
         authorizationStatus:
             HomewardNotificationService.AuthorizationStatus = .authorized,
+        authorizationStatusAfterRequest:
+            HomewardNotificationService.AuthorizationStatus? = nil,
+        authorizationRequestError: Error? = nil,
         pendingIdentifiers: Set<String> = [],
         deliveredIdentifiers: Set<String> = [],
         suspendFirstAdd: Bool = true
     ) {
         self.authorizationStatus = authorizationStatus
+        self.authorizationStatusAfterRequest = authorizationStatusAfterRequest
+        self.authorizationRequestError = authorizationRequestError
         self.pendingIdentifiers = pendingIdentifiers
         self.deliveredIdentifiers = deliveredIdentifiers
         shouldSuspendFirstAdd = suspendFirstAdd
@@ -280,7 +327,15 @@ final class WarningClientRecorder {
     var client: HomewardNotificationService.Client {
         HomewardNotificationService.Client(
             authorizationStatus: { [self] in authorizationStatus },
-            requestAuthorization: { true },
+            requestAuthorization: { [self] in
+                if let authorizationStatusAfterRequest {
+                    authorizationStatus = authorizationStatusAfterRequest
+                }
+                if let authorizationRequestError {
+                    throw authorizationRequestError
+                }
+                return authorizationStatus == .authorized
+            },
             add: { [self] request in
                 try await add(request)
             },

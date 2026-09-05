@@ -110,6 +110,16 @@ final class AppModel: NSObject, ObservableObject {
         case reject(message: String)
     }
 
+    private enum StartAtLoginError: String {
+        case moveRequired =
+            "Move Homeward to Applications before enabling Start at Login."
+        case relaunchRequired =
+            "Quit and reopen Homeward from Applications before enabling Start at Login."
+        case locationUnavailable =
+            "Homeward could not verify its installation location. Start at Login was not changed."
+        case enableFailed = "Start at Login could not be enabled."
+    }
+
     @Published private(set) var configuration: HomewardConfiguration
     @Published private(set) var notes: NotesDocument
     @Published private(set) var resolvedSchedule: ResolvedSchedule
@@ -171,6 +181,7 @@ final class AppModel: NSObject, ObservableObject {
     private var transitionTask: Task<Void, Never>?
     private var notesLoadTask: Task<Void, Never>?
     private var systemStatusTask: Task<Void, Never>?
+    private let notificationStatusRefreshGate = AsyncMutationGate()
     private var launchMetadataTasks: [Int32: Task<Void, Never>] = [:]
     private var enforcementTasks: [ProcessSessionID: Task<Void, Never>] = [:]
     private var announcedCountdownMilestones: [ProcessSessionID: Set<Int>] = [:]
@@ -316,7 +327,9 @@ final class AppModel: NSObject, ObservableObject {
                 try await uiTestFixture?.discoverApplications() ?? []
             },
             runningController: runningController,
-            loginItemService: .isolatedForUITesting(),
+            loginItemService:
+                uiTestFixture?.loginItemService
+                ?? .isolatedForUITesting(),
             installationLocationService:
                 uiTestFixture?.installationLocationService
                 ?? InstallationLocationService(
@@ -702,12 +715,25 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     func refreshSystemStatuses() async {
-        notificationStatus = await notificationService.authorizationStatus()
-        if notificationStatus != .authorized {
-            await notificationService.removeAllOwned()
+        guard !isShuttingDown else {
+            return
         }
         loginItemStatus = loginItemService.status
         installationLocationStatus = installationLocationService.status
+        clearResolvedStartAtLoginError()
+
+        await notificationStatusRefreshGate.beginAfterWaiting()
+        defer { notificationStatusRefreshGate.finish() }
+        guard !isShuttingDown else {
+            return
+        }
+        notificationStatus = await notificationService.authorizationStatus()
+        if notificationStatus != .authorized {
+            await notificationService.removeAllOwned()
+            guard !isShuttingDown else {
+                return
+            }
+        }
     }
 
     @discardableResult
@@ -716,24 +742,30 @@ final class AppModel: NSObject, ObservableObject {
             lastError = "Homeward is still starting. No settings were changed."
             return false
         }
+        let authorizationError: Error?
         do {
             _ = try await notificationService.requestAuthorization()
-            notificationStatus = await notificationService.authorizationStatus()
-            if notificationStatus == .authorized {
-                await scheduleWarningsIfPossible()
-                return true
-            }
-            await notificationService.removeAllOwned()
-            return false
+            authorizationError = nil
         } catch {
-            HomewardLog.lifecycle.error("Notification authorization failed")
-            notificationStatus = await notificationService.authorizationStatus()
-            if notificationStatus != .authorized {
-                await notificationService.removeAllOwned()
-            }
-            lastError = "Notifications could not be enabled. App closing still works."
-            return false
+            let nsError = error as NSError
+            HomewardLog.lifecycle.error(
+                "Notification authorization failed: \(nsError.domain, privacy: .public) code \(nsError.code)"
+            )
+            authorizationError = error
         }
+        notificationStatus = await notificationService.authorizationStatus()
+        if notificationStatus == .authorized {
+            lastError = nil
+            await scheduleWarningsIfPossible()
+            return true
+        }
+        await notificationService.removeAllOwned()
+        if authorizationError != nil {
+            lastError = "Notifications could not be enabled. App closing still works."
+        } else {
+            lastError = nil
+        }
+        return false
     }
 
     @discardableResult
@@ -746,23 +778,25 @@ final class AppModel: NSObject, ObservableObject {
         switch installationLocationStatus {
         case .applications:
             break
+        case .requiresRelaunch:
+            lastError = StartAtLoginError.relaunchRequired.rawValue
+            return false
         case .outsideApplications:
-            lastError =
-                "Move Homeward to Applications before enabling Start at Login."
+            lastError = StartAtLoginError.moveRequired.rawValue
             return false
         case .unavailable:
-            lastError =
-                "Homeward could not verify its installation location. Start at Login was not changed."
+            lastError = StartAtLoginError.locationUnavailable.rawValue
             return false
         }
         do {
             try loginItemService.enable()
             loginItemStatus = loginItemService.status
+            clearResolvedStartAtLoginError()
             return loginItemStatus == .enabled
         } catch {
             HomewardLog.lifecycle.error("Login-item enable failed")
             loginItemStatus = loginItemService.status
-            lastError = "Start at Login could not be enabled."
+            lastError = StartAtLoginError.enableFailed.rawValue
             return false
         }
     }
@@ -792,6 +826,18 @@ final class AppModel: NSObject, ObservableObject {
 
     func showInstallationInFinder() {
         installationLocationService.showInFinder()
+    }
+
+    private func clearResolvedStartAtLoginError() {
+        guard let lastError else {
+            return
+        }
+        guard loginItemStatus == .enabled,
+              installationLocationStatus.supportsStartAtLogin,
+              StartAtLoginError(rawValue: lastError) != nil else {
+            return
+        }
+        self.lastError = nil
     }
 
     func openSystemSettings() {
@@ -999,7 +1045,7 @@ final class AppModel: NSObject, ObservableObject {
             return false
         }
         guard !application.isProtected else {
-            lastError = "That system application cannot be managed by Homeward."
+            lastError = "That application is protected and cannot be managed by Homeward."
             return false
         }
         guard !configuration.selectedApplications.contains(where: {

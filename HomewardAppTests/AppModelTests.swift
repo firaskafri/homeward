@@ -5,12 +5,12 @@ import Testing
 import HomewardCore
 
 // 1 - Name: Homeward application-model test file.
-// 2 - Description: Verifies model startup generations, mutation/load serialization, recovery, catalog reconciliation, notes, and runtime safety policy.
+// 2 - Description: Verifies model startup generations, mutation/load serialization, recovery, catalog reconciliation, readiness, notes, and runtime safety policy.
 // 3 - Assumptions: Tests use isolated repositories, injected adapters, and no running application control targets.
 // 4 - Expectations: Model operations preserve fail-open behavior, serialize persistence, and maintain policy invariants.
 
 /// 1 - Name: Homeward application-model suite.
-/// 2 - Description: Covers app composition, bootstrap ordering, recovery, catalog state, notes behavior, and safety-action ordering.
+/// 2 - Description: Covers app composition, bootstrap ordering, recovery, catalog and readiness state, notes behavior, and safety-action ordering.
 /// 3 - Assumptions: Repository creation does not write until an explicit save and all fixtures are isolated.
 /// 4 - Expectations: Startup and mutation failures remain recoverable while runtime safety actions apply immediately.
 @Suite("Homeward application model")
@@ -77,14 +77,17 @@ struct AppModelTests {
     }
 
     /// 1 - Name: Protected application policy.
-    /// 2 - Description: Confirms Homeward and critical system applications are always excluded.
+    /// 2 - Description: Confirms Homeward, Cursor, and critical system applications are always excluded.
     /// 3 - Assumptions: Protection is bundle-identifier based and has no user override.
-    /// 4 - Expectations: Finder, System Settings, and Homeward are present in the denylist.
+    /// 4 - Expectations: Finder, System Settings, Homeward, and Cursor are present in the denylist.
     @Test
     func protectedApplicationPolicy() {
         #expect(SelectedApplication.protectedBundleIdentifiers.contains("com.apple.finder"))
         #expect(SelectedApplication.protectedBundleIdentifiers.contains("com.apple.SystemSettings"))
         #expect(SelectedApplication.protectedBundleIdentifiers.contains("com.firaskafri.homeward"))
+        #expect(SelectedApplication.protectedBundleIdentifiers.contains(
+            SelectedApplication.cursorBundleIdentifier
+        ))
     }
 
     /// 1 - Name: Custom cutoff override pair.
@@ -362,9 +365,9 @@ struct AppModelTests {
     }
 
     /// 1 - Name: Protected app rejected at model boundary.
-    /// 2 - Description: Attempts to add Finder without going through the picker.
+    /// 2 - Description: Attempts to add Finder and Cursor without going through the picker.
     /// 3 - Assumptions: Persisted and programmatic inputs are untrusted.
-    /// 4 - Expectations: Finder is not selected and an explanatory error is published.
+    /// 4 - Expectations: Neither protected app is selected and an explanatory error is published.
     @Test
     func protectedAppRejectedAtModelBoundary() async throws {
         let fixture = AppModelFixture()
@@ -373,16 +376,29 @@ struct AppModelTests {
             directoryURL: fixture.directoryURL
         ))
         await model.start()
-        let finder = SelectedApplication(
-            bundleIdentifier: "com.apple.finder",
-            bundlePath: "/System/Library/CoreServices/Finder.app",
-            displayName: "Finder"
-        )
+        let protectedApplications = [
+            SelectedApplication(
+                bundleIdentifier: "com.apple.finder",
+                bundlePath: "/System/Library/CoreServices/Finder.app",
+                displayName: "Finder"
+            ),
+            SelectedApplication(
+                bundleIdentifier: SelectedApplication.cursorBundleIdentifier,
+                bundlePath: "/Applications/Cursor.app",
+                displayName: "Cursor"
+            ),
+        ]
 
-        await model.addApplication(finder)
+        for application in protectedApplications {
+            await model.addApplication(application)
 
-        #expect(model.configuration.selectedApplications.isEmpty)
-        #expect(model.lastError != nil)
+            #expect(model.configuration.selectedApplications.isEmpty)
+            #expect(
+                model.lastError
+                    == "That application is protected and cannot be managed by Homeward."
+            )
+            model.clearError()
+        }
     }
 
     /// 1 - Name: Invalid extension duration.
@@ -929,6 +945,154 @@ struct AppModelTests {
         #expect(throws: LoginItemService.ServiceError.unavailable) {
             try service.disable()
         }
+    }
+
+    /// 1 - Name: Running application move detection.
+    /// 2 - Description: Moves a launched application bundle into the Applications directory after location tracking begins.
+    /// 3 - Assumptions: A file bookmark follows the same bundle across a same-volume move while framework bundle paths remain stale.
+    /// 4 - Expectations: The service requests a relaunch from the moved bundle instead of continuing to report that it must be moved.
+    @Test
+    func movedRunningApplicationRequiresRelaunch() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let downloads = root.appendingPathComponent(
+            "Downloads",
+            isDirectory: true
+        )
+        let applications = root.appendingPathComponent(
+            "Applications",
+            isDirectory: true
+        )
+        let launchedURL = downloads.appendingPathComponent(
+            "Homeward.app",
+            isDirectory: true
+        )
+        let installedURL = applications.appendingPathComponent(
+            "Homeward.app",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: launchedURL,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: applications,
+            withIntermediateDirectories: true
+        )
+        let service = InstallationLocationService(
+            bundleURL: launchedURL,
+            applicationsURL: applications
+        )
+
+        #expect(
+            service.status
+                == .outsideApplications(launchedURL.standardizedFileURL)
+        )
+        try FileManager.default.moveItem(at: launchedURL, to: installedURL)
+
+        #expect(
+            service.status
+                == .requiresRelaunch(installedURL.standardizedFileURL)
+        )
+    }
+
+    /// 1 - Name: Installed copy detection.
+    /// 2 - Description: Copies a running Homeward bundle from a download location into Applications.
+    /// 3 - Assumptions: Finder copies apps across volumes, so the launch bookmark can continue resolving to the original bundle.
+    /// 4 - Expectations: A matching installed bundle requests a relaunch instead of repeating the move instruction.
+    @Test
+    func copiedApplicationRequiresRelaunchFromInstalledBundle() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        let launchedURL = root.appendingPathComponent(
+            "Downloads/Homeward.app",
+            isDirectory: true
+        )
+        let contentsURL = launchedURL.appendingPathComponent(
+            "Contents",
+            isDirectory: true
+        )
+        let applicationsURL = root.appendingPathComponent(
+            "Applications",
+            isDirectory: true
+        )
+        let installedURL = applicationsURL.appendingPathComponent(
+            "Homeward.app",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(
+            at: contentsURL,
+            withIntermediateDirectories: true
+        )
+        try fileManager.createDirectory(
+            at: applicationsURL,
+            withIntermediateDirectories: true
+        )
+        let bundleIdentifier = "com.firaskafri.homeward.test"
+        let information: [String: Any] = [
+            "CFBundleIdentifier": bundleIdentifier,
+            "CFBundlePackageType": "APPL",
+        ]
+        let propertyList = try PropertyListSerialization.data(
+            fromPropertyList: information,
+            format: .xml,
+            options: 0
+        )
+        try propertyList.write(
+            to: contentsURL.appendingPathComponent("Info.plist")
+        )
+        let service = InstallationLocationService(
+            bundleURL: launchedURL,
+            bundleIdentifier: bundleIdentifier,
+            applicationsURL: applicationsURL,
+            fileManager: fileManager
+        )
+
+        try fileManager.copyItem(at: launchedURL, to: installedURL)
+
+        #expect(
+            service.status
+                == .requiresRelaunch(installedURL.standardizedFileURL)
+        )
+    }
+
+    /// 1 - Name: Login approval status refresh.
+    /// 2 - Description: Refreshes readiness after an initial location failure is resolved and Start at Login becomes enabled.
+    /// 3 - Assumptions: Injected services report the latest installation and external approval states on every read.
+    /// 4 - Expectations: The model confirms enablement and clears only the obsolete Start-at-Login error.
+    @Test
+    func refreshSystemStatusesConfirmsLoginApproval() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        var loginStatus = LoginItemService.Status.requiresApproval
+        var installationStatus = InstallationLocationStatus.outsideApplications(
+            URL(fileURLWithPath: "/Downloads/Homeward.app")
+        )
+        let model = try AppModel(
+            repository: HomewardRepository(directoryURL: fixture.directoryURL),
+            catalogDiscoverer: { [] },
+            loginItemService: LoginItemService(
+                statusProvider: { loginStatus }
+            ),
+            installationLocationService: InstallationLocationService(
+                statusProvider: { installationStatus }
+            )
+        )
+        await model.start()
+        await model.refreshSystemStatuses()
+        #expect(!model.enableStartAtLogin())
+        #expect(model.loginItemStatus == .requiresApproval)
+        #expect(model.lastError != nil)
+
+        installationStatus = .applications
+        loginStatus = .enabled
+        await model.refreshSystemStatuses()
+
+        #expect(model.loginItemStatus == .enabled)
+        #expect(model.lastError == nil)
     }
 
     /// 1 - Name: Failed login operation status refresh.

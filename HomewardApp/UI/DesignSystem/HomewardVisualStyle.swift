@@ -37,4 +37,5 @@ enum HomewardMetrics {
     static let cardCornerRadius: CGFloat = 14
     static let compactCornerRadius: CGFloat = 10
     static let contentMaxWidth: CGFloat = 920
+    static let scheduleFormMaxWidth: CGFloat = 760
 }

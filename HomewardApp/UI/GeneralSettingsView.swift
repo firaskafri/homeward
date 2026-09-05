@@ -39,7 +39,7 @@ struct GeneralSettingsView: View {
             Section {
                 readinessRow(
                     title: "Start at Login",
-                    detail: "Restores your schedule after you sign in.",
+                    detail: loginReadiness.detail,
                     requirement: "Recommended",
                     status: loginReadiness.status,
                     symbol: loginReadiness.symbol,
@@ -48,16 +48,19 @@ struct GeneralSettingsView: View {
 
                 ViewThatFits(in: .horizontal) {
                     HStack {
-                        loginItemActions
+                        StartAtLoginActions(
+                            model: model,
+                            context: .settings
+                        )
                         Spacer()
                     }
                     VStack(alignment: .leading, spacing: HomewardSpacing.small) {
-                        loginItemActions
+                        StartAtLoginActions(
+                            model: model,
+                            context: .settings
+                        )
                     }
                 }
-                Text("Homeward works only while it is running.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
                 if case .outsideApplications = model.installationLocationStatus {
                     Text(
                         "Move Homeward to the Applications folder yourself, then choose Check Again. Homeward will not move or delete itself."
@@ -66,6 +69,15 @@ struct GeneralSettingsView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("settings.installationReason")
+                } else if case .requiresRelaunch =
+                    model.installationLocationStatus {
+                    Text(
+                        "Your settings are saved. Quit Homeward, then reopen the copy in Applications."
+                    )
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("settings.relaunchReason")
                 }
             } header: {
                 Text("Recommended readiness")
@@ -308,60 +320,12 @@ struct GeneralSettingsView: View {
     }
 
     private var loginReadiness: ReadinessPresentation {
-        if case .outsideApplications = model.installationLocationStatus {
-            return ReadinessPresentation(
-                status: "Move to Applications",
-                detail:
-                    "Start at Login is unavailable until Homeward is in the Applications folder.",
-                symbol: "folder.badge.questionmark",
-                tone: .attention
-            )
-        }
         return .login(
             model.loginItemStatus,
-            readyTitle: "Enabled",
+            installation: model.installationLocationStatus,
+            readyTitle: "On",
             unhealthySymbol: "exclamationmark.circle"
         )
-    }
-
-    @ViewBuilder
-    private var loginItemActions: some View {
-        if case .outsideApplications = model.installationLocationStatus {
-            if model.loginItemStatus == .enabled
-                || model.loginItemStatus == .requiresApproval {
-                Button("Disable") {
-                    model.disableStartAtLogin()
-                }
-            }
-            Button("Show in Finder") {
-                model.showInstallationInFinder()
-            }
-            Button("Check Again") {
-                Task { await model.refreshSystemStatuses() }
-            }
-        } else {
-        switch model.loginItemStatus {
-        case .enabled:
-            Button("Disable") {
-                model.disableStartAtLogin()
-            }
-        case .notRegistered:
-            Button("Enable") {
-                model.enableStartAtLogin()
-            }
-        case .requiresApproval, .notFound:
-            Button("Open Login Items") {
-                model.openLoginItemSettings()
-            }
-            Button("Check Again") {
-                Task { await model.refreshSystemStatuses() }
-            }
-        case .unavailable:
-            Button("Check Again") {
-                Task { await model.refreshSystemStatuses() }
-            }
-        }
-        }
     }
 
     private var notificationReadiness: ReadinessPresentation {

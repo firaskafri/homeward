@@ -320,6 +320,9 @@ public struct SelectedApplication: Codable, Equatable, Identifiable, Sendable {
         case isAvailable
     }
 
+    public static let cursorBundleIdentifier =
+        "com.todesktop.230313mzl4w4u92"
+
     public static let protectedBundleIdentifiers: Set<String> = [
         "com.apple.finder",
         "com.apple.systempreferences",
@@ -327,6 +330,7 @@ public struct SelectedApplication: Codable, Equatable, Identifiable, Sendable {
         "com.apple.loginwindow",
         "com.apple.dock",
         "com.firaskafri.homeward",
+        cursorBundleIdentifier,
     ]
 
     public let id: UUID

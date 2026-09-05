@@ -29,8 +29,8 @@ for example `HOMEWARD_DERIVED_DATA_PATH=.build/xcode-agent-1
   lifecycle tests.
 - `HomewardUITests`: first-launch and completed-setup reopening, delayed
   startup and Retry, configuration-versus-notes recovery, outside-Applications
-  Start at Login gating, and representative long-English Work Apps
-  reachability.
+  Start at Login gating, moved-app restart guidance, login approval and enabled
+  states, and representative long-English Work Apps reachability.
 - `xcodebuild analyze`: static analysis under the production project settings.
 - Release build inspection: arm64 architecture, menu-bar accessory property,
   and fixture exclusion.
@@ -93,7 +93,8 @@ configuration and notes recovery separation; stale/current notification action
 routing and shared confirmation intent; Saved Thoughts concealment, session
 transitions, completion Restore, and recovery; Firm Stop ordering and
 presentation precedence; installation-location gating; and representative
-long-application-name reachability.
+long-application-name reachability. Isolated UI scenarios additionally cover
+the Start-at-Login approval, enabled-confirmation, and moved-app restart states.
 
 The long-English UI scenario proves that the Work Apps row and chooser remain
 reachable with a representative long application name. It does not certify

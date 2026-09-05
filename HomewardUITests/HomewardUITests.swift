@@ -2,14 +2,14 @@ import AppKit
 import XCTest
 
 // 1 - Name: Homeward UI test file.
-// 2 - Description: Verifies startup, exact-build reopening, recovery, readiness, and primary navigation with isolated scenario fixtures.
-// 3 - Assumptions: UI scenarios use temporary storage, inert platform adapters, and preview-only application identities.
-// 4 - Expectations: Critical states remain reachable without selecting, launching, or controlling any installed user application.
+// 2 - Description: Verifies startup, exact-build reopening, recovery, readiness transitions, navigation, and compact schedule editing with isolated scenario fixtures.
+// 3 - Assumptions: UI scenarios use temporary storage, inert platform adapters, preview-only application identities, and simulated external approvals.
+// 4 - Expectations: Critical states and installation guidance remain accurate without selecting, launching, or controlling any installed user application.
 
 /// 1 - Name: Homeward UI test suite.
-/// 2 - Description: Exercises exact-build launch/reopen, retry, recovery separation, installation gating, and long-content navigation.
-/// 3 - Assumptions: Each test launches one named scenario whose files and runtime adapters are isolated from user state.
-/// 4 - Expectations: Native surfaces expose the expected state while automated lifecycle control remains fixture-only.
+/// 2 - Description: Exercises exact-build launch/reopen, recovery, installation and approval transitions, long content, and native schedule workflows.
+/// 3 - Assumptions: Each test launches one named scenario whose files, external status transitions, and runtime adapters are isolated from user state.
+/// 4 - Expectations: Native surfaces expose clear next actions and confirmations while automated lifecycle control remains fixture-only.
 @MainActor
 final class HomewardUITests: XCTestCase {
     private var fixture: IsolatedApplicationFixture?
@@ -25,7 +25,6 @@ final class HomewardUITests: XCTestCase {
     /// 4 - Expectations: Homeward exposes its status item and opens the first onboarding step.
     func testFirstLaunchShowsOnboarding() throws {
         let app = try launch(.firstLaunch)
-        defer { app.terminate() }
 
         let statusItem = app.menuBars.statusItems.firstMatch
         XCTAssertTrue(
@@ -45,7 +44,6 @@ final class HomewardUITests: XCTestCase {
     /// 4 - Expectations: The window starts suppressed and only that exact test build can be reopened to Today.
     func testCompletedSetupReopensToday() throws {
         let app = try launch(.completedSetup)
-        defer { app.terminate() }
 
         let window = app.windows.firstMatch
         XCTAssertFalse(window.waitForExistence(timeout: 1))
@@ -70,7 +68,6 @@ final class HomewardUITests: XCTestCase {
     /// 4 - Expectations: Homeward states that closing has not started, offers Retry, and reaches onboarding after retry.
     func testDelayedStartupExplainsSafetyAndRetries() throws {
         let app = try launch(.delayedStartupRetry)
-        defer { app.terminate() }
         try reopenHomeward(app)
 
         XCTAssertTrue(
@@ -98,7 +95,6 @@ final class HomewardUITests: XCTestCase {
     /// 4 - Expectations: Recovery supersedes schedule UI and exposes only settings-recovery actions.
     func testConfigurationRecoverySupersedesScheduleState() throws {
         let app = try launch(.configurationRecovery)
-        defer { app.terminate() }
 
         XCTAssertTrue(
             app.descendants(matching: .any)["recovery.view"]
@@ -118,7 +114,6 @@ final class HomewardUITests: XCTestCase {
     /// 4 - Expectations: Runtime stays ready and Saved Thoughts offers notes-only recovery instead of configuration recovery.
     func testNotesRecoveryRemainsSeparateFromConfiguration() throws {
         let app = try launch(.notesRecovery)
-        defer { app.terminate() }
         try reopenHomeward(app)
 
         let savedThoughtsNavigation = app.descendants(matching: .any)[
@@ -150,7 +145,6 @@ final class HomewardUITests: XCTestCase {
     /// 4 - Expectations: Start at Login is replaced by move guidance, Show in Finder, and Check Again.
     func testOutsideApplicationsShowsStartAtLoginGate() throws {
         let app = try launch(.outsideApplications)
-        defer { app.terminate() }
         try reopenHomeward(app)
         app.activate()
         XCTAssertTrue(
@@ -186,7 +180,6 @@ final class HomewardUITests: XCTestCase {
     /// 4 - Expectations: The full name and Choose Application action remain reachable.
     func testLongApplicationNameKeepsWorkAppsActionsReachable() throws {
         let app = try launch(.longContent)
-        defer { app.terminate() }
         try reopenHomeward(app)
 
         let workAppsNavigation = app.descendants(matching: .any)[
@@ -207,6 +200,257 @@ final class HomewardUITests: XCTestCase {
                 .waitForExistence(timeout: UITestPolicy.navigationTimeout)
         )
         XCTAssertTrue(app.buttons["Choose Application…"].firstMatch.exists)
+    }
+
+    /// 1 - Name: Compact schedule disclosure reachability.
+    /// 2 - Description: Shrinks first-launch setup to its minimum width and opens two different weekday disclosures.
+    /// 3 - Assumptions: The empty isolated repository supplies the default workweek and the native window honors its SwiftUI minimum.
+    /// 4 - Expectations: Every collapsed day remains reachable and opening Tuesday closes Monday before exposing Tuesday controls.
+    func testScheduleDisclosuresRemainReachableAtMinimumWidth() throws {
+        let app = try launch(.firstLaunch)
+        let window = app.windows.firstMatch
+        XCTAssertTrue(
+            window.waitForExistence(timeout: UITestPolicy.launchTimeout)
+        )
+        resizeWindowToMinimum(window)
+        XCTAssertLessThanOrEqual(window.frame.width, 700)
+
+        let monday = scheduleElement(
+            "schedule.day.monday.disclosure",
+            in: app
+        )
+        let sunday = scheduleElement(
+            "schedule.day.sunday.disclosure",
+            in: app
+        )
+        XCTAssertTrue(
+            monday.waitForExistence(timeout: UITestPolicy.navigationTimeout)
+        )
+        XCTAssertFalse(
+            scheduleElement("schedule.day.monday.mode", in: app).exists
+        )
+        XCTAssertTrue(
+            sunday.waitForExistence(timeout: UITestPolicy.navigationTimeout)
+        )
+
+        monday.click()
+        XCTAssertTrue(
+            scheduleElement("schedule.day.monday.mode", in: app)
+                .waitForExistence(timeout: UITestPolicy.navigationTimeout)
+        )
+        let tuesday = scheduleElement(
+            "schedule.day.tuesday.disclosure",
+            in: app
+        )
+        XCTAssertTrue(
+            tuesday.waitForExistence(timeout: UITestPolicy.navigationTimeout)
+        )
+        let visibleTuesday = scheduleElement(
+            "schedule.day.tuesday.disclosure",
+            in: app
+        )
+        visibleTuesday.click()
+        let expanded = expectation(
+            for: NSPredicate(format: "value == %@", "Expanded"),
+            evaluatedWith: visibleTuesday
+        )
+        wait(for: [expanded], timeout: UITestPolicy.navigationTimeout)
+        XCTAssertTrue(
+            scheduleElement("schedule.day.tuesday.mode", in: app)
+                .waitForExistence(timeout: UITestPolicy.navigationTimeout)
+        )
+        XCTAssertEqual(
+            scheduleElement(
+                "schedule.day.monday.disclosure",
+                in: app
+            ).value as? String,
+            "Collapsed"
+        )
+    }
+
+    /// 1 - Name: Schedule mode and action states.
+    /// 2 - Description: Changes Monday to all-day availability, then resets the draft using native editor controls.
+    /// 3 - Assumptions: First-launch setup has an unconfirmed default schedule and persistence has not started.
+    /// 4 - Expectations: Save & Continue is available unchanged, Reset Draft tracks edits, and the selected mode updates the collapsed summary.
+    func testScheduleModeSwitchingAndResetSaveStates() throws {
+        let app = try launch(.firstLaunch)
+        XCTAssertTrue(
+            scheduleElement("schedule.day.monday.disclosure", in: app)
+                .waitForExistence(timeout: UITestPolicy.launchTimeout)
+        )
+        let reset = app.buttons["schedule.reset"]
+        let save = app.buttons["schedule.save"]
+        XCTAssertFalse(reset.isEnabled)
+        XCTAssertTrue(save.isEnabled)
+        XCTAssertEqual(save.label, "Save & Continue")
+
+        scheduleElement(
+            "schedule.day.monday.disclosure",
+            in: app
+        ).click()
+        chooseMenuOption(
+            "Available all day",
+            from: scheduleElement("schedule.day.monday.mode", in: app),
+            in: app
+        )
+
+        XCTAssertTrue(reset.isEnabled)
+        XCTAssertTrue(
+            scheduleElement(
+                "schedule.day.monday.disclosure",
+                in: app
+            ).label.contains("Available all day")
+        )
+        reset.click()
+        XCTAssertFalse(reset.isEnabled)
+        XCTAssertTrue(
+            scheduleElement(
+                "schedule.day.monday.disclosure",
+                in: app
+            ).label.contains("9:00")
+        )
+    }
+
+    /// 1 - Name: Overnight destination labels.
+    /// 2 - Description: Enables Monday overnight hours and inspects the Sunday wraparound control after switching its mode.
+    /// 3 - Assumptions: Changing the native checkbox updates only the in-memory draft.
+    /// 4 - Expectations: Monday names Tuesday, its summary names Tuesday when enabled, and Sunday names Monday.
+    func testScheduleOvernightControlsNameDestinationDay() throws {
+        let app = try launch(.firstLaunch)
+        XCTAssertTrue(
+            scheduleElement("schedule.day.monday.disclosure", in: app)
+                .waitForExistence(timeout: UITestPolicy.launchTimeout)
+        )
+        scheduleElement(
+            "schedule.day.monday.disclosure",
+            in: app
+        ).click()
+        let mondayOvernight = scheduleElement(
+            "schedule.day.monday.overnight",
+            in: app
+        )
+        XCTAssertTrue(
+            mondayOvernight.waitForExistence(
+                timeout: UITestPolicy.navigationTimeout
+            )
+        )
+        XCTAssertEqual(mondayOvernight.label, "Ends Tuesday")
+        mondayOvernight.click()
+        let mondaySummary = scheduleElement(
+            "schedule.day.monday.disclosure",
+            in: app
+        )
+        let updatedSummary = expectation(
+            for: NSPredicate(format: "label CONTAINS %@", "Tuesday"),
+            evaluatedWith: mondaySummary
+        )
+        wait(for: [updatedSummary], timeout: UITestPolicy.navigationTimeout)
+
+        let sunday = scheduleElement(
+            "schedule.day.sunday.disclosure",
+            in: app
+        )
+        if !sunday.isHittable {
+            app.scrollViews.firstMatch.swipeUp()
+        }
+        sunday.click()
+        chooseMenuOption(
+            "Scheduled hours",
+            from: scheduleElement("schedule.day.sunday.mode", in: app),
+            in: app
+        )
+        let sundayOvernight = scheduleElement(
+            "schedule.day.sunday.overnight",
+            in: app
+        )
+        XCTAssertTrue(
+            sundayOvernight.waitForExistence(
+                timeout: UITestPolicy.navigationTimeout
+            )
+        )
+        XCTAssertEqual(sundayOvernight.label, "Ends Monday")
+    }
+
+    /// 1 - Name: Onboarding schedule save progression.
+    /// 2 - Description: Saves the unchanged default schedule through the editor-owned primary onboarding action.
+    /// 3 - Assumptions: The first-launch schedule is valid but still requires explicit confirmation.
+    /// 4 - Expectations: Save & Continue persists confirmation and advances directly to the Work Apps step with no outer Continue action.
+    func testOnboardingScheduleSaveContinuesToWorkApps() throws {
+        let app = try launch(.firstLaunch)
+        XCTAssertTrue(
+            scheduleElement("schedule.day.monday.disclosure", in: app)
+                .waitForExistence(timeout: UITestPolicy.launchTimeout)
+        )
+        let save = app.buttons["schedule.save"]
+        XCTAssertTrue(
+            save.waitForExistence(timeout: UITestPolicy.launchTimeout)
+        )
+        XCTAssertEqual(save.label, "Save & Continue")
+        XCTAssertFalse(app.buttons["Continue"].exists)
+
+        save.click()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["onboarding.step.2"]
+                .waitForExistence(timeout: UITestPolicy.launchTimeout)
+        )
+        XCTAssertTrue(app.staticTexts["Choose your work apps"].exists)
+    }
+
+    /// 1 - Name: Start-at-Login approval guidance.
+    /// 2 - Description: Opens Step 4 while Start at Login requires approval.
+    /// 3 - Assumptions: The isolated Login Items adapter remains read-only and never opens System Settings.
+    /// 4 - Expectations: Step 4 provides both the system-settings route and an explicit status refresh.
+    func testStepFourExplainsLoginApproval() throws {
+        let app = try launch(.loginApproval)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["onboarding.step.4"]
+                .waitForExistence(timeout: UITestPolicy.launchTimeout)
+        )
+        XCTAssertTrue(app.staticTexts["Approval required"].exists)
+        XCTAssertTrue(app.buttons["startAtLogin.openSettings"].exists)
+        XCTAssertTrue(app.buttons["startAtLogin.checkAgain"].exists)
+    }
+
+    /// 1 - Name: Start-at-Login enabled confirmation.
+    /// 2 - Description: Opens Step 4 after the platform reports that Start at Login is enabled.
+    /// 3 - Assumptions: The isolated Login Items adapter starts enabled without changing external system state.
+    /// 4 - Expectations: Step 4 shows a concise success state and explains its effect without redundant actions.
+    func testStepFourConfirmsLoginIsEnabled() throws {
+        let app = try launch(.loginEnabled)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["onboarding.step.4"]
+                .waitForExistence(timeout: UITestPolicy.launchTimeout)
+        )
+        XCTAssertTrue(app.staticTexts["On"].exists)
+        XCTAssertTrue(
+            app.staticTexts[
+                "Homeward starts automatically when you log in."
+            ].exists
+        )
+        XCTAssertFalse(app.buttons["startAtLogin.checkAgain"].exists)
+    }
+
+    /// 1 - Name: Moved-application restart guidance.
+    /// 2 - Description: Opens Step 4 after the isolated Homeward bundle has moved into Applications while still running.
+    /// 3 - Assumptions: The fixture reports the moved bundle without launching, quitting, or revealing any real application.
+    /// 4 - Expectations: Step 4 confirms the move, explains why restart is required, and offers a focused completion action.
+    func testStepFourExplainsRestartAfterMove() throws {
+        let app = try launch(.movedToApplications)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["onboarding.step.4"]
+                .waitForExistence(timeout: UITestPolicy.launchTimeout)
+        )
+
+        XCTAssertTrue(app.staticTexts["Restart required"].exists)
+        XCTAssertTrue(
+            app.staticTexts[
+                "Homeward is in Applications. Quit and reopen it before enabling Start at Login."
+            ].exists
+        )
+        XCTAssertTrue(app.buttons["startAtLogin.showInFinder"].exists)
+        XCTAssertTrue(app.buttons["startAtLogin.quit"].exists)
+        XCTAssertFalse(app.staticTexts["Move to Applications"].exists)
     }
 
     private func launch(
@@ -231,12 +475,54 @@ final class HomewardUITests: XCTestCase {
         try fixture.reopen(app)
     }
 
+    private func scheduleElement(
+        _ identifier: String,
+        in app: XCUIApplication
+    ) -> XCUIElement {
+        app.descendants(matching: .any)[identifier]
+    }
+
+    private func chooseMenuOption(
+        _ option: String,
+        from picker: XCUIElement,
+        in app: XCUIApplication
+    ) {
+        XCTAssertTrue(
+            picker.waitForExistence(timeout: UITestPolicy.navigationTimeout)
+        )
+        picker.click()
+        let menuItem = app.menuItems[option]
+        XCTAssertTrue(
+            menuItem.waitForExistence(timeout: UITestPolicy.navigationTimeout)
+        )
+        menuItem.click()
+    }
+
+    private func resizeWindowToMinimum(_ window: XCUIElement) {
+        let origin = window.coordinate(
+            withNormalizedOffset: CGVector(dx: 0, dy: 0)
+        )
+        let resizeHandle = origin.withOffset(
+            CGVector(
+                dx: window.frame.width - 2,
+                dy: window.frame.height - 2
+            )
+        )
+        let target = origin.withOffset(CGVector(dx: 500, dy: 400))
+        resizeHandle.press(
+            forDuration: 0.1,
+            thenDragTo: target,
+            withVelocity: .slow,
+            thenHoldForDuration: 0.1
+        )
+    }
+
 }
 
 /// 1 - Name: Isolated UI application fixture.
 /// 2 - Description: Maps named UI scenarios to temporary repository files and inert runtime adapters.
 /// 3 - Assumptions: Bundled JSON resources contain preview-only identities and the application enforces UI-test isolation.
-/// 4 - Expectations: Every launch receives unique storage and one scenario value, then removes all generated files.
+/// 4 - Expectations: Every launch receives unique storage and one scenario value; process path and identity are verified before termination.
 @MainActor
 private final class IsolatedApplicationFixture {
     enum Scenario {
@@ -244,13 +530,17 @@ private final class IsolatedApplicationFixture {
         case completedSetup
         case delayedStartupRetry
         case configurationRecovery
+        case loginApproval
+        case loginEnabled
+        case movedToApplications
         case notesRecovery
         case outsideApplications
         case longContent
 
         var configurationResource: String? {
             switch self {
-            case .firstLaunch, .delayedStartupRetry:
+            case .firstLaunch, .delayedStartupRetry, .loginApproval,
+                 .loginEnabled, .movedToApplications:
                 nil
             case .completedSetup, .outsideApplications:
                 "configuration"
@@ -274,6 +564,12 @@ private final class IsolatedApplicationFixture {
             switch self {
             case .delayedStartupRetry:
                 "delayedStartupRetry"
+            case .loginApproval:
+                "loginApproval"
+            case .loginEnabled:
+                "loginEnabled"
+            case .movedToApplications:
+                "movedToApplications"
             case .outsideApplications:
                 "outsideApplications"
             default:
@@ -281,18 +577,28 @@ private final class IsolatedApplicationFixture {
             }
         }
 
-        var resetsOnboardingStep: Bool {
-            self == .firstLaunch || self == .delayedStartupRetry
+        var initialOnboardingStep: Int? {
+            switch self {
+            case .firstLaunch, .delayedStartupRetry:
+                0
+            case .loginApproval, .loginEnabled, .movedToApplications:
+                3
+            default:
+                nil
+            }
         }
     }
 
     private let scenario: Scenario
     private let directory: URL
     private let applicationURL: URL
+    private let applicationBundleIdentifier: String
 
     init(scenario: Scenario, bundle: Bundle) throws {
         self.scenario = scenario
-        applicationURL = try Self.builtApplicationURL(testBundle: bundle)
+        let application = try Self.builtApplication(testBundle: bundle)
+        applicationURL = application.url
+        applicationBundleIdentifier = application.bundleIdentifier
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("HomewardUITests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
@@ -315,12 +621,10 @@ private final class IsolatedApplicationFixture {
 
     func launch() -> XCUIApplication {
         let app = XCUIApplication()
-        app.terminate()
-        waitForTermination(of: app)
-        if scenario.resetsOnboardingStep {
+        if let initialOnboardingStep = scenario.initialOnboardingStep {
             app.launchArguments += [
                 "-\(UITestPolicy.onboardingStepPreference)",
-                "0",
+                "\(initialOnboardingStep)",
             ]
         }
         app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
@@ -329,24 +633,13 @@ private final class IsolatedApplicationFixture {
         app.launchEnvironment[UITestPolicy.scenarioEnvironment] =
             scenario.runtimeValue
         app.launch()
-        application = app
         return app
     }
 
     func reopen(_ app: XCUIApplication) throws {
         guard app.state == .runningBackground
-                || app.state == .runningForeground else {
-            throw FixtureError.runningApplicationIdentityMismatch
-        }
-        let matchingApplications = NSWorkspace.shared.runningApplications
-            .filter {
-                $0.bundleIdentifier
-                    == UITestPolicy.applicationBundleIdentifier
-                    && $0.bundleURL?
-                        .resolvingSymlinksInPath().standardizedFileURL
-                        == applicationURL
-            }
-        guard matchingApplications.count == 1 else {
+                || app.state == .runningForeground,
+              expectedRunningApplication() != nil else {
             throw FixtureError.runningApplicationIdentityMismatch
         }
         let process = Process()
@@ -369,8 +662,8 @@ private final class IsolatedApplicationFixture {
     }
 
     func remove() throws {
-        if let application {
-            application.terminate()
+        if let application = expectedRunningApplication() {
+            _ = application.terminate()
             waitForTermination(of: application)
         }
         if FileManager.default.fileExists(atPath: directory.path) {
@@ -378,13 +671,21 @@ private final class IsolatedApplicationFixture {
         }
     }
 
-    private var application: XCUIApplication?
+    private func expectedRunningApplication() -> NSRunningApplication? {
+        let matches = NSRunningApplication.runningApplications(
+            withBundleIdentifier: applicationBundleIdentifier
+        ).filter {
+            $0.bundleURL?.resolvingSymlinksInPath().standardizedFileURL
+                == applicationURL
+        }
+        return matches.count == 1 ? matches[0] : nil
+    }
 
-    private func waitForTermination(of app: XCUIApplication) {
+    private func waitForTermination(of application: NSRunningApplication) {
         let deadline = Date().addingTimeInterval(
             UITestPolicy.processTerminationTimeout
         )
-        while app.state != .notRunning && Date() < deadline {
+        while !application.isTerminated && Date() < deadline {
             Thread.sleep(forTimeInterval: 0.05)
         }
     }
@@ -410,7 +711,9 @@ private final class IsolatedApplicationFixture {
         )
     }
 
-    private static func builtApplicationURL(testBundle: Bundle) throws -> URL {
+    private static func builtApplication(
+        testBundle: Bundle
+    ) throws -> (url: URL, bundleIdentifier: String) {
         var runnerURL = testBundle.bundleURL.standardizedFileURL
         while runnerURL.pathExtension != "app",
               runnerURL.path != "/" {
@@ -423,11 +726,13 @@ private final class IsolatedApplicationFixture {
             .appendingPathComponent("Homeward.app", isDirectory: true)
             .resolvingSymlinksInPath().standardizedFileURL
         guard FileManager.default.fileExists(atPath: candidate.path),
-              Bundle(url: candidate)?.bundleIdentifier
-                == UITestPolicy.applicationBundleIdentifier else {
+              let bundleIdentifier = Bundle(url: candidate)?.bundleIdentifier,
+              UITestPolicy.isAllowedApplicationBundleIdentifier(
+                bundleIdentifier
+              ) else {
             throw FixtureError.builtApplicationIdentityMismatch(candidate.path)
         }
-        return candidate
+        return (candidate, bundleIdentifier)
     }
 }
 
@@ -449,4 +754,13 @@ private enum UITestPolicy {
     static let runtimeIsolationEnvironment = "HOMEWARD_UI_TESTING"
     static let scenarioEnvironment = "HOMEWARD_UI_TEST_SCENARIO"
     static let processTerminationTimeout: TimeInterval = 5
+
+    static func isAllowedApplicationBundleIdentifier(
+        _ bundleIdentifier: String
+    ) -> Bool {
+        bundleIdentifier == applicationBundleIdentifier
+            || bundleIdentifier.hasPrefix(
+                "\(applicationBundleIdentifier).uitest."
+            )
+    }
 }

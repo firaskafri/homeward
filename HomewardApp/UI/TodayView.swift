@@ -452,7 +452,11 @@ struct TodayView: View {
     }
 
     private var loginReadiness: ReadinessPresentation {
-        .login(model.loginItemStatus, readyTitle: "Ready")
+        .login(
+            model.loginItemStatus,
+            installation: model.installationLocationStatus,
+            readyTitle: "Ready"
+        )
     }
 
     private var notificationReadiness: ReadinessPresentation {
