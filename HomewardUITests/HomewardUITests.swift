@@ -570,6 +570,7 @@ private final class IsolatedApplicationFixture {
     private let directory: URL
     private let applicationURL: URL
     private let applicationBundleIdentifier: String
+    private var application: XCUIApplication?
 
     init(scenario: Scenario, bundle: Bundle) throws {
         self.scenario = scenario
@@ -611,6 +612,7 @@ private final class IsolatedApplicationFixture {
         app.launchEnvironment[UITestPolicy.scenarioEnvironment] =
             scenario.runtimeValue
         app.launch()
+        application = app
         return app
     }
 
@@ -652,8 +654,22 @@ private final class IsolatedApplicationFixture {
     }
 
     func remove() throws {
-        if let application = expectedRunningApplication() {
-            try terminateTestApplication(application)
+        if let application,
+           application.state == .runningBackground
+            || application.state == .runningForeground {
+            guard expectedRunningApplication() != nil else {
+                throw FixtureError.runningApplicationIdentityMismatch
+            }
+            application.terminate()
+            let deadline = Date().addingTimeInterval(
+                UITestPolicy.testApplicationTerminationTimeout
+            )
+            while application.state != .notRunning && Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            guard application.state == .notRunning else {
+                throw FixtureError.terminationTimedOut
+            }
         }
         if FileManager.default.fileExists(atPath: directory.path) {
             try FileManager.default.removeItem(at: directory)
@@ -675,23 +691,19 @@ private final class IsolatedApplicationFixture {
     ) throws {
         let processIdentifier = application.processIdentifier
         _ = application.terminate()
-        guard !waitForProcessExit(processIdentifier) else {
-            return
-        }
-        _ = application.forceTerminate()
-        guard !waitForProcessExit(processIdentifier) else {
-            return
-        }
-        _ = Darwin.kill(processIdentifier, SIGKILL)
-        guard waitForProcessExit(processIdentifier) else {
+        guard waitForProcessExit(
+            processIdentifier,
+            timeout: UITestPolicy.testApplicationTerminationTimeout
+        ) else {
             throw FixtureError.terminationTimedOut
         }
     }
 
-    private func waitForProcessExit(_ processIdentifier: pid_t) -> Bool {
-        let deadline = Date().addingTimeInterval(
-            UITestPolicy.processTerminationTimeout
-        )
+    private func waitForProcessExit(
+        _ processIdentifier: pid_t,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
         while processIsRunning(processIdentifier) && Date() < deadline {
             Thread.sleep(forTimeInterval: 0.05)
         }
@@ -769,6 +781,7 @@ private enum UITestPolicy {
     static let runtimeIsolationEnvironment = "HOMEWARD_UI_TESTING"
     static let scenarioEnvironment = "HOMEWARD_UI_TEST_SCENARIO"
     static let processTerminationTimeout: TimeInterval = 5
+    static let testApplicationTerminationTimeout: TimeInterval = 15
 
     static func isAllowedApplicationBundleIdentifier(
         _ bundleIdentifier: String
