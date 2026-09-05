@@ -5,12 +5,12 @@ import Testing
 import HomewardCore
 
 // 1 - Name: Homeward application-model test file.
-// 2 - Description: Verifies model startup, mutation serialization, recovery, catalog reconciliation, notes, and runtime safety policy.
+// 2 - Description: Verifies model startup generations, mutation/load serialization, recovery, catalog reconciliation, notes, and runtime safety policy.
 // 3 - Assumptions: Tests use isolated repositories, injected adapters, and no running application control targets.
 // 4 - Expectations: Model operations preserve fail-open behavior, serialize persistence, and maintain policy invariants.
 
 /// 1 - Name: Homeward application-model suite.
-/// 2 - Description: Covers app composition, recovery, catalog state, notes behavior, and safety-action ordering.
+/// 2 - Description: Covers app composition, bootstrap ordering, recovery, catalog state, notes behavior, and safety-action ordering.
 /// 3 - Assumptions: Repository creation does not write until an explicit save and all fixtures are isolated.
 /// 4 - Expectations: Startup and mutation failures remain recoverable while runtime safety actions apply immediately.
 @Suite("Homeward application model")
@@ -601,6 +601,151 @@ struct AppModelTests {
         #expect(model.notes.notes.isEmpty)
     }
 
+    /// 1 - Name: Startup notes load loses to reset.
+    /// 2 - Description: Resets Saved Thoughts while the independently owned startup read remains suspended.
+    /// 3 - Assumptions: The persistence read can finish after cancellation and reset shares the notes mutation gate.
+    /// 4 - Expectations: Reset waits for the read boundary and the stale document is never published afterward.
+    @Test
+    func startupNotesLoadCannotPublishAfterReset() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let loadGate = NotesLoadRaceGate(
+            firstDocument: try NotesDocument(
+                notes: [TomorrowNote(text: "Stale startup thought")]
+            )
+        )
+        let mutationGate = NotesMutationGate()
+        let model = try AppModel(
+            repository: HomewardRepository(directoryURL: fixture.directoryURL),
+            catalogDiscoverer: { [] },
+            notesLoader: { await loadGate.load() },
+            notesResetter: { await mutationGate.reset() }
+        )
+        await model.start()
+        await loadGate.waitUntilFirstLoadStarts()
+
+        let reset = Task { @MainActor in
+            await model.resetSavedThoughts()
+        }
+        await Task.yield()
+        #expect(!(await mutationGate.didReset))
+
+        await loadGate.releaseFirstLoad()
+        #expect(await reset.value)
+        #expect(await mutationGate.didReset)
+        #expect(model.notes.notes.isEmpty)
+        #expect(model.notesHealth == .available)
+    }
+
+    /// 1 - Name: Retry notes load supersedes startup.
+    /// 2 - Description: Starts Retry while the original startup notes read remains suspended.
+    /// 3 - Assumptions: The first read ignores cancellation and a second read returns a newer document.
+    /// 4 - Expectations: Retry waits for serialization and publishes only its current-generation result.
+    @Test
+    func retryNotesLoadPublishesOnlyCurrentGeneration() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let loadGate = NotesLoadRaceGate(
+            firstDocument: try NotesDocument(
+                notes: [TomorrowNote(text: "Stale startup thought")]
+            ),
+            retryDocument: try NotesDocument(
+                notes: [TomorrowNote(text: "Current retry thought")]
+            )
+        )
+        let model = try AppModel(
+            repository: HomewardRepository(directoryURL: fixture.directoryURL),
+            catalogDiscoverer: { [] },
+            notesLoader: { await loadGate.load() }
+        )
+        await model.start()
+        await loadGate.waitUntilFirstLoadStarts()
+
+        let retry = Task { @MainActor in
+            await model.retryNotesLoad()
+        }
+        await Task.yield()
+        await loadGate.releaseFirstLoad()
+
+        #expect(await retry.value)
+        #expect(await loadGate.loadCount == 2)
+        #expect(model.notes.notes.map(\.text) == ["Current retry thought"])
+        #expect(model.notesHealth == .available)
+    }
+
+    /// 1 - Name: Startup notes load loses to restore.
+    /// 2 - Description: Restores a validated backup while the original startup notes read remains suspended.
+    /// 3 - Assumptions: The repository contains a previous valid document and the injected first read returns stale content.
+    /// 4 - Expectations: Restore wins the shared mutation boundary and stale startup content cannot replace it.
+    @Test
+    func startupNotesLoadCannotPublishAfterRestore() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let repository = HomewardRepository(directoryURL: fixture.directoryURL)
+        _ = try await repository.saveNotes(
+            NotesDocument(notes: [TomorrowNote(text: "Restored thought")])
+        )
+        _ = try await repository.saveNotes(
+            NotesDocument(notes: [TomorrowNote(text: "Current thought")])
+        )
+        let loadGate = NotesLoadRaceGate(
+            firstDocument: try NotesDocument(
+                notes: [TomorrowNote(text: "Stale startup thought")]
+            )
+        )
+        let model = try AppModel(
+            repository: repository,
+            catalogDiscoverer: { [] },
+            notesLoader: { await loadGate.load() }
+        )
+        await model.start()
+        await loadGate.waitUntilFirstLoadStarts()
+
+        let restore = Task { @MainActor in
+            await model.restorePreviousNotes()
+        }
+        await Task.yield()
+        await loadGate.releaseFirstLoad()
+
+        #expect(await restore.value)
+        #expect(model.notes.notes.map(\.text) == ["Restored thought"])
+        #expect(model.notesHealth == .available)
+    }
+
+    /// 1 - Name: Startup notes load loses to shutdown.
+    /// 2 - Description: Completes a cancellation-insensitive startup read after bounded termination preparation returns.
+    /// 3 - Assumptions: Shutdown invalidates note generations and waits only for its documented monotonic bound.
+    /// 4 - Expectations: Late notes never publish after shutdown even though persistence eventually returns them.
+    @Test
+    func startupNotesLoadCannotPublishAfterShutdown() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let testClock = TestElapsedClock()
+        let loadGate = NotesLoadRaceGate(
+            firstDocument: try NotesDocument(
+                notes: [TomorrowNote(text: "Late shutdown thought")]
+            )
+        )
+        let model = try AppModel(
+            repository: HomewardRepository(directoryURL: fixture.directoryURL),
+            elapsedClock: testClock.clock,
+            catalogDiscoverer: { [] },
+            notesLoader: { await loadGate.load() }
+        )
+        await model.start()
+        await loadGate.waitUntilFirstLoadStarts()
+
+        await model.prepareForTermination()
+        await loadGate.releaseFirstLoad()
+        await loadGate.waitUntilFirstLoadFinishes()
+        while model.hasPrioritySaveOrErrorPresentation {
+            await Task.yield()
+        }
+
+        #expect(model.notes.notes.isEmpty)
+        #expect(model.notesHealth == .loading)
+    }
+
     /// 1 - Name: Onboarding confirmation save race.
     /// 2 - Description: Dirties the schedule draft while a confirmed schedule save is suspended.
     /// 3 - Assumptions: Draft edits are synchronous while persistence can suspend.
@@ -654,6 +799,83 @@ struct AppModelTests {
         _ = await second.value
 
         #expect(gate.discoveryCount == 2)
+        #expect(model.catalog.map(\.selection.displayName) == ["Latest"])
+    }
+
+    /// 1 - Name: Cancelled bootstrap is not discovery failure.
+    /// 2 - Description: Cancels a suspended catalog discovery before starting a replacement bootstrap generation.
+    /// 3 - Assumptions: Task cancellation is control flow rather than evidence that application discovery failed.
+    /// 4 - Expectations: Cancellation publishes no unavailable health or discovery error and the retry reaches ready.
+    @Test
+    func cancelledBootstrapDoesNotPublishDiscoveryFailure() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let gate = CancellableBootstrapDiscoveryGate()
+        let model = try AppModel(
+            repository: HomewardRepository(directoryURL: fixture.directoryURL),
+            catalogDiscoverer: { try await gate.discover() }
+        )
+        let first = Task { @MainActor in
+            await model.start()
+        }
+        await gate.waitUntilFirstDiscoveryStarts()
+
+        first.cancel()
+        _ = await first.value
+
+        #expect(model.health == .starting)
+        #expect(model.catalogHealth == .loading)
+        #expect(model.lastError == nil)
+
+        var retryTask: Task<Void, Never>?
+        model.installBootstrapRetryHandler {
+            retryTask = Task { @MainActor in
+                await model.start()
+            }
+        }
+        model.markStartupDelayed()
+        model.retryStartup()
+        await retryTask?.value
+
+        #expect(model.health == .ready)
+        #expect(model.catalogHealth == .available)
+        #expect(model.lastError == nil)
+    }
+
+    /// 1 - Name: Retry generation defeats stale discovery failure.
+    /// 2 - Description: Starts a retry before releasing an older discovery that then fails out of order.
+    /// 3 - Assumptions: The replacement generation can queue while the first catalog refresh owns discovery.
+    /// 4 - Expectations: Obsolete failure publishes neither health nor error and successful retry clears discovery error state.
+    @Test
+    func successfulBootstrapRetryWinsStaleDiscoveryFailure() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let gate = BootstrapFailureOrderingGate()
+        let model = try AppModel(
+            repository: HomewardRepository(directoryURL: fixture.directoryURL),
+            catalogDiscoverer: { try await gate.discover() }
+        )
+        let first = Task { @MainActor in
+            await model.start()
+        }
+        await gate.waitUntilFirstDiscoveryStarts()
+        var retryTask: Task<Void, Never>?
+        model.installBootstrapRetryHandler {
+            retryTask = Task { @MainActor in
+                await model.start()
+            }
+        }
+
+        model.markStartupDelayed()
+        model.retryStartup()
+        await Task.yield()
+        gate.releaseFirstDiscovery()
+        _ = await first.value
+        await retryTask?.value
+
+        #expect(model.health == .ready)
+        #expect(model.catalogHealth == .available)
+        #expect(model.lastError == nil)
         #expect(model.catalog.map(\.selection.displayName) == ["Latest"])
     }
 

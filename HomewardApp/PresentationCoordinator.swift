@@ -22,6 +22,15 @@ final class PresentationCoordinator {
         return current <= requested
     }
 
+    static func saveErrorOrInvokedPriority(
+        hasSaveOrError: Bool,
+        hasInvokedNotesPanel: Bool
+    ) -> Priority? {
+        hasSaveOrError || hasInvokedNotesPanel
+            ? .saveOrError
+            : nil
+    }
+
     private struct BlockedLaunchIdentity: Equatable {
         let availabilityText: String
     }
@@ -73,10 +82,8 @@ final class PresentationCoordinator {
         model: AppModel,
         availabilityText: String
     ) {
-        guard allows(.blockedLaunch),
-              !isClosingPanelPresented,
-              !model.hasPrioritySaveOrErrorPresentation,
-              !isInvokedPanelPresented else {
+        guard allows(.blockedLaunch, model: model),
+              !isClosingPanelPresented else {
             return
         }
         let identity = BlockedLaunchIdentity(
@@ -101,7 +108,8 @@ final class PresentationCoordinator {
     }
 
     func showNoteCapture(model: AppModel) {
-        guard allows(.saveOrError), !isClosingPanelPresented else {
+        guard allows(.saveOrError, model: model),
+              !isClosingPanelPresented else {
             return
         }
         blockedLaunchPanel?.close()
@@ -117,7 +125,8 @@ final class PresentationCoordinator {
     }
 
     func showNotes(model: AppModel) {
-        guard allows(.saveOrError), !isClosingPanelPresented else {
+        guard allows(.saveOrError, model: model),
+              !isClosingPanelPresented else {
             return
         }
         blockedLaunchPanel?.close()
@@ -131,9 +140,8 @@ final class PresentationCoordinator {
     }
 
     func showNotesReady(model: AppModel, count: Int) {
-        guard allows(.thoughtAvailability),
+        guard allows(.thoughtAvailability, model: model),
               !isClosingPanelPresented,
-              !model.hasPrioritySaveOrErrorPresentation,
               count > 0 else {
             return
         }
@@ -209,7 +217,7 @@ final class PresentationCoordinator {
         dismissSensitivePresentations(restoringFocus: true)
     }
 
-    private func allows(_ requested: Priority) -> Bool {
+    private func allows(_ requested: Priority, model: AppModel) -> Bool {
         guard !recoveryIsActive else {
             return false
         }
@@ -221,6 +229,16 @@ final class PresentationCoordinator {
            notesReadyPanel?.window?.isVisible != true {
             activePriority = nil
         }
-        return Self.permits(requested, over: activePriority)
+        let saveOrInvokedPriority = Self.saveErrorOrInvokedPriority(
+            hasSaveOrError: model.hasPrioritySaveOrErrorPresentation,
+            hasInvokedNotesPanel: isInvokedPanelPresented
+        )
+        let currentPriority = [activePriority, saveOrInvokedPriority]
+            .compactMap { $0 }
+            .max()
+        return Self.permits(
+            requested,
+            over: currentPriority
+        )
     }
 }

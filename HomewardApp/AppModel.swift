@@ -152,6 +152,8 @@ final class AppModel: NSObject, ObservableObject {
     private let elapsedClock: ElapsedClock
     private let configurationSaver:
         (HomewardConfiguration) async throws -> HomewardConfiguration
+    private let notesLoader: () async throws -> NotesDocument
+    private let notesRecoveryCandidateLoader: () async throws -> NotesDocument?
     private let notesSaver: (NotesDocument) async throws -> NotesDocument
     private let notesResetter: () async throws -> Void
     private let dateByAdding:
@@ -185,6 +187,7 @@ final class AppModel: NSObject, ObservableObject {
     private let configurationMutationGate = AsyncMutationGate()
     private var onboardingConfirmationRevision = 0
     private let notesMutationGate = AsyncMutationGate()
+    private var notesLoadGeneration = 0
     private var catalogRefreshInProgress = false
     private var catalogRefreshRequested = false
     private var catalogRefreshShouldReconcile = false
@@ -192,6 +195,7 @@ final class AppModel: NSObject, ObservableObject {
     private var started = false
     private var runtimeActivated = false
     private var isShuttingDown = false
+    private var bootstrapGeneration = 0
     private var configurationRevision = 0
     private var bootstrapRetryHandler: (() -> Void)?
     private var routeHandler: ((HomewardRoute) -> Void)?
@@ -222,6 +226,9 @@ final class AppModel: NSObject, ObservableObject {
         loginItemService: LoginItemService? = nil,
         installationLocationService: InstallationLocationService? = nil,
         notificationService: HomewardNotificationService? = nil,
+        notesLoader: (() async throws -> NotesDocument)? = nil,
+        notesRecoveryCandidateLoader:
+            (() async throws -> NotesDocument?)? = nil,
         notesSaver: ((NotesDocument) async throws -> NotesDocument)? = nil,
         notesResetter: (() async throws -> Void)? = nil
     ) throws {
@@ -244,6 +251,12 @@ final class AppModel: NSObject, ObservableObject {
             installationLocationService ?? InstallationLocationService()
         self.notificationService =
             notificationService ?? HomewardNotificationService()
+        self.notesLoader = notesLoader ?? {
+            try await repository.loadNotes()
+        }
+        self.notesRecoveryCandidateLoader = notesRecoveryCandidateLoader ?? {
+            try await repository.notesRecoveryCandidate()
+        }
         self.notesSaver = notesSaver ?? { notes in
             try await repository.saveNotes(notes)
         }
@@ -445,6 +458,7 @@ final class AppModel: NSObject, ObservableObject {
                 || health == .applicationResolutionUnavailable else {
             return
         }
+        bootstrapGeneration &+= 1
         health = .starting
         lastError = nil
         started = false
@@ -507,14 +521,24 @@ final class AppModel: NSObject, ObservableObject {
         guard !started, !runtimeActivated, !isShuttingDown else {
             return
         }
+        let generation = bootstrapGeneration
         started = true
 
         do {
-            if let stored = try await repository.loadConfiguration() {
+            let stored = try await repository.loadConfiguration()
+            guard isCurrentBootstrap(generation) else {
+                return
+            }
+            if let stored {
                 configuration = stored
             }
             configurationRevision &+= 1
+        } catch is CancellationError {
+            return
         } catch {
+            guard isCurrentBootstrap(generation), !Task.isCancelled else {
+                return
+            }
             HomewardLog.persistence.error("Configuration load failed")
             cancelAllEnforcement()
             presentationCoordinator.setRecoveryActive(true)
@@ -524,22 +548,38 @@ final class AppModel: NSObject, ObservableObject {
             return
         }
 
-        guard !Task.isCancelled, !isShuttingDown else {
+        guard !Task.isCancelled, isCurrentBootstrap(generation) else {
             return
         }
-        await activateRuntime(clearingError: false)
+        await activateRuntime(
+            clearingError: false,
+            bootstrapGeneration: generation
+        )
     }
 
     @discardableResult
     func refreshCatalog(
-        reconcileAfterSave: Bool = true
+        reconcileAfterSave: Bool = true,
+        bootstrapGeneration requestedBootstrapGeneration: Int? = nil
     ) async -> Bool {
+        guard isCurrentBootstrap(requestedBootstrapGeneration) else {
+            return false
+        }
         catalogRefreshRequested = true
         catalogRefreshShouldReconcile =
             catalogRefreshShouldReconcile || reconcileAfterSave
         guard !catalogRefreshInProgress else {
             await withCheckedContinuation { continuation in
                 catalogRefreshWaiters.append(continuation)
+            }
+            guard isCurrentBootstrap(requestedBootstrapGeneration) else {
+                return false
+            }
+            if catalogHealth == .loading {
+                return await refreshCatalog(
+                    reconcileAfterSave: reconcileAfterSave,
+                    bootstrapGeneration: requestedBootstrapGeneration
+                )
             }
             return catalogHealth == .available
         }
@@ -564,6 +604,11 @@ final class AppModel: NSObject, ObservableObject {
                 guard !catalogRefreshRequested else {
                     continue
                 }
+                guard isCurrentBootstrap(requestedBootstrapGeneration),
+                      !Task.isCancelled,
+                      !(error is CancellationError) else {
+                    return false
+                }
                 HomewardLog.lifecycle.error("Application discovery failed")
                 catalogHealth = .unavailable
                 lastError =
@@ -572,6 +617,9 @@ final class AppModel: NSObject, ObservableObject {
             }
             guard !catalogRefreshRequested else {
                 continue
+            }
+            guard isCurrentBootstrap(requestedBootstrapGeneration) else {
+                return false
             }
             catalog = discovered
             guard await reconcileCatalogSelections(
@@ -1547,6 +1595,7 @@ final class AppModel: NSObject, ObservableObject {
 
     @discardableResult
     func resetSavedThoughts() async -> Bool {
+        invalidateNotesLoad()
         await waitForNotesSave()
         precondition(notesMutationGate.beginIfAvailable())
         defer { finishNotesSave() }
@@ -1564,16 +1613,33 @@ final class AppModel: NSObject, ObservableObject {
 
     @discardableResult
     func retryNotesLoad() async -> Bool {
+        let generation = invalidateNotesLoad()
+        notesHealth = .loading
         await waitForNotesSave()
+        precondition(notesMutationGate.beginIfAvailable())
+        defer { finishNotesSave() }
         do {
-            notes = try await repository.loadNotes()
+            let loaded = try await notesLoader()
+            guard isCurrentNotesLoad(generation) else {
+                return false
+            }
+            notes = loaded
             notesHealth = .available
             notesRecoveryCandidateAvailable = false
             return true
+        } catch is CancellationError {
+            return false
         } catch {
+            guard isCurrentNotesLoad(generation), !Task.isCancelled else {
+                return false
+            }
+            let recoveryCandidateAvailable =
+                (try? await notesRecoveryCandidateLoader()) != nil
+            guard isCurrentNotesLoad(generation), !Task.isCancelled else {
+                return false
+            }
             notesHealth = .unavailable
-            notesRecoveryCandidateAvailable =
-                (try? await repository.notesRecoveryCandidate()) != nil
+            notesRecoveryCandidateAvailable = recoveryCandidateAvailable
             lastError = "Saved thoughts are unavailable. App closing still works."
             return false
         }
@@ -1581,6 +1647,7 @@ final class AppModel: NSObject, ObservableObject {
 
     @discardableResult
     func restorePreviousNotes() async -> Bool {
+        invalidateNotesLoad()
         await waitForNotesSave()
         precondition(notesMutationGate.beginIfAvailable())
         defer { finishNotesSave() }
@@ -1606,11 +1673,12 @@ final class AppModel: NSObject, ObservableObject {
             return
         }
         isShuttingDown = true
+        bootstrapGeneration &+= 1
+        invalidateNotesLoad()
         runtimeForcePauseIntervalIDs.insert(
             blockedIntervalID(at: nowProvider())
         )
         transitionTask?.cancel()
-        notesLoadTask?.cancel()
         systemStatusTask?.cancel()
         previewTimeoutTask?.cancel()
         for task in launchMetadataTasks.values {
@@ -1873,14 +1941,22 @@ final class AppModel: NSObject, ObservableObject {
         return terminatedSessionID == expectedSessionID
     }
 
-    private func activateRuntime(clearingError: Bool) async {
+    private func activateRuntime(
+        clearingError: Bool,
+        bootstrapGeneration: Int? = nil
+    ) async {
         if clearingError {
             lastError = nil
         }
-        guard await refreshCatalog(reconcileAfterSave: false),
+        guard await refreshCatalog(
+            reconcileAfterSave: false,
+            bootstrapGeneration: bootstrapGeneration
+        ),
               !Task.isCancelled,
-              !isShuttingDown else {
-            if !Task.isCancelled, !isShuttingDown {
+              isCurrentBootstrap(bootstrapGeneration) else {
+            if !Task.isCancelled,
+               isCurrentBootstrap(bootstrapGeneration),
+               catalogHealth == .unavailable {
                 health = .applicationResolutionUnavailable
             }
             return
@@ -1891,11 +1967,16 @@ final class AppModel: NSObject, ObservableObject {
         let initialApplications = workspaceMonitor.runningApplications
         isSessionActive = workspaceMonitor.sessionIsLikelyActive
         await reconcile(runningApplications: initialApplications)
-        guard !Task.isCancelled, !isShuttingDown else {
+        guard !Task.isCancelled,
+              isCurrentBootstrap(bootstrapGeneration) else {
             return
         }
         runtimeActivated = true
         health = .ready
+        if lastError
+            == "Applications could not be found. Existing verified app selections were kept." {
+            lastError = nil
+        }
         startNotesLoad()
         systemStatusTask?.cancel()
         systemStatusTask = Task { @MainActor [weak self] in
@@ -1908,30 +1989,39 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     private func startNotesLoad() {
-        notesLoadTask?.cancel()
+        let generation = invalidateNotesLoad()
         notesHealth = .loading
         notesLoadTask = Task { @MainActor [weak self] in
             guard let self else {
                 return
             }
+            await self.notesMutationGate.beginAfterWaiting()
+            defer { self.finishNotesSave() }
+            guard self.isCurrentNotesLoad(generation) else {
+                return
+            }
             do {
-                let loaded = try await self.repository.loadNotes()
-                guard !Task.isCancelled, !self.isShuttingDown else {
+                let loaded = try await self.notesLoader()
+                guard self.isCurrentNotesLoad(generation) else {
                     return
                 }
                 self.notes = loaded
                 self.notesHealth = .available
                 self.notesRecoveryCandidateAvailable = false
                 self.presentNotesIfNeeded()
+            } catch is CancellationError {
+                return
             } catch {
-                guard !Task.isCancelled, !self.isShuttingDown else {
+                guard self.isCurrentNotesLoad(generation),
+                      !Task.isCancelled else {
                     return
                 }
                 HomewardLog.persistence.error("Notes load failed")
                 let recoveryCandidateAvailable =
-                    (try? await self.repository.notesRecoveryCandidate())
+                    (try? await self.notesRecoveryCandidateLoader())
                     != nil
-                guard !Task.isCancelled, !self.isShuttingDown else {
+                guard self.isCurrentNotesLoad(generation),
+                      !Task.isCancelled else {
                     return
                 }
                 self.notesRecoveryCandidateAvailable =
@@ -1941,6 +2031,23 @@ final class AppModel: NSObject, ObservableObject {
                     "Saved thoughts are unavailable. App closing still works."
             }
         }
+    }
+
+    @discardableResult
+    private func invalidateNotesLoad() -> Int {
+        notesLoadGeneration &+= 1
+        notesLoadTask?.cancel()
+        notesLoadTask = nil
+        return notesLoadGeneration
+    }
+
+    private func isCurrentNotesLoad(_ generation: Int) -> Bool {
+        generation == notesLoadGeneration && !isShuttingDown
+    }
+
+    private func isCurrentBootstrap(_ generation: Int?) -> Bool {
+        !isShuttingDown
+            && (generation == nil || generation == bootstrapGeneration)
     }
 
     private func applyAvailabilityOverride(

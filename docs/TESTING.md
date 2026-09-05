@@ -76,7 +76,10 @@ preview-only application identities that cannot match real running
 applications. UI launches also set `HOMEWARD_UI_TESTING=1`, which restricts
 lifecycle control to the adjacent `HomewardFixture.app` identity and replaces
 notification, login-item, catalog, installation-location, and delayed-startup
-dependencies with scenario-owned adapters.
+dependencies with scenario-owned adapters. Reopen coverage resolves the
+adjacent build-products `Homeward.app`, verifies that exact standardized path
+and `com.firaskafri.homeward` identity against the running UI-test process,
+then opens the verified path. It never performs bundle-identifier-only lookup.
 Hosted native tests set `HOMEWARD_TESTING=1` and use isolated temporary
 storage, so the test host cannot load or enforce the user’s real policy.
 Test invocations disable the bundle’s multiple-instance lock to prevent stale

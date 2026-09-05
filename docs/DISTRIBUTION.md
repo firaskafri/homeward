@@ -4,7 +4,10 @@
 
 `scripts/package-local-candidate.sh` is development-only. It produces an
 ad-hoc-signed local DMG for build evidence and never produces a public
-artifact, even when UI tests ran.
+artifact, even when UI tests ran. Its strict provenance schema binds the
+verified source SHA, app version/build, architecture, minimum macOS version,
+ad-hoc signature mode, `notarized: false`, matching binary/dSYM UUIDs, and the
+final DMG SHA-256 and byte size.
 
 `scripts/package-public-release.sh` is the separate fail-closed Developer ID
 path. Its `--check` mode is read-only: it does not copy, sign, package, submit,

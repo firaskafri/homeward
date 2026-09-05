@@ -5,12 +5,12 @@ import Testing
 import HomewardCore
 
 // 1 - Name: Homeward presentation test file.
-// 2 - Description: Verifies panel priority, presentation precedence, and private thought visibility.
+// 2 - Description: Verifies panel priority, invoked-panel precedence, presentation state, and private thought visibility.
 // 3 - Assumptions: Presentation tests use isolated model state and never automate an installed application.
 // 4 - Expectations: Safety and recovery surfaces outrank passive feedback while sensitive content stays concealed.
 
 /// 1 - Name: Homeward presentation suite.
-/// 2 - Description: Covers window level, snapshot precedence, event admission, and session-based thought redaction.
+/// 2 - Description: Covers window level, snapshot precedence, invoked/passive admission, and session-based thought redaction.
 /// 3 - Assumptions: Presentation decisions are deterministic from model state and injected schedule time.
 /// 4 - Expectations: Firm safety remains visible and saved-thought content appears only in an active base window.
 @Suite("Homeward presentation")
@@ -185,6 +185,39 @@ struct AppModelPresentationTests {
         #expect(PresentationCoordinator.permits(
             .recovery,
             over: .firmSafety
+        ))
+    }
+
+    /// 1 - Name: Invoked notes panels suppress passive readiness.
+    /// 2 - Description: Resolves the shared save/error priority for explicit notes capture and review presentation.
+    /// 3 - Assumptions: Invoked notes panels have the same priority as an active save or displayed error.
+    /// 4 - Expectations: Thought-ready presentation is rejected for either condition and admitted only when both are absent.
+    @Test
+    func invokedNotesPanelsSuppressPassiveReadiness() {
+        let saving = PresentationCoordinator.saveErrorOrInvokedPriority(
+            hasSaveOrError: true,
+            hasInvokedNotesPanel: false
+        )
+        let invoked = PresentationCoordinator.saveErrorOrInvokedPriority(
+            hasSaveOrError: false,
+            hasInvokedNotesPanel: true
+        )
+        let idle = PresentationCoordinator.saveErrorOrInvokedPriority(
+            hasSaveOrError: false,
+            hasInvokedNotesPanel: false
+        )
+
+        #expect(!PresentationCoordinator.permits(
+            .thoughtAvailability,
+            over: saving
+        ))
+        #expect(!PresentationCoordinator.permits(
+            .thoughtAvailability,
+            over: invoked
+        ))
+        #expect(PresentationCoordinator.permits(
+            .thoughtAvailability,
+            over: idle
         ))
     }
 }

@@ -5,7 +5,7 @@ import UserNotifications
 import HomewardCore
 
 // 1 - Name: Homeward application-model shared test support.
-// 2 - Description: Provides deterministic gates, spies, builders, clocks, and filesystem fixtures shared by focused suites.
+// 2 - Description: Provides deterministic load/mutation gates, spies, builders, clocks, and filesystem fixtures shared by focused suites.
 // 3 - Assumptions: Helpers remain test-only, isolated from user data, and never control installed applications.
 // 4 - Expectations: Focused suites share consistent concurrency and persistence fixtures without duplicating setup.
 
@@ -98,6 +98,141 @@ final class CatalogDiscoveryGate {
             ),
             icon: NSImage(size: NSSize(width: 16, height: 16))
         )
+    }
+}
+
+/// 1 - Name: Notes-load race gate.
+/// 2 - Description: Suspends the first notes read and returns a distinct document from every retry.
+/// 3 - Assumptions: Cancellation does not make the backing persistence operation stop synchronously.
+/// 4 - Expectations: Tests can release stale startup work after a newer reset, restore, retry, or shutdown decision.
+actor NotesLoadRaceGate {
+    private let firstDocument: NotesDocument
+    private let retryDocument: NotesDocument
+    private var firstLoadContinuation:
+        CheckedContinuation<Void, Never>?
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var finishWaiters: [CheckedContinuation<Void, Never>] = []
+    private(set) var loadCount = 0
+    private var firstLoadFinished = false
+
+    init(firstDocument: NotesDocument, retryDocument: NotesDocument? = nil) {
+        self.firstDocument = firstDocument
+        self.retryDocument = retryDocument ?? firstDocument
+    }
+
+    func load() async -> NotesDocument {
+        loadCount += 1
+        guard loadCount == 1 else {
+            return retryDocument
+        }
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        await withCheckedContinuation { continuation in
+            firstLoadContinuation = continuation
+        }
+        firstLoadFinished = true
+        let completedWaiters = finishWaiters
+        finishWaiters.removeAll()
+        completedWaiters.forEach { $0.resume() }
+        return firstDocument
+    }
+
+    func waitUntilFirstLoadStarts() async {
+        guard loadCount == 0 else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func releaseFirstLoad() {
+        firstLoadContinuation?.resume()
+        firstLoadContinuation = nil
+    }
+
+    func waitUntilFirstLoadFinishes() async {
+        guard !firstLoadFinished else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            finishWaiters.append(continuation)
+        }
+    }
+}
+
+/// 1 - Name: Bootstrap failure ordering gate.
+/// 2 - Description: Suspends one failing discovery before allowing later discovery attempts to succeed.
+/// 3 - Assumptions: A retry may begin while the first bootstrap remains suspended.
+/// 4 - Expectations: Tests can force an obsolete failure to complete after a newer bootstrap generation starts.
+@MainActor
+final class BootstrapFailureOrderingGate {
+    private var firstDiscoveryContinuation:
+        CheckedContinuation<Void, Never>?
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private(set) var discoveryCount = 0
+
+    func discover() async throws -> [CatalogApplication] {
+        discoveryCount += 1
+        if discoveryCount == 1 {
+            let waiters = startWaiters
+            startWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+            await withCheckedContinuation { continuation in
+                firstDiscoveryContinuation = continuation
+            }
+            throw CatalogFixtureError.discoveryFailed
+        }
+        return [catalogApplication(
+            named: "Latest",
+            bundleIdentifier: "test.latest",
+            path: "/Applications/Latest.app"
+        )]
+    }
+
+    func waitUntilFirstDiscoveryStarts() async {
+        guard discoveryCount == 0 else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func releaseFirstDiscovery() {
+        firstDiscoveryContinuation?.resume()
+        firstDiscoveryContinuation = nil
+    }
+}
+
+/// 1 - Name: Cancellable bootstrap discovery gate.
+/// 2 - Description: Holds the first discovery in cancellable suspension and lets its replacement finish immediately.
+/// 3 - Assumptions: Cancelling the owning bootstrap task propagates through Task.sleep as CancellationError.
+/// 4 - Expectations: Tests can distinguish cancellation from a real application-discovery failure.
+@MainActor
+final class CancellableBootstrapDiscoveryGate {
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private(set) var discoveryCount = 0
+
+    func discover() async throws -> [CatalogApplication] {
+        discoveryCount += 1
+        if discoveryCount == 1 {
+            let waiters = startWaiters
+            startWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+            try await Task.sleep(for: .seconds(60))
+        }
+        return []
+    }
+
+    func waitUntilFirstDiscoveryStarts() async {
+        guard discoveryCount == 0 else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
     }
 }
 

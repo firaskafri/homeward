@@ -1,12 +1,13 @@
+import AppKit
 import XCTest
 
 // 1 - Name: Homeward UI test file.
-// 2 - Description: Verifies startup, recovery, readiness, and primary navigation with isolated scenario fixtures.
+// 2 - Description: Verifies startup, exact-build reopening, recovery, readiness, and primary navigation with isolated scenario fixtures.
 // 3 - Assumptions: UI scenarios use temporary storage, inert platform adapters, and preview-only application identities.
 // 4 - Expectations: Critical states remain reachable without selecting, launching, or controlling any installed user application.
 
 /// 1 - Name: Homeward UI test suite.
-/// 2 - Description: Exercises safe launch, retry, recovery separation, installation gating, and long-content navigation.
+/// 2 - Description: Exercises exact-build launch/reopen, retry, recovery separation, installation gating, and long-content navigation.
 /// 3 - Assumptions: Each test launches one named scenario whose files and runtime adapters are isolated from user state.
 /// 4 - Expectations: Native surfaces expose the expected state while automated lifecycle control remains fixture-only.
 @MainActor
@@ -39,9 +40,9 @@ final class HomewardUITests: XCTestCase {
     }
 
     /// 1 - Name: Completed-setup reopen.
-    /// 2 - Description: Launches a completed setup and sends a bounded Launch Services reopen request.
-    /// 3 - Assumptions: Preview-only application identities cannot match or close a real running process.
-    /// 4 - Expectations: The window starts suppressed and reopening makes Today reachable.
+    /// 2 - Description: Launches a completed setup and sends a bounded reopen request to its verified build-products path.
+    /// 3 - Assumptions: The running process path and bundle identifier must match the UI target before Launch Services is invoked.
+    /// 4 - Expectations: The window starts suppressed and only that exact test build can be reopened to Today.
     func testCompletedSetupReopensToday() throws {
         let app = try launch(.completedSetup)
         defer { app.terminate() }
@@ -224,23 +225,10 @@ final class HomewardUITests: XCTestCase {
             app.menuBars.statusItems.firstMatch
                 .waitForExistence(timeout: UITestPolicy.launchTimeout)
         )
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-b", "com.firaskafri.homeward"]
-        try process.run()
-        let deadline = Date().addingTimeInterval(
-            UITestPolicy.processTerminationTimeout
-        )
-        while process.isRunning && Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.05)
+        guard let fixture else {
+            throw FixtureError.missingFixture
         }
-        guard !process.isRunning else {
-            process.terminate()
-            throw FixtureError.reopenTimedOut
-        }
-        guard process.terminationStatus == 0 else {
-            throw FixtureError.reopenFailed(process.terminationStatus)
-        }
+        try fixture.reopen(app)
     }
 
 }
@@ -300,9 +288,11 @@ private final class IsolatedApplicationFixture {
 
     private let scenario: Scenario
     private let directory: URL
+    private let applicationURL: URL
 
     init(scenario: Scenario, bundle: Bundle) throws {
         self.scenario = scenario
+        applicationURL = try Self.builtApplicationURL(testBundle: bundle)
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("HomewardUITests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
@@ -341,6 +331,41 @@ private final class IsolatedApplicationFixture {
         app.launch()
         application = app
         return app
+    }
+
+    func reopen(_ app: XCUIApplication) throws {
+        guard app.state == .runningBackground
+                || app.state == .runningForeground else {
+            throw FixtureError.runningApplicationIdentityMismatch
+        }
+        let matchingApplications = NSWorkspace.shared.runningApplications
+            .filter {
+                $0.bundleIdentifier
+                    == UITestPolicy.applicationBundleIdentifier
+                    && $0.bundleURL?
+                        .resolvingSymlinksInPath().standardizedFileURL
+                        == applicationURL
+            }
+        guard matchingApplications.count == 1 else {
+            throw FixtureError.runningApplicationIdentityMismatch
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = [applicationURL.path]
+        try process.run()
+        let deadline = Date().addingTimeInterval(
+            UITestPolicy.processTerminationTimeout
+        )
+        while process.isRunning && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        guard !process.isRunning else {
+            process.terminate()
+            throw FixtureError.reopenTimedOut
+        }
+        guard process.terminationStatus == 0 else {
+            throw FixtureError.reopenFailed(process.terminationStatus)
+        }
     }
 
     func remove() throws {
@@ -384,15 +409,40 @@ private final class IsolatedApplicationFixture {
             to: directory.appendingPathComponent(destination)
         )
     }
+
+    private static func builtApplicationURL(testBundle: Bundle) throws -> URL {
+        var runnerURL = testBundle.bundleURL.standardizedFileURL
+        while runnerURL.pathExtension != "app",
+              runnerURL.path != "/" {
+            runnerURL.deleteLastPathComponent()
+        }
+        guard runnerURL.pathExtension == "app" else {
+            throw FixtureError.missingTestRunner
+        }
+        let candidate = runnerURL.deletingLastPathComponent()
+            .appendingPathComponent("Homeward.app", isDirectory: true)
+            .resolvingSymlinksInPath().standardizedFileURL
+        guard FileManager.default.fileExists(atPath: candidate.path),
+              Bundle(url: candidate)?.bundleIdentifier
+                == UITestPolicy.applicationBundleIdentifier else {
+            throw FixtureError.builtApplicationIdentityMismatch(candidate.path)
+        }
+        return candidate
+    }
 }
 
 private enum FixtureError: Error {
+    case builtApplicationIdentityMismatch(String)
+    case missingFixture
     case missingResource(String)
+    case missingTestRunner
     case reopenFailed(Int32)
     case reopenTimedOut
+    case runningApplicationIdentityMismatch
 }
 
 private enum UITestPolicy {
+    static let applicationBundleIdentifier = "com.firaskafri.homeward"
     static let launchTimeout: TimeInterval = 15
     static let navigationTimeout: TimeInterval = 5
     static let onboardingStepPreference = "onboardingStep"

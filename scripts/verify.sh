@@ -105,6 +105,8 @@ xcodebuild \
   -derivedDataPath "$derived_data" \
   clean
 swift scripts/check-test-docs.swift
+PYTHONDONTWRITEBYTECODE=1 \
+  /usr/bin/python3 -m unittest scripts/test_local_candidate_manifest.py
 ./scripts/test-public-release-gates.sh
 swift test
 

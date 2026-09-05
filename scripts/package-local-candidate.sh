@@ -58,6 +58,8 @@ source_sha="$(git rev-parse HEAD)"
 }
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$app"
 homeward_verify_dsym "$binary" "$dsym"
+dsym_binary="$dsym/Contents/Resources/DWARF/Homeward"
+dsym_uuid="$(homeward_macho_uuid "$dsym_binary")"
 
 bundle_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")"
 minimum_system_version="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$plist")"
@@ -87,6 +89,10 @@ checksum="$(shasum -a 256 "$output_root/${artifact_name}.dmg" | awk '{print $1}'
 size="$(stat -f '%z' "$output_root/${artifact_name}.dmg")"
 signature="$(/usr/bin/codesign --display --verbose=1 "$app" 2>&1 |
   awk -F= '/^Signature=/{print $2}')"
+[[ "$signature" == "adhoc" ]] || {
+  printf 'Local candidate app is not ad-hoc signed.\n' >&2
+  exit 1
+}
 xcode_version="$(xcodebuild -version | tr '\n' ' ' | sed 's/ $//')"
 swift_version="$(swift --version 2>&1 | sed -n '1p')"
 
@@ -99,41 +105,17 @@ BUNDLE_IDENTIFIER="$bundle_identifier" \
 CHECKSUM="$checksum" \
 MINIMUM_SYSTEM_VERSION="$minimum_system_version" \
 DSYM_TREE_SHA="$verified_dsym_tree_sha" \
-SIGNATURE="$signature" \
+DSYM_UUID="$dsym_uuid" \
+SIGNATURE_MODE="ad-hoc" \
 SIZE="$size" \
 SOURCE_SHA="$source_sha" \
 SWIFT_VERSION="$swift_version" \
 UI_TESTS_ENABLED="$verified_ui_tests" \
 VERSION="$version" \
 XCODE_VERSION="$xcode_version" \
-/usr/bin/python3 - "$output_root/${artifact_name}.manifest.json" <<'PY'
-import json
-import os
-import sys
-
-manifest = {
-    "artifact": os.environ["ARTIFACT"],
-    "appTreeSHA256": os.environ["APP_TREE_SHA"],
-    "architecture": os.environ["ARCHITECTURE"],
-    "binaryUUID": os.environ["BINARY_UUID"],
-    "build": os.environ["BUILD"],
-    "dSYMTreeSHA256": os.environ["DSYM_TREE_SHA"],
-    "bundleIdentifier": os.environ["BUNDLE_IDENTIFIER"],
-    "license": "All rights reserved",
-    "minimumSystemVersion": os.environ["MINIMUM_SYSTEM_VERSION"],
-    "sha256": os.environ["CHECKSUM"],
-    "signature": os.environ["SIGNATURE"],
-    "size": int(os.environ["SIZE"]),
-    "sourceSHA": os.environ["SOURCE_SHA"],
-    "swift": os.environ["SWIFT_VERSION"],
-    "uiTestsEnabled": os.environ["UI_TESTS_ENABLED"] == "true",
-    "version": os.environ["VERSION"],
-    "xcode": os.environ["XCODE_VERSION"],
-}
-with open(sys.argv[1], "w", encoding="utf-8") as output:
-    json.dump(manifest, output, indent=2, sort_keys=True)
-    output.write("\n")
-PY
+/usr/bin/python3 \
+  "$repository_root/scripts/local_candidate_manifest.py" \
+  "$output_root/${artifact_name}.manifest.json"
 
 (
   cd "$output_root"
