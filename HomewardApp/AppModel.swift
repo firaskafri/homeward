@@ -829,15 +829,31 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     private func clearResolvedStartAtLoginError() {
-        guard let lastError else {
+        guard let lastError,
+              let error = StartAtLoginError(rawValue: lastError) else {
             return
         }
-        guard loginItemStatus == .enabled,
-              installationLocationStatus.supportsStartAtLogin,
-              StartAtLoginError(rawValue: lastError) != nil else {
-            return
+        let isStillRelevant = switch error {
+        case .moveRequired:
+            if case .outsideApplications = installationLocationStatus {
+                true
+            } else {
+                false
+            }
+        case .relaunchRequired:
+            if case .requiresRelaunch = installationLocationStatus {
+                true
+            } else {
+                false
+            }
+        case .locationUnavailable:
+            installationLocationStatus == .unavailable
+        case .enableFailed:
+            loginItemStatus != .enabled
         }
-        self.lastError = nil
+        if !isStillRelevant {
+            self.lastError = nil
+        }
     }
 
     func openSystemSettings() {
@@ -1842,10 +1858,13 @@ final class AppModel: NSObject, ObservableObject {
                 after: configuration.policyGeneration
             )
             var saved = try await configurationSaver(persisted)
-            if onboardingConfirmationRevision != confirmationRevision,
-               !saved.completedOnboarding {
+            var savedConfirmationRevision = confirmationRevision
+            while onboardingConfirmationRevision != savedConfirmationRevision,
+                  !saved.completedOnboarding {
+                savedConfirmationRevision = onboardingConfirmationRevision
                 saved.onboardingScheduleConfirmed =
                     configuration.onboardingScheduleConfirmed
+                saved = try await configurationSaver(saved)
             }
             configuration = saved
             configurationRevision &+= 1

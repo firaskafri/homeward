@@ -5,7 +5,7 @@
 - Native macOS menu-bar app, schedule resolution, app selection, Gentle and
   Firm closing flows, today-only changes, notes, recovery, notifications, and
   Start at Login integration.
-- Core, app-layer, fixture-backed lifecycle, and ten isolated UI scenarios
+- Core, app-layer, fixture-backed lifecycle, and fourteen isolated UI scenarios
   covering first launch, completed reopen, delayed Retry, split recovery,
   installation and login-item readiness, and representative long-name Work
   Apps reachability.

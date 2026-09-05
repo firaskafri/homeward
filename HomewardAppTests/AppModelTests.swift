@@ -765,7 +765,7 @@ struct AppModelTests {
     /// 1 - Name: Onboarding confirmation save race.
     /// 2 - Description: Dirties the schedule draft while a confirmed schedule save is suspended.
     /// 3 - Assumptions: Draft edits are synchronous while persistence can suspend.
-    /// 4 - Expectations: Completion remains unconfirmed after the stale save returns.
+    /// 4 - Expectations: Persisted and in-memory completion remain unconfirmed after the stale save returns.
     @Test
     func onboardingDirtyStateWinsPendingSave() async throws {
         let fixture = AppModelFixture()
@@ -787,6 +787,11 @@ struct AppModelTests {
 
         #expect(await save.value)
         #expect(!model.configuration.onboardingScheduleConfirmed)
+        let persistedConfigurations = await saveGate.savedConfigurations()
+        #expect(persistedConfigurations.count == 2)
+        #expect(
+            persistedConfigurations.last?.onboardingScheduleConfirmed == false
+        )
     }
 
     /// 1 - Name: Catalog refresh latest result.
@@ -1060,9 +1065,9 @@ struct AppModelTests {
     }
 
     /// 1 - Name: Login approval status refresh.
-    /// 2 - Description: Refreshes readiness after an initial location failure is resolved and Start at Login becomes enabled.
+    /// 2 - Description: Refreshes readiness as an initial location failure changes to relaunch-required and then enabled.
     /// 3 - Assumptions: Injected services report the latest installation and external approval states on every read.
-    /// 4 - Expectations: The model confirms enablement and clears only the obsolete Start-at-Login error.
+    /// 4 - Expectations: Each resolved condition clears its obsolete error before the model confirms enablement.
     @Test
     func refreshSystemStatusesConfirmsLoginApproval() async throws {
         let fixture = AppModelFixture()
@@ -1086,6 +1091,12 @@ struct AppModelTests {
         #expect(!model.enableStartAtLogin())
         #expect(model.loginItemStatus == .requiresApproval)
         #expect(model.lastError != nil)
+
+        installationStatus = .requiresRelaunch(
+            URL(fileURLWithPath: "/Applications/Homeward.app")
+        )
+        await model.refreshSystemStatuses()
+        #expect(model.lastError == nil)
 
         installationStatus = .applications
         loginStatus = .enabled

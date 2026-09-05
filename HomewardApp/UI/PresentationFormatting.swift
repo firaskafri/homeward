@@ -437,7 +437,8 @@ enum ScheduleEditorPresentation {
         for weekday in orderedWeekdays {
             let rule = rules[weekday] ?? .blockedAllDay
             if let lastIndex = groups.indices.last,
-               groups[lastIndex].rule == rule {
+               groups[lastIndex].rule == rule,
+               canGroup(rule) {
                 groups[lastIndex].weekdays.append(weekday)
             } else {
                 groups.append(([weekday], rule))
@@ -451,6 +452,13 @@ enum ScheduleEditorPresentation {
                     locale: locale
                 )
         }
+    }
+
+    private static func canGroup(_ rule: DayRule) -> Bool {
+        if case .scheduled(_, _, endsNextDay: true) = rule {
+            return false
+        }
+        return true
     }
 
     static func validation(

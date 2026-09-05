@@ -216,16 +216,6 @@ struct OnboardingView: View {
                 step = currentStep.rawValue
             }
         }
-        .onChange(
-            of: model.configuration.onboardingScheduleConfirmed
-        ) { wasConfirmed, isConfirmed in
-            guard currentStep == .schedule,
-                  !wasConfirmed,
-                  isConfirmed else {
-                return
-            }
-            step = Step.applications.rawValue
-        }
         .onChange(of: step) { _, step in
             UserDefaults.standard.set(
                 step,

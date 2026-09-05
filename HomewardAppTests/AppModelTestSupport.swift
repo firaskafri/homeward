@@ -393,6 +393,7 @@ actor ConfigurationSaveGate {
     private var firstSaveStarted = false
     private var firstSaveContinuation: CheckedContinuation<Void, Never>?
     private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var persistedConfigurations: [HomewardConfiguration] = []
 
     func save(
         _ configuration: HomewardConfiguration
@@ -406,6 +407,7 @@ actor ConfigurationSaveGate {
                 firstSaveContinuation = continuation
             }
         }
+        persistedConfigurations.append(configuration)
         return configuration
     }
 
@@ -421,6 +423,10 @@ actor ConfigurationSaveGate {
     func releaseFirstSave() {
         firstSaveContinuation?.resume()
         firstSaveContinuation = nil
+    }
+
+    func savedConfigurations() -> [HomewardConfiguration] {
+        persistedConfigurations
     }
 }
 

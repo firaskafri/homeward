@@ -143,6 +143,7 @@ struct ScheduleEditorView: View {
                     }
                 }
             }
+            .disabled(isSaving)
             .formStyle(.grouped)
             .frame(maxWidth: HomewardMetrics.scheduleFormMaxWidth)
             .frame(maxWidth: .infinity)
@@ -271,7 +272,11 @@ struct ScheduleEditorView: View {
             .accessibilityIdentifier("schedule.reset")
 
             Button {
-                save()
+                if requiresOnboardingConfirmation, !canSave {
+                    onSuccessfulOnboardingSave()
+                } else {
+                    save()
+                }
             } label: {
                 if isSaving {
                     HStack(spacing: 6) {
@@ -281,14 +286,15 @@ struct ScheduleEditorView: View {
                     }
                 } else {
                     Text(
-                        requiresOnboardingConfirmation
-                            ? "Save & Continue"
-                            : "Save Schedule"
+                        primaryActionTitle
                     )
                 }
             }
             .keyboardShortcut("s", modifiers: .command)
-            .disabled(isSaving || !canSave)
+            .disabled(
+                isSaving
+                    || (!requiresOnboardingConfirmation && !canSave)
+            )
             .accessibilityIdentifier("schedule.save")
         }
     }
@@ -312,6 +318,13 @@ struct ScheduleEditorView: View {
 
     private var canSave: Bool {
         hasDraftChanges || onboardingNeedsConfirmation
+    }
+
+    private var primaryActionTitle: String {
+        guard requiresOnboardingConfirmation else {
+            return "Save Schedule"
+        }
+        return canSave ? "Save & Continue" : "Continue"
     }
 
     private func ruleBinding(for weekday: Weekday) -> Binding<DayRule> {
@@ -395,14 +408,17 @@ struct ScheduleEditorView: View {
                 expectedRevision: draftRevision,
                 confirmsImmediateClose: confirmsImmediateClose
             ) {
-                if draftEditRevision == submittedEditRevision {
+                let submittedDraftIsCurrent =
+                    draftEditRevision == submittedEditRevision
+                if submittedDraftIsCurrent {
                     rules = model.configuration.schedule.rules
                 }
                 draftRevision = model.policyRevision
                 lastSavedScheduleWasConfirmed =
                     model.configuration.onboardingScheduleConfirmed
                 isSaving = false
-                if requiresOnboardingConfirmation {
+                if requiresOnboardingConfirmation,
+                   submittedDraftIsCurrent {
                     onSuccessfulOnboardingSave()
                 }
             } else {

@@ -82,6 +82,32 @@ struct ScheduleEditorPresentationTests {
         #expect(lines[1] == "Sat–Sun · Closed all day")
     }
 
+    /// 1 - Name: Overnight summaries remain day-specific.
+    /// 2 - Description: Formats consecutive equal overnight rules without combining their different destination weekdays.
+    /// 3 - Assumptions: Each overnight rule belongs to the weekday on which it starts.
+    /// 4 - Expectations: Monday names Tuesday and Tuesday names Wednesday on separate lines.
+    @Test
+    func overnightSummaryLinesPreserveDestinations() throws {
+        let overnight = DayRule.scheduled(
+            start: try LocalTime(hour: 22, minute: 0),
+            end: try LocalTime(hour: 5, minute: 0),
+            endsNextDay: true
+        )
+
+        let lines = ScheduleEditorPresentation.weeklySummaryLines(
+            rules: [
+                .monday: overnight,
+                .tuesday: overnight,
+            ],
+            locale: locale
+        )
+
+        #expect(lines[0].hasPrefix("Mon · "))
+        #expect(lines[0].contains("Tuesday"))
+        #expect(lines[1].hasPrefix("Tue · "))
+        #expect(lines[1].contains("Wednesday"))
+    }
+
     /// 1 - Name: Weekday-specific validation guidance.
     /// 2 - Description: Formats boundary and overnight errors with their source and destination weekdays.
     /// 3 - Assumptions: WeeklySchedule supplies the typed weekday values associated with each invalid rule.

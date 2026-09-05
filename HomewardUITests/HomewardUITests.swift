@@ -204,9 +204,9 @@ final class HomewardUITests: XCTestCase {
     }
 
     /// 1 - Name: Compact schedule disclosure reachability.
-    /// 2 - Description: Shrinks first-launch setup to its minimum width and opens two different weekday disclosures.
+    /// 2 - Description: Shrinks first-launch setup to its minimum width and opens weekday disclosures at the start and end of the week.
     /// 3 - Assumptions: The empty isolated repository supplies the default workweek and the native window honors its SwiftUI minimum.
-    /// 4 - Expectations: Every collapsed day remains reachable and opening Tuesday closes Monday before exposing Tuesday controls.
+    /// 4 - Expectations: Every day remains reachable, switching days closes the prior editor, and Sunday can be opened after scrolling.
     func testScheduleDisclosuresRemainReachableAtMinimumWidth() throws {
         let app = try launch(.firstLaunch)
         let window = app.windows.firstMatch
@@ -266,6 +266,18 @@ final class HomewardUITests: XCTestCase {
                 in: app
             ).value as? String,
             "Collapsed"
+        )
+
+        scrollToVisible(sunday, in: app.scrollViews.firstMatch)
+        XCTAssertTrue(sunday.isHittable)
+        sunday.click()
+        let sundayExpanded = expectation(
+            for: NSPredicate(format: "value == %@", "Expanded"),
+            evaluatedWith: sunday
+        )
+        wait(
+            for: [sundayExpanded],
+            timeout: UITestPolicy.navigationTimeout
         )
     }
 
@@ -494,6 +506,16 @@ final class HomewardUITests: XCTestCase {
         )
     }
 
+    private func scrollToVisible(
+        _ element: XCUIElement,
+        in scrollView: XCUIElement
+    ) {
+        for _ in 0..<UITestPolicy.maximumScrollAttempts
+        where !element.isHittable {
+            scrollView.swipeUp()
+        }
+    }
+
 }
 
 /// 1 - Name: Isolated UI application fixture.
@@ -606,7 +628,14 @@ private final class IsolatedApplicationFixture {
                 "\(initialOnboardingStep)",
             ]
         }
-        app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+        app.launchArguments += [
+            "-AppleLanguages",
+            "(en)",
+            "-AppleLocale",
+            "en_US",
+            "-ApplePersistenceIgnoreState",
+            "YES",
+        ]
         app.launchEnvironment["HOMEWARD_STORAGE_DIRECTORY"] = directory.path
         app.launchEnvironment[UITestPolicy.runtimeIsolationEnvironment] = "1"
         app.launchEnvironment[UITestPolicy.scenarioEnvironment] =
@@ -747,10 +776,20 @@ private final class IsolatedApplicationFixture {
         guard runnerURL.pathExtension == "app" else {
             throw FixtureError.missingTestRunner
         }
-        let candidate = runnerURL.deletingLastPathComponent()
-            .appendingPathComponent("Homeward.app", isDirectory: true)
+        let buildProductsURL = runnerURL.deletingLastPathComponent()
             .resolvingSymlinksInPath().standardizedFileURL
-        guard FileManager.default.fileExists(atPath: candidate.path),
+        let unresolvedCandidate = buildProductsURL
+            .appendingPathComponent("Homeward.app", isDirectory: true)
+        let candidate = unresolvedCandidate
+            .resolvingSymlinksInPath().standardizedFileURL
+        let isSymbolicLink = (
+            try? unresolvedCandidate.resourceValues(
+                forKeys: [.isSymbolicLinkKey]
+            ).isSymbolicLink
+        ) ?? false
+        guard !isSymbolicLink,
+              candidate.deletingLastPathComponent() == buildProductsURL,
+              FileManager.default.fileExists(atPath: candidate.path),
               let bundleIdentifier = Bundle(url: candidate)?.bundleIdentifier,
               UITestPolicy.isAllowedApplicationBundleIdentifier(
                 bundleIdentifier
@@ -777,6 +816,7 @@ private enum UITestPolicy {
     static let bootstrapRetryTimeout: TimeInterval = 30
     static let launchTimeout: TimeInterval = 15
     static let navigationTimeout: TimeInterval = 5
+    static let maximumScrollAttempts = 5
     static let onboardingStepPreference = "onboardingStep"
     static let runtimeIsolationEnvironment = "HOMEWARD_UI_TESTING"
     static let scenarioEnvironment = "HOMEWARD_UI_TEST_SCENARIO"

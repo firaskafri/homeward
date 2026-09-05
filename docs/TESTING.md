@@ -30,7 +30,9 @@ for example `HOMEWARD_DERIVED_DATA_PATH=.build/xcode-agent-1
 - `HomewardUITests`: first-launch and completed-setup reopening, delayed
   startup and Retry, configuration-versus-notes recovery, outside-Applications
   Start at Login gating, moved-app restart guidance, login approval and enabled
-  states, and representative long-English Work Apps reachability.
+  states, compact schedule disclosure reachability, schedule editing,
+  overnight labels, onboarding schedule progression, and representative
+  long-English Work Apps reachability.
 - `xcodebuild analyze`: static analysis under the production project settings.
 - Release build inspection: arm64 architecture, menu-bar accessory property,
   and fixture exclusion.
@@ -65,8 +67,9 @@ unavailable.
 The lifecycle controller independently enforces the automated boundary
 immediately before activation or termination: hosted tests permit only the
 adjacent `HomewardFixture.app` identity. Normal app runs retain the product's
-user-selected app behavior; the Slack-only requirement applies to manual and
-agent-driven validation.
+user-selected app behavior except for the non-overridable protected-app
+denylist, which includes Homeward, critical macOS processes, and Cursor. The
+Slack-only requirement applies to manual and agent-driven validation.
 
 The UI suite uses one named `IsolatedApplicationFixture.Scenario` mechanism.
 Each scenario creates unique temporary storage, copies only its declared
@@ -94,12 +97,15 @@ routing and shared confirmation intent; Saved Thoughts concealment, session
 transitions, completion Restore, and recovery; Firm Stop ordering and
 presentation precedence; installation-location gating; and representative
 long-application-name reachability. Isolated UI scenarios additionally cover
-the Start-at-Login approval, enabled-confirmation, and moved-app restart states.
+compact schedule summaries, one-day-at-a-time editing, mode/reset behavior,
+overnight destination labels, onboarding Save & Continue, Start-at-Login
+approval, enabled-confirmation, and moved-app restart states.
 
 The long-English UI scenario proves that the Work Apps row and chooser remain
-reachable with a representative long application name. It does not certify
-compact resizing, system text-size settings, other long-copy surfaces, or
-assistive-technology navigation modes.
+reachable with a representative long application name. The schedule scenario
+proves structural reachability at the minimum window width. Automation does
+not certify visual quality at every resize point, system text-size settings,
+other long-copy surfaces, or assistive-technology navigation modes.
 
 ## Manual gates
 
