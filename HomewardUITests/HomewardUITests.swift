@@ -351,7 +351,7 @@ private final class IsolatedApplicationFixture {
         }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = [applicationURL.path]
+        process.arguments = ["-a", applicationURL.path]
         try process.run()
         let deadline = Date().addingTimeInterval(
             UITestPolicy.processTerminationTimeout

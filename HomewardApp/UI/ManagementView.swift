@@ -12,25 +12,35 @@ struct ManagementView: View {
             VStack(spacing: 0) {
                 sidebarHeader
 
-                List(HomewardRoute.allCases, selection: $navigation.selection) { destination in
-                    HStack {
-                        Label(
-                            destination.rawValue,
-                            systemImage: destination.symbol
-                        )
-                        if destination == .savedThoughts,
-                           model.availableNotesCount > 0 {
-                            Spacer()
-                            Text("\(model.availableNotesCount)")
-                                .monospacedDigit()
-                                .accessibilityLabel(
-                                    "\(model.availableNotesCount) saved thoughts"
-                                )
+                List(HomewardRoute.allCases) { destination in
+                    Button {
+                        navigation.select(destination)
+                    } label: {
+                        HStack {
+                            Label(
+                                destination.rawValue,
+                                systemImage: destination.symbol
+                            )
+                            if destination == .savedThoughts,
+                               model.availableNotesCount > 0 {
+                                Spacer()
+                                Text("\(model.availableNotesCount)")
+                                    .monospacedDigit()
+                                    .accessibilityLabel(
+                                        "\(model.availableNotesCount) saved thoughts"
+                                    )
+                            }
                         }
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                     .font(.body.weight(.medium))
                     .padding(.vertical, HomewardSpacing.xSmall)
-                    .tag(destination)
+                    .listRowBackground(
+                        navigation.selection == destination
+                            ? HomewardTone.rest.color.opacity(0.12)
+                            : Color.clear
+                    )
                     .accessibilityIdentifier(
                         "navigation.\(destination.rawValue)"
                     )
