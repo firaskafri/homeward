@@ -25,8 +25,8 @@ final class HomewardJourneyUITests: XCTestCase {
     /// 2 - Description: Starts from empty storage, confirms the default schedule, and reaches the work-app requirement.
     /// 3 - Assumptions: The default schedule is valid but must be explicitly confirmed before setup can advance.
     /// 4 - Expectations: Setup starts at step one and then exposes a visible, programmatic blocker until an app is selected.
-    func testFirstLaunchBeginsCompleteOnboardingJourney() throws {
-        let app = try launch(.firstLaunch)
+    func testFirstLaunchBeginsCompleteOnboardingJourney() async throws {
+        let app = try await launch(.firstLaunch)
         XCTAssertTrue(element("onboarding.step.1", in: app).waitForExistence(
             timeout: ShellPolicy.launchTimeout
         ))
@@ -46,8 +46,8 @@ final class HomewardJourneyUITests: XCTestCase {
     /// 2 - Description: Opens onboarding review with completed essentials and chooses the explicit preview-skip path.
     /// 3 - Assumptions: Preview is optional and skipping it applies only to the current onboarding decision.
     /// 4 - Expectations: Run Preview, Skip Preview, and Start Homeward are separately visible, and skipping explains that preview remains available.
-    func testOnboardingReviewOffersRunAndSkipPreview() throws {
-        let app = try launch(.review)
+    func testOnboardingReviewOffersRunAndSkipPreview() async throws {
+        let app = try await launch(.review)
         XCTAssertTrue(element("onboarding.step.5", in: app).waitForExistence(
             timeout: ShellPolicy.launchTimeout
         ))
@@ -75,8 +75,8 @@ final class HomewardJourneyUITests: XCTestCase {
     /// 2 - Description: Runs preview for a selected preview-only identity that is deliberately not running.
     /// 3 - Assumptions: The shell catalog resolves the selection without mapping it to an installed application.
     /// 4 - Expectations: Preview gives reason-specific recovery guidance and ends without an irreversible-quit warning.
-    func testPreviewExplainsMissingApplication() throws {
-        let app = try launch(.review)
+    func testPreviewExplainsMissingApplication() async throws {
+        let app = try await launch(.review)
         XCTAssertTrue(element("onboarding.step.5", in: app).waitForExistence(
             timeout: ShellPolicy.launchTimeout
         ))
@@ -120,8 +120,8 @@ final class HomewardJourneyUITests: XCTestCase {
     /// 2 - Description: Launches completed setup and traverses every primary management destination.
     /// 3 - Assumptions: The shell catalog resolves the persisted preview application and the schedule is available all day.
     /// 4 - Expectations: Today, Schedule, Work Apps, Closing, and Saved Thoughts are reachable through production navigation.
-    func testCompletedSetupTraversesPrimaryDestinations() throws {
-        let app = try launch(.completed)
+    func testCompletedSetupTraversesPrimaryDestinations() async throws {
+        let app = try await launch(.completed)
         XCTAssertTrue(element("today.view", in: app).waitForExistence(
             timeout: ShellPolicy.launchTimeout
         ))
@@ -145,8 +145,8 @@ final class HomewardJourneyUITests: XCTestCase {
     /// 2 - Description: Starts with corrupt settings and verifies that recovery supersedes ordinary schedule state.
     /// 3 - Assumptions: The shell writes malformed configuration into isolated storage before app bootstrap.
     /// 4 - Expectations: Closing is paused, recovery actions are visible, and no schedule claim is presented.
-    func testCorruptConfigurationFailsOpenIntoRecovery() throws {
-        let app = try launch(.configurationRecovery)
+    func testCorruptConfigurationFailsOpenIntoRecovery() async throws {
+        let app = try await launch(.configurationRecovery)
         XCTAssertTrue(element("recovery.view", in: app).waitForExistence(
             timeout: ShellPolicy.launchTimeout
         ))
@@ -160,8 +160,8 @@ final class HomewardJourneyUITests: XCTestCase {
     /// 2 - Description: Starts with valid completed settings and corrupt notes, then opens Saved Thoughts.
     /// 3 - Assumptions: Configuration and notes are stored separately and only notes are malformed.
     /// 4 - Expectations: Runtime remains operational while Saved Thoughts offers notes-only recovery.
-    func testNotesRecoveryDoesNotPauseRuntime() throws {
-        let app = try launch(.notesRecovery)
+    func testNotesRecoveryDoesNotPauseRuntime() async throws {
+        let app = try await launch(.notesRecovery)
         XCTAssertTrue(element("today.view", in: app).waitForExistence(
             timeout: ShellPolicy.launchTimeout
         ))
@@ -180,8 +180,8 @@ final class HomewardJourneyUITests: XCTestCase {
     /// 2 - Description: Confirms the primary action from an available completed configuration.
     /// 3 - Assumptions: No selected process is running, so the override cannot control another application.
     /// 4 - Expectations: Today transitions to closed state, offers thought capture, and preserves Gentle configuration.
-    func testEndWorkNowPresentsClosedGentleState() throws {
-        let app = try launch(.completed)
+    func testEndWorkNowPresentsClosedGentleState() async throws {
+        let app = try await launch(.completed)
         XCTAssertTrue(element("today.view", in: app).waitForExistence(
             timeout: ShellPolicy.launchTimeout
         ))
@@ -202,8 +202,8 @@ final class HomewardJourneyUITests: XCTestCase {
     /// 2 - Description: Removes a temporary availability override whose underlying weekly schedule is currently closed.
     /// 3 - Assumptions: The scenario starts available only because of a bounded today-only override and uses Gentle Close.
     /// 4 - Expectations: Homeward explains the exact immediate Gentle consequence and requires confirmation before applying the weekly schedule.
-    func testReturnToWeeklyScheduleConfirmsImmediateClose() throws {
-        let app = try launch(.temporarilyAvailable)
+    func testReturnToWeeklyScheduleConfirmsImmediateClose() async throws {
+        let app = try await launch(.temporarilyAvailable)
         XCTAssertTrue(element("today.view", in: app).waitForExistence(
             timeout: ShellPolicy.launchTimeout
         ))
@@ -235,13 +235,13 @@ final class HomewardJourneyUITests: XCTestCase {
 
     private func launch(
         _ scenario: ShellApplicationFixture.Scenario
-    ) throws -> XCUIApplication {
+    ) async throws -> XCUIApplication {
         let fixture = try ShellApplicationFixture(
             scenario: scenario,
             bundle: Bundle(for: Self.self)
         )
         self.fixture = fixture
-        return try fixture.launch()
+        return try await fixture.launch()
     }
 
     private func element(
@@ -346,7 +346,7 @@ private final class ShellApplicationFixture {
         try seedStorage()
     }
 
-    func launch() throws -> XCUIApplication {
+    func launch() async throws -> XCUIApplication {
         try rejectUnexpectedRunningShells()
         let app = XCUIApplication()
         app.launchEnvironment["HOMEWARD_STORAGE_DIRECTORY"] = directory.path
@@ -379,14 +379,16 @@ private final class ShellApplicationFixture {
                 + ShellPolicy.launchTimeout
             while !FileManager.default.fileExists(atPath: readyURL.path),
                   ProcessInfo.processInfo.systemUptime < readyDeadline {
-                Thread.sleep(forTimeInterval: ShellPolicy.pollInterval)
+                try await Task.sleep(
+                    for: .milliseconds(ShellPolicy.pollMilliseconds)
+                )
             }
             guard FileManager.default.fileExists(atPath: readyURL.path) else {
                 throw ShellFixtureError.shellDidNotStart
             }
         }
         if scenario.requiresReopen {
-            try reopen(app)
+            try await reopen(app)
         }
         return app
     }
@@ -474,28 +476,21 @@ private final class ShellApplicationFixture {
         }
     }
 
-    private func reopen(_ app: XCUIApplication) throws {
+    private func reopen(_ app: XCUIApplication) async throws {
         guard app.menuBars.statusItems.firstMatch.waitForExistence(
             timeout: ShellPolicy.launchTimeout
         ), exactRunningShell() != nil else {
             throw ShellFixtureError.runningIdentityMismatch
         }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = [applicationURL.path]
-        try process.run()
-        let deadline = ProcessInfo.processInfo.systemUptime
-            + ShellPolicy.terminationTimeout
-        while process.isRunning,
-              ProcessInfo.processInfo.systemUptime < deadline {
-            Thread.sleep(forTimeInterval: ShellPolicy.pollInterval)
-        }
-        guard !process.isRunning else {
-            process.terminate()
-            throw ShellFixtureError.reopenTimedOut
-        }
-        guard process.terminationStatus == 0 else {
-            throw ShellFixtureError.reopenFailed(process.terminationStatus)
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        let reopened = try await NSWorkspace.shared.openApplication(
+            at: applicationURL,
+            configuration: configuration
+        )
+        guard reopened.processIdentifier == exactRunningShell()?
+            .processIdentifier else {
+            throw ShellFixtureError.runningIdentityMismatch
         }
         guard app.windows["homeward"].waitForExistence(
             timeout: ShellPolicy.navigationTimeout
@@ -528,7 +523,6 @@ private final class ShellApplicationFixture {
 }
 
 private enum ShellFixtureError: Error {
-    case reopenFailed(Int32)
     case reopenTimedOut
     case runningIdentityMismatch
     case shellDidNotStart
@@ -543,4 +537,5 @@ private enum ShellPolicy {
     static let navigationTimeout: TimeInterval = 8
     static let terminationTimeout: TimeInterval = 15
     static let pollInterval: TimeInterval = 0.05
+    static let pollMilliseconds = 50
 }
