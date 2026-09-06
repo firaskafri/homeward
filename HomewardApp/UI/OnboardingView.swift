@@ -13,6 +13,7 @@ struct OnboardingView: View {
         case selectedApplications
         case completedEssentials
 
+        @MainActor
         func isSatisfied(by model: AppModel) -> Bool {
             let hasResolvableApplication =
                 model.configuration.selectedApplications.contains {

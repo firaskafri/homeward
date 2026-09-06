@@ -4,7 +4,7 @@ import HomewardCore
 
 @MainActor
 final class HomewardUITestScenarioFixture {
-    static let environmentKey = "HOMEWARD_UI_TEST_SCENARIO"
+    nonisolated static let environmentKey = "HOMEWARD_UI_TEST_SCENARIO"
 
     enum Scenario: String {
         case standard
