@@ -175,6 +175,18 @@ final class PlatformIntegrationTests: XCTestCase {
         ) else {
             throw FixtureError.invalidFixtureIdentity(url)
         }
+        let launchDeadline = Date().addingTimeInterval(
+            FixturePolicy.launchObservationTimeout
+        )
+        while !application.isFinishedLaunching, Date() < launchDeadline {
+            try await Task.sleep(
+                for: .seconds(FixturePolicy.pollInterval)
+            )
+        }
+        guard application.isFinishedLaunching,
+              !application.isTerminated else {
+            throw FixtureError.fixtureDidNotBecomeReady(url)
+        }
         return application
     }
 
@@ -290,6 +302,7 @@ private final class FixtureLaunchObserver: NSObject {
 }
 
 private enum FixtureError: Error {
+    case fixtureDidNotBecomeReady(URL)
     case fixtureNotBuilt(URL)
     case invalidFixtureIdentity(URL)
     case terminationTimedOut(URL)
