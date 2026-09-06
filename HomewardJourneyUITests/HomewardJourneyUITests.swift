@@ -16,7 +16,7 @@ import XCTest
 final class HomewardJourneyUITests: XCTestCase {
     private var fixture: ShellApplicationFixture?
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         try fixture?.remove()
         fixture = nil
     }

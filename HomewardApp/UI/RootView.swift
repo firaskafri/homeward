@@ -26,6 +26,7 @@ struct RootView: View {
     private var delayedStartupView: some View {
         VStack(spacing: HomewardSpacing.large) {
             ProgressView(model.presentationSnapshot.title)
+                .accessibilityIdentifier("startup.delayed")
             Text(model.presentationSnapshot.transitionText ?? "")
                 .foregroundStyle(.secondary)
             Button("Retry") {
@@ -34,7 +35,6 @@ struct RootView: View {
         }
         .padding(HomewardSpacing.xLarge)
         .frame(minWidth: 520, minHeight: 320)
-        .accessibilityIdentifier("startup.delayed")
     }
 
     private var applicationResolutionRecoveryView: some View {
@@ -44,6 +44,7 @@ struct RootView: View {
                 systemImage: "exclamationmark.triangle"
             )
             .font(.title2.bold())
+            .accessibilityIdentifier("application-resolution.recovery")
             Text(model.presentationSnapshot.transitionText ?? "")
             .foregroundStyle(.secondary)
             if let error = model.lastError {
@@ -57,7 +58,6 @@ struct RootView: View {
         }
         .padding(HomewardSpacing.xLarge)
         .frame(minWidth: 520, minHeight: 320)
-        .accessibilityIdentifier("application-resolution.recovery")
     }
 
     private var recoveryView: some View {
@@ -67,6 +67,7 @@ struct RootView: View {
                 systemImage: "exclamationmark.triangle"
             )
             .font(.title2.bold())
+            .accessibilityIdentifier("recovery.view")
             Text(model.presentationSnapshot.transitionText ?? "")
                 .foregroundStyle(.secondary)
             if let error = model.lastError {
@@ -104,6 +105,5 @@ struct RootView: View {
         } message: {
             Text("This replaces unverified settings with a fresh setup. Saved thoughts remain.")
         }
-        .accessibilityIdentifier("recovery.view")
     }
 }

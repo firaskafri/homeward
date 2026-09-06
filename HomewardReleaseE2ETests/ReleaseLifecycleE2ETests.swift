@@ -14,7 +14,7 @@ import XCTest
 final class ReleaseLifecycleE2ETests: XCTestCase {
     private var fixture: ReleaseE2EFixture?
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         try fixture?.remove()
         fixture = nil
     }
