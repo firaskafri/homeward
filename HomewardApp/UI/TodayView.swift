@@ -14,6 +14,7 @@ struct TodayView: View {
     @ObservedObject var model: AppModel
     @State private var activeSheet: ActiveSheet?
     @State private var showTakeDayOffConfirmation = false
+    @State private var showReturnToWeeklyConfirmation = false
     @State private var detailsAreExpanded = false
     @FocusState private var primaryActionFocused: Bool
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -62,7 +63,7 @@ struct TodayView: View {
                 Button(
                     intent.actionTitle
                 ) {
-                    Task { await model.confirmPolicyAction() }
+                    Task { await model.confirmPolicyAction(intent) }
                 }
             }
             Button("Cancel", role: .cancel) {
@@ -102,6 +103,22 @@ struct TodayView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(TodayActionPresentation.takeDayOffConfirmationMessage)
+        }
+        .confirmationDialog(
+            "Return to the weekly schedule and close work apps?",
+            isPresented: $showReturnToWeeklyConfirmation
+        ) {
+            Button("Return & Close", role: .destructive) {
+                Task { await model.returnToWeeklySchedule() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                SchedulePresentation.immediateClosingMessage(
+                    context: "The weekly schedule is closed now.",
+                    closeMode: model.configuration.closeMode
+                )
+            )
         }
         .accessibilityIdentifier("today.view")
         .onChange(of: model.isSessionActive) { _, isActive in
@@ -565,7 +582,11 @@ struct TodayView: View {
         case .takeDayOff:
             showTakeDayOffConfirmation = true
         case .returnToWeeklySchedule:
-            Task { await model.returnToWeeklySchedule() }
+            if model.returnToWeeklyScheduleRequiresImmediateClose {
+                showReturnToWeeklyConfirmation = true
+            } else {
+                Task { await model.returnToWeeklySchedule() }
+            }
         }
     }
 }

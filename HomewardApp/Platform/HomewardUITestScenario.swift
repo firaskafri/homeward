@@ -13,6 +13,7 @@ final class HomewardUITestScenarioFixture {
         case loginEnabled
         case movedToApplications
         case outsideApplications
+        case releaseLifecycle
     }
 
     private let scenario: Scenario
@@ -41,6 +42,9 @@ final class HomewardUITestScenarioFixture {
         if scenario == .delayedStartupRetry,
            catalogDiscoveryCount == 1 {
             try await Task.sleep(for: .seconds(30))
+        }
+        if scenario == .releaseLifecycle {
+            return try releaseLifecycleApplications()
         }
         guard scenario == .outsideApplications else {
             return []
@@ -82,7 +86,8 @@ final class HomewardUITestScenarioFixture {
                     )
                 }
             )
-        case .standard, .delayedStartupRetry, .loginApproval, .loginEnabled:
+        case .standard, .delayedStartupRetry, .loginApproval, .loginEnabled,
+             .releaseLifecycle:
             InstallationLocationService(statusProvider: { .applications })
         }
     }
@@ -115,4 +120,42 @@ final class HomewardUITestScenarioFixture {
             icon: NSImage(size: NSSize(width: 16, height: 16))
         )
     }
+
+    private func releaseLifecycleApplications() throws
+        -> [CatalogApplication]
+    {
+        let productsDirectory = Bundle.main.bundleURL
+            .deletingLastPathComponent()
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+        let unresolvedFixture = productsDirectory.appendingPathComponent(
+            "HomewardFixture.app",
+            isDirectory: true
+        )
+        let fixtureURL = unresolvedFixture
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+        let isSymbolicLink = (
+            try? unresolvedFixture.resourceValues(
+                forKeys: [.isSymbolicLinkKey]
+            ).isSymbolicLink
+        ) ?? false
+        guard !isSymbolicLink,
+              fixtureURL.deletingLastPathComponent() == productsDirectory,
+              Bundle(url: fixtureURL)?.bundleIdentifier
+                == "com.firaskafri.homeward.fixture" else {
+            throw HomewardUITestScenarioError.invalidReleaseFixture
+        }
+        return [
+            application(
+                name: "Homeward Fixture",
+                bundleIdentifier: "com.firaskafri.homeward.fixture",
+                path: fixtureURL.path
+            ),
+        ]
+    }
+}
+
+private enum HomewardUITestScenarioError: Error {
+    case invalidReleaseFixture
 }

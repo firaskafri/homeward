@@ -8,6 +8,8 @@ let testDirectories = [
     "Tests",
     "HomewardAppTests",
     "HomewardUITests",
+    "HomewardJourneyUITests",
+    "HomewardReleaseE2ETests",
 ]
 let headings = [
     "1 - Name",

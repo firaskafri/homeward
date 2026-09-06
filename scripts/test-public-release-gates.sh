@@ -9,6 +9,9 @@ set -euo pipefail
 #   inventory matching, including exact failure diagnostics for dirty, unpushed,
 #   lightweight, unsigned, malformed identity, malformed team, and missing
 #   profile edge cases.
+# - Validate strict three-layer UI release evidence, including local-disabled
+#   records and fail-closed old, false, malformed, wrong configuration, wrong
+#   scheme, and malformed artifact-hash scenarios.
 
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/public-release-gates.sh
@@ -222,11 +225,20 @@ cat >"$non_ui_evidence" <<'JSON'
   "appTreeSHA256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "binaryUUID": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",
   "build": "1",
+  "coverageContractSHA256": null,
   "dSYMTreeSHA256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-  "schemaVersion": 2,
+  "journeyE2EEnabled": false,
+  "journeyResultSHA256": null,
+  "releaseE2EConfiguration": null,
+  "releaseE2EEnabled": false,
+  "releaseE2EScheme": null,
+  "releaseResultSHA256": null,
+  "schemaVersion": 3,
   "sourceSHA": "cccccccccccccccccccccccccccccccccccccccc",
   "uiTestsEnabled": false,
-  "version": "0.1.0"
+  "uiResultSHA256": null,
+  "version": "0.1.0",
+  "xctestrunSHA256": null
 }
 JSON
 cat >"$ui_evidence" <<'JSON'
@@ -234,50 +246,224 @@ cat >"$ui_evidence" <<'JSON'
   "appTreeSHA256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "binaryUUID": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",
   "build": "1",
+  "coverageContractSHA256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
   "dSYMTreeSHA256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-  "schemaVersion": 2,
+  "journeyE2EEnabled": true,
+  "journeyResultSHA256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "releaseE2EConfiguration": "Release",
+  "releaseE2EEnabled": true,
+  "releaseE2EScheme": "HomewardReleaseE2E",
+  "releaseResultSHA256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "schemaVersion": 3,
   "sourceSHA": "cccccccccccccccccccccccccccccccccccccccc",
   "uiTestsEnabled": true,
-  "version": "0.1.0"
+  "uiResultSHA256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "version": "0.1.0",
+  "xctestrunSHA256": "1111111111111111111111111111111111111111111111111111111111111111"
 }
 JSON
 
-# 1 - UI-disabled evidence fails closed
-# 2 - Confirms a successful non-UI verification cannot authorize publication.
-# 3 - Assumes every other schema-2 evidence field is valid.
-# 4 - Expects the public evidence parser to reject uiTestsEnabled false.
+# 1 - Name: UI-disabled public evidence fails closed
+# 2 - Description: Confirms a local verification with all UI layers disabled cannot authorize publication.
+# 3 - Assumptions: Every disabled field follows the strict schema-3 null contract.
+# 4 - Expectations: The public evidence parser requires all three UI layers.
 test_ui_disabled_evidence_fails_closed() {
   homeward_read_release_evidence "$non_ui_evidence" 1
 }
 assert_fails \
   "UI-disabled evidence fails closed" \
-  "Public release requires UI-enabled verification evidence" \
+  "Public release requires all UI evidence layers" \
   test_ui_disabled_evidence_fails_closed
 
 # 1 - Name: UI-disabled local evidence succeeds
-# 2 - Description: Confirms non-UI evidence is valid for local packaging.
-# 3 - Assumptions: Every other schema-2 evidence field is valid.
-# 4 - Expectations: The validated record ends in the false UI-test value.
+# 2 - Description: Confirms an explicit all-disabled UI evidence record is valid for local packaging.
+# 3 - Assumptions: Disabled artifacts, configuration, and scheme are represented by JSON null.
+# 4 - Expectations: Shell-safe assignments expose three false flags and empty optional values.
 test_ui_disabled_local_evidence_succeeds() {
-  local result
-  result="$(homeward_read_release_evidence "$non_ui_evidence" 0)"
-  [[ "$result" == $'cccccccccccccccccccccccccccccccccccccccc\taaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\tAAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE\tbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\t0.1.0\t1\tfalse' ]]
+  local assignments
+  local verified_coverage_contract_sha256=""
+  local verified_journey_e2e=""
+  local verified_journey_result_sha256=""
+  local verified_release_e2e=""
+  local verified_release_e2e_configuration=""
+  local verified_release_e2e_scheme=""
+  local verified_release_result_sha256=""
+  local verified_ui_tests=""
+  local verified_ui_result_sha256=""
+  local verified_xctestrun_sha256=""
+  assignments="$(homeward_read_release_evidence "$non_ui_evidence" 0)"
+  eval "$assignments"
+  [[ "$verified_ui_tests" == "false" &&
+     "$verified_journey_e2e" == "false" &&
+     "$verified_release_e2e" == "false" &&
+     -z "$verified_ui_result_sha256" &&
+     -z "$verified_coverage_contract_sha256" &&
+     -z "$verified_journey_result_sha256" &&
+     -z "$verified_release_result_sha256" &&
+     -z "$verified_xctestrun_sha256" &&
+     -z "$verified_release_e2e_configuration" &&
+     -z "$verified_release_e2e_scheme" ]]
 }
 assert_passes \
   "UI-disabled local evidence succeeds" \
   test_ui_disabled_local_evidence_succeeds
 
-# 1 - Valid UI-enabled evidence succeeds
-# 2 - Confirms strict schema-2 evidence can pass the public evidence parser.
-# 3 - Assumes hashes, UUID, source, version, and build use canonical formats.
-# 4 - Expects one tab-delimited evidence record after validation.
+# 1 - Name: Valid complete UI evidence succeeds
+# 2 - Description: Confirms strict schema-3 evidence can pass the public evidence parser.
+# 3 - Assumptions: All three layers are enabled with canonical hashes, configuration, and scheme.
+# 4 - Expectations: Shell-safe assignments preserve every release evidence identity.
 test_valid_ui_evidence_succeeds() {
-  local result
-  result="$(homeward_read_release_evidence "$ui_evidence" 1)"
-  [[ "$result" == $'cccccccccccccccccccccccccccccccccccccccc\taaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\tAAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE\tbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\t0.1.0\t1\ttrue' ]]
+  local assignments
+  local verified_coverage_contract_sha256=""
+  local verified_journey_e2e=""
+  local verified_journey_result_sha256=""
+  local verified_release_e2e=""
+  local verified_release_e2e_configuration=""
+  local verified_release_e2e_scheme=""
+  local verified_release_result_sha256=""
+  local verified_source_sha=""
+  local verified_ui_tests=""
+  local verified_ui_result_sha256=""
+  local verified_xctestrun_sha256=""
+  assignments="$(homeward_read_release_evidence "$ui_evidence" 1)"
+  eval "$assignments"
+  [[ "$verified_source_sha" == "cccccccccccccccccccccccccccccccccccccccc" &&
+     "$verified_ui_tests" == "true" &&
+     "$verified_ui_result_sha256" == "2222222222222222222222222222222222222222222222222222222222222222" &&
+     "$verified_journey_e2e" == "true" &&
+     "$verified_release_e2e" == "true" &&
+     "$verified_release_e2e_configuration" == "Release" &&
+     "$verified_release_e2e_scheme" == "HomewardReleaseE2E" &&
+     "$verified_coverage_contract_sha256" == "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" &&
+     "$verified_journey_result_sha256" == "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" &&
+     "$verified_release_result_sha256" == "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" &&
+     "$verified_xctestrun_sha256" == "1111111111111111111111111111111111111111111111111111111111111111" ]]
 }
 assert_passes \
   "valid UI-enabled evidence succeeds" \
   test_valid_ui_evidence_succeeds
+
+# 1 - Name: Matching result artifact succeeds
+# 2 - Description: Hashes a synthetic result directory through the same tree function used by packaging.
+# 3 - Assumptions: Release evidence records the deterministic tree hash of the retained result bundle.
+# 4 - Expectations: An unchanged result directory satisfies artifact verification.
+test_matching_result_artifact_succeeds() {
+  local result="$temporary_root/result.xcresult"
+  mkdir -p "$result"
+  printf 'result\n' >"$result/summary.json"
+  homeward_verify_tree_evidence \
+    "$result" \
+    "$(homeward_tree_sha256 "$result")" \
+    "Synthetic result"
+}
+assert_passes \
+  "matching result artifact succeeds" \
+  test_matching_result_artifact_succeeds
+
+# 1 - Name: Mutated result artifact fails closed
+# 2 - Description: Verifies a retained result directory against a different canonical digest.
+# 3 - Assumptions: Any result-bundle mutation invalidates release evidence.
+# 4 - Expectations: Artifact verification rejects the changed tree with an exact diagnostic.
+test_mutated_result_artifact_fails_closed() {
+  local result="$temporary_root/mutated-result.xcresult"
+  mkdir -p "$result"
+  printf 'changed\n' >"$result/summary.json"
+  homeward_verify_tree_evidence \
+    "$result" \
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+    "Synthetic result"
+}
+assert_fails \
+  "mutated result artifact fails closed" \
+  "Synthetic result does not match verification evidence." \
+  test_mutated_result_artifact_fails_closed
+
+modified_evidence() {
+  local output="$1"
+  local key="$2"
+  local json_value="$3"
+  /usr/bin/python3 - "$ui_evidence" "$output" "$key" "$json_value" <<'PY'
+import json
+import sys
+
+source_path, output_path, key, encoded_value = sys.argv[1:]
+with open(source_path, encoding="utf-8") as source:
+    evidence = json.load(source)
+evidence[key] = json.loads(encoded_value)
+with open(output_path, "w", encoding="utf-8") as output:
+    json.dump(evidence, output, indent=2, sort_keys=True)
+    output.write("\n")
+PY
+}
+
+# 1 - Name: Old evidence schema fails closed
+# 2 - Description: Confirms evidence generated before three-layer UI support cannot authorize publication.
+# 3 - Assumptions: Changing only schemaVersion models a structurally stale producer.
+# 4 - Expectations: The parser rejects schema version 2 before consuming any values.
+test_old_evidence_schema_fails_closed() {
+  local marker="$temporary_root/old-evidence.json"
+  modified_evidence "$marker" schemaVersion 2
+  homeward_read_release_evidence "$marker" 1
+}
+assert_fails \
+  "old evidence schema fails closed" \
+  "Invalid verified release evidence schema" \
+  test_old_evidence_schema_fails_closed
+
+# 1 - Name: Malformed UI flag fails closed
+# 2 - Description: Confirms a string cannot impersonate a JSON boolean evidence field.
+# 3 - Assumptions: JSON true and false are the only canonical boolean encodings.
+# 4 - Expectations: The parser identifies journeyE2EEnabled as malformed.
+test_malformed_ui_flag_fails_closed() {
+  local marker="$temporary_root/malformed-flag-evidence.json"
+  modified_evidence "$marker" journeyE2EEnabled '"true"'
+  homeward_read_release_evidence "$marker" 1
+}
+assert_fails \
+  "malformed UI flag fails closed" \
+  "Invalid boolean release evidence field: journeyE2EEnabled" \
+  test_malformed_ui_flag_fails_closed
+
+# 1 - Name: Wrong release E2E configuration fails closed
+# 2 - Description: Confirms release UI results from Debug cannot authorize a public Release artifact.
+# 3 - Assumptions: Release is the sole canonical release E2E configuration.
+# 4 - Expectations: The parser rejects Debug despite otherwise valid evidence.
+test_wrong_release_configuration_fails_closed() {
+  local marker="$temporary_root/wrong-configuration-evidence.json"
+  modified_evidence "$marker" releaseE2EConfiguration '"Debug"'
+  homeward_read_release_evidence "$marker" 1
+}
+assert_fails \
+  "wrong release E2E configuration fails closed" \
+  "Release E2E configuration must be canonical Release" \
+  test_wrong_release_configuration_fails_closed
+
+# 1 - Name: Wrong release E2E scheme fails closed
+# 2 - Description: Confirms results from an unrelated Xcode scheme cannot authorize publication.
+# 3 - Assumptions: HomewardReleaseE2E is the sole canonical release E2E scheme.
+# 4 - Expectations: The parser rejects any other valid string.
+test_wrong_release_scheme_fails_closed() {
+  local marker="$temporary_root/wrong-scheme-evidence.json"
+  modified_evidence "$marker" releaseE2EScheme '"Homeward"'
+  homeward_read_release_evidence "$marker" 1
+}
+assert_fails \
+  "wrong release E2E scheme fails closed" \
+  "Release E2E scheme must be canonical HomewardReleaseE2E" \
+  test_wrong_release_scheme_fails_closed
+
+# 1 - Name: Malformed release artifact hash fails closed
+# 2 - Description: Confirms a noncanonical xctestrun digest cannot identify release E2E inputs.
+# 3 - Assumptions: Enabled artifact identities are lowercase 64-character SHA-256 values.
+# 4 - Expectations: The parser rejects the malformed xctestrunSHA256 field.
+test_malformed_release_hash_fails_closed() {
+  local marker="$temporary_root/malformed-hash-evidence.json"
+  modified_evidence "$marker" xctestrunSHA256 '"ABC123"'
+  homeward_read_release_evidence "$marker" 1
+}
+assert_fails \
+  "malformed release artifact hash fails closed" \
+  "Invalid enabled release evidence hash: xctestrunSHA256" \
+  test_malformed_release_hash_fails_closed
 
 printf '1..%d\n' "$tests_run"

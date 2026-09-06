@@ -1,0 +1,1137 @@
+{
+  "schemaVersion": 1,
+  "traceabilitySource": "docs/TRACEABILITY.md",
+  "requiredTests": {
+    "ui": [
+      "HomewardUITests/testCompletedSetupReopensToday()",
+      "HomewardUITests/testConfigurationRecoverySupersedesScheduleState()",
+      "HomewardUITests/testDelayedStartupExplainsSafetyAndRetries()",
+      "HomewardUITests/testFirstLaunchShowsOnboarding()",
+      "HomewardUITests/testLongApplicationNameKeepsWorkAppsActionsReachable()",
+      "HomewardUITests/testNotesRecoveryRemainsSeparateFromConfiguration()",
+      "HomewardUITests/testOnboardingScheduleSaveContinuesToWorkApps()",
+      "HomewardUITests/testOutsideApplicationsShowsStartAtLoginGate()",
+      "HomewardUITests/testScheduleCopiesSelectedDayToWeekend()",
+      "HomewardUITests/testScheduleModeSwitchingAndResetSaveStates()",
+      "HomewardUITests/testScheduleOvernightControlNamesDestinationDay()",
+      "HomewardUITests/testScheduleSelectorsRemainReachableAtMinimumWidth()",
+      "HomewardUITests/testScheduleTimePickerUsesFocusedPopover()",
+      "HomewardUITests/testStepFourConfirmsLoginIsEnabled()",
+      "HomewardUITests/testStepFourExplainsLoginApproval()",
+      "HomewardUITests/testStepFourExplainsRestartAfterMove()",
+      "HomewardUITests/testWorkAppsCatalogStartsBelowPickerControls()"
+    ],
+    "journey": [
+      "HomewardJourneyUITests/testCompletedSetupTraversesPrimaryDestinations()",
+      "HomewardJourneyUITests/testCorruptConfigurationFailsOpenIntoRecovery()",
+      "HomewardJourneyUITests/testEndWorkNowPresentsClosedGentleState()",
+      "HomewardJourneyUITests/testFirstLaunchBeginsCompleteOnboardingJourney()",
+      "HomewardJourneyUITests/testNotesRecoveryDoesNotPauseRuntime()",
+      "HomewardJourneyUITests/testOnboardingReviewOffersRunAndSkipPreview()",
+      "HomewardJourneyUITests/testPreviewExplainsMissingApplication()",
+      "HomewardJourneyUITests/testReturnToWeeklyScheduleConfirmsImmediateClose()"
+    ],
+    "releaseLifecycle": [
+      "ReleaseLifecycleE2ETests/testBlockedRelaunchUsesNewProcessSession()",
+      "ReleaseLifecycleE2ETests/testFirmHonorsFullGracePeriod()",
+      "ReleaseLifecycleE2ETests/testGentleRefusalOffersSafeActions()",
+      "ReleaseLifecycleE2ETests/testRefusingFixtureIsReadyBeforeEnforcement()",
+      "ReleaseLifecycleE2ETests/testStopForceQuitCancelsOriginalDeadline()"
+    ]
+  },
+  "evidenceCatalog": [
+    {
+      "id": "core.schedule-resolution",
+      "layer": "core",
+      "state": "available",
+      "source": "Tests/HomewardCoreTests/ScheduleResolverTests.swift::ScheduleResolverTests"
+    },
+    {
+      "id": "core.schedule-time-zone",
+      "layer": "core",
+      "state": "available",
+      "source": "Tests/HomewardCoreTests/ScheduleResolverTests.swift::weeklyScheduleFollowsCurrentTimeZone"
+    },
+    {
+      "id": "core.domain-validation",
+      "layer": "core",
+      "state": "available",
+      "source": "Tests/HomewardCoreTests/ModelTests.swift::ModelTests"
+    },
+    {
+      "id": "core.enforcement-planning",
+      "layer": "core",
+      "state": "available",
+      "source": "Tests/HomewardCoreTests/EnforcementPlannerTests.swift::EnforcementPlannerTests"
+    },
+    {
+      "id": "core.firm-grace",
+      "layer": "core",
+      "state": "available",
+      "source": "Tests/HomewardCoreTests/EnforcementPlannerTests.swift::firmForceEligibility"
+    },
+    {
+      "id": "core.process-identity",
+      "layer": "core",
+      "state": "available",
+      "source": "Tests/HomewardCoreTests/EnforcementPlannerTests.swift::enforcementIdentityInvalidation"
+    },
+    {
+      "id": "core.countdown-announcements",
+      "layer": "core",
+      "state": "available",
+      "source": "Tests/HomewardCoreTests/EnforcementPlannerTests.swift::countdownAnnouncementMilestones"
+    },
+    {
+      "id": "core.atomic-storage",
+      "layer": "core",
+      "state": "available",
+      "source": "Tests/HomewardCoreTests/AtomicFileStoreTests.swift::AtomicFileStoreTests"
+    },
+    {
+      "id": "core.notes-domain",
+      "layer": "core",
+      "state": "available",
+      "source": "Tests/HomewardCoreTests/ModelTests.swift::tomorrowNoteValidation; Tests/HomewardCoreTests/ModelTests.swift::undoKeepPreservesIdentityAndOrder"
+    },
+    {
+      "id": "hosted.startup-recovery",
+      "layer": "hosted",
+      "state": "available",
+      "source": "HomewardAppTests/AppModelTests.swift::unavailableStorageEntersRecovery; HomewardAppTests/AppModelTests.swift::startupRejectsPolicyMutation"
+    },
+    {
+      "id": "hosted.onboarding-readiness",
+      "layer": "hosted",
+      "state": "available",
+      "source": "HomewardAppTests/AppModelTests.swift::onboardingRejectsOnlyUnresolvedApplications; HomewardAppTests/AppModelTests.swift::completedSetupWithoutApplicationsNeedsWorkAppsAttention"
+    },
+    {
+      "id": "hosted.schedule-commit",
+      "layer": "hosted",
+      "state": "available",
+      "source": "HomewardAppTests/AppModelTests.swift::staleScheduleDraftDoesNotOverwriteNewerPolicy; HomewardAppTests/AppModelTests.swift::scheduleCommitRecomputesImmediateCloseConsequence"
+    },
+    {
+      "id": "hosted.force-safety",
+      "layer": "hosted",
+      "state": "available",
+      "source": "HomewardAppTests/AppModelTests.swift::stopForceQuitPrecedesPendingPersistence; HomewardAppTests/AppModelTests.swift::returnToWeeklySchedulePreservesForcePause"
+    },
+    {
+      "id": "hosted.application-resolution",
+      "layer": "hosted",
+      "state": "available",
+      "source": "HomewardAppTests/AppModelTests.swift::startupRevalidatesSelectionsBeforeReadiness; HomewardAppTests/AppModelTests.swift::duplicateBundleAmbiguityFailsOpen; HomewardAppTests/ApplicationListFormatterTests.swift"
+    },
+    {
+      "id": "hosted.preview-state",
+      "layer": "hosted",
+      "state": "available",
+      "source": "HomewardAppTests/AppModelTests.swift::previewShowAppRequiresRunningAttentionTarget"
+    },
+    {
+      "id": "hosted.notifications",
+      "layer": "hosted",
+      "state": "available",
+      "source": "HomewardAppTests/AppModelNotificationTests.swift::AppModelNotificationTests"
+    },
+    {
+      "id": "hosted.notes-lifecycle",
+      "layer": "hosted",
+      "state": "available",
+      "source": "HomewardAppTests/AppModelTests.swift::completedThoughtCanBeRestoredInSession; HomewardAppTests/AppModelTests.swift::notesRecoveryDoesNotChangeConfiguration"
+    },
+    {
+      "id": "hosted.presentation-priority",
+      "layer": "hosted",
+      "state": "available",
+      "source": "HomewardAppTests/AppModelPresentationTests.swift::AppModelPresentationTests"
+    },
+    {
+      "id": "hosted.login-readiness",
+      "layer": "hosted",
+      "state": "available",
+      "source": "HomewardAppTests/AppModelTests.swift::outsideApplicationsDisablesStartAtLogin; HomewardAppTests/AppModelTests.swift::refreshSystemStatusesConfirmsLoginApproval"
+    },
+    {
+      "id": "hosted.termination-policy",
+      "layer": "hosted",
+      "state": "available",
+      "source": "HomewardAppTests/AppModelTests.swift::terminationWaitForPendingSaveIsBounded"
+    },
+    {
+      "id": "hosted.fixture-lifecycle",
+      "layer": "hosted",
+      "state": "available",
+      "source": "HomewardAppTests/PlatformIntegrationTests.swift::PlatformIntegrationTests"
+    },
+    {
+      "id": "hosted.running-control-policy",
+      "layer": "hosted",
+      "state": "available",
+      "source": "HomewardAppTests/RunningApplicationControlPolicyTests.swift::RunningApplicationControlPolicyTests"
+    },
+    {
+      "id": "ui.startup-recovery",
+      "layer": "ui",
+      "state": "available",
+      "source": "HomewardUITests/HomewardUITests.swift::testDelayedStartupExplainsSafetyAndRetries; HomewardUITests/HomewardUITests.swift::testConfigurationRecoverySupersedesScheduleState"
+    },
+    {
+      "id": "ui.onboarding",
+      "layer": "ui",
+      "state": "available",
+      "source": "HomewardUITests/HomewardUITests.swift::testFirstLaunchShowsOnboarding; HomewardUITests/HomewardUITests.swift::testOnboardingScheduleSaveContinuesToWorkApps"
+    },
+    {
+      "id": "ui.work-apps",
+      "layer": "ui",
+      "state": "available",
+      "source": "HomewardUITests/HomewardUITests.swift::testWorkAppsCatalogStartsBelowPickerControls; HomewardUITests/HomewardUITests.swift::testLongApplicationNameKeepsWorkAppsActionsReachable"
+    },
+    {
+      "id": "ui.schedule",
+      "layer": "ui",
+      "state": "available",
+      "source": "HomewardUITests/HomewardUITests.swift::testScheduleSelectorsRemainReachableAtMinimumWidth; HomewardUITests/HomewardUITests.swift::testScheduleModeSwitchingAndResetSaveStates"
+    },
+    {
+      "id": "ui.login-readiness",
+      "layer": "ui",
+      "state": "available",
+      "source": "HomewardUITests/HomewardUITests.swift::testOutsideApplicationsShowsStartAtLoginGate; HomewardUITests/HomewardUITests.swift::testStepFourExplainsLoginApproval"
+    },
+    {
+      "id": "journey.navigation",
+      "layer": "journey",
+      "state": "available",
+      "source": "HomewardJourneyUITests/HomewardJourneyUITests.swift::testCompletedSetupTraversesPrimaryDestinations"
+    },
+    {
+      "id": "journey.preview-lifecycle",
+      "layer": "journey",
+      "state": "available",
+      "source": "HomewardJourneyUITests/HomewardJourneyUITests.swift::testOnboardingReviewOffersRunAndSkipPreview; HomewardAppTests/AppModelTests.swift::previewShowAppRequiresRunningAttentionTarget"
+    },
+    {
+      "id": "journey.closing-flows",
+      "layer": "journey",
+      "state": "available",
+      "source": "HomewardJourneyUITests/HomewardJourneyUITests.swift::testEndWorkNowPresentsClosedGentleState; HomewardReleaseE2ETests/ReleaseLifecycleE2ETests.swift"
+    },
+    {
+      "id": "journey.blocked-launch",
+      "layer": "journey",
+      "state": "available",
+      "source": "HomewardReleaseE2ETests/ReleaseLifecycleE2ETests.swift::testBlockedRelaunchUsesNewProcessSession"
+    },
+    {
+      "id": "journey.saved-thoughts",
+      "layer": "journey",
+      "state": "available",
+      "source": "HomewardJourneyUITests/HomewardJourneyUITests.swift::testNotesRecoveryDoesNotPauseRuntime; HomewardAppTests/AppModelTests.swift::completedThoughtCanBeRestoredInSession"
+    },
+    {
+      "id": "journey.today-overrides",
+      "layer": "journey",
+      "state": "available",
+      "source": "HomewardJourneyUITests/HomewardJourneyUITests.swift::testReturnToWeeklyScheduleConfirmsImmediateClose"
+    },
+    {
+      "id": "manual.reopen",
+      "layer": "manual",
+      "state": "planned",
+      "source": "docs/STATUS.md: Finder, Spotlight, and status-menu reopen gate"
+    },
+    {
+      "id": "manual.notification-center",
+      "layer": "manual",
+      "state": "planned",
+      "source": "docs/TESTING.md: real Notification Center authorization, presentation, action, and cleanup gate"
+    },
+    {
+      "id": "manual.clock-session",
+      "layer": "manual",
+      "state": "planned",
+      "source": "docs/TESTING.md: clock, time-zone, wake, lock, and Fast User Switching gate"
+    },
+    {
+      "id": "manual.firm-safety",
+      "layer": "manual",
+      "state": "planned",
+      "source": "docs/TESTING.md: countdown, focus, save-dialog, and third-party application gate using only approved manual targets"
+    },
+    {
+      "id": "manual.note-privacy",
+      "layer": "manual",
+      "state": "planned",
+      "source": "docs/TESTING.md: locked and inactive-session Saved Thoughts concealment gate"
+    },
+    {
+      "id": "manual.accessibility",
+      "layer": "manual",
+      "state": "planned",
+      "source": "docs/ACCESSIBILITY.md: VoiceOver, Voice Control, Switch Control, Full Keyboard Access, and Zoom gate"
+    },
+    {
+      "id": "manual.visual-settings",
+      "layer": "manual",
+      "state": "planned",
+      "source": "docs/ACCESSIBILITY.md: contrast, reduced motion/transparency, resizing, long text, and largest text gate"
+    },
+    {
+      "id": "manual.login-item",
+      "layer": "manual",
+      "state": "planned",
+      "source": "docs/TESTING.md: real Start at Login approval, logout/login, and restart gate"
+    },
+    {
+      "id": "manual.shutdown",
+      "layer": "manual",
+      "state": "planned",
+      "source": "docs/STATUS.md: real quit, logout, and shutdown execution gate"
+    },
+    {
+      "id": "manual.window-lifecycle",
+      "layer": "manual",
+      "state": "planned",
+      "source": "docs/TESTING.md: sleep/wake, lock, Spaces, full-screen, and multiple-display gate"
+    },
+    {
+      "id": "manual.release-dogfood",
+      "layer": "manual",
+      "state": "planned",
+      "source": "docs/STATUS.md: clean-machine Gatekeeper, seven-day safety, and two-week dogfood gates"
+    },
+    {
+      "id": "releaseLifecycle.fixture-lifecycle",
+      "layer": "releaseLifecycle",
+      "state": "available",
+      "source": "HomewardReleaseE2ETests/ReleaseLifecycleE2ETests.swift::ReleaseLifecycleE2ETests"
+    },
+    {
+      "id": "releaseLifecycle.release-verification",
+      "layer": "releaseLifecycle",
+      "state": "available",
+      "source": "scripts/verify.sh"
+    },
+    {
+      "id": "releaseLifecycle.public-package",
+      "layer": "releaseLifecycle",
+      "state": "available",
+      "source": "scripts/test-public-release-gates.sh; scripts/package-public-release.sh"
+    }
+  ],
+  "requirements": [
+    {
+      "id": "PRD-001",
+      "traceabilityStatus": "Implemented product boundary; visual Threshold redesign pending",
+      "releaseDisposition": "required",
+      "evidence": [
+        "journey.navigation",
+        "releaseLifecycle.release-verification"
+      ],
+      "gaps": [
+        "Visual Threshold redesign remains pending."
+      ]
+    },
+    {
+      "id": "STA-001",
+      "traceabilityStatus": "Implemented in source: the window and menu-bar accessibility value gate schedule state on readiness",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.startup-recovery"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "STA-002",
+      "traceabilityStatus": "Implemented with deterministic Retry handoff and UI reachability evidence",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.startup-recovery",
+        "ui.startup-recovery"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "STA-003",
+      "traceabilityStatus": "Implemented in source and deterministic automation; platform Notification Center cleanup remains manual",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.startup-recovery",
+        "ui.startup-recovery",
+        "manual.notification-center"
+      ],
+      "gaps": [
+        "Platform Notification Center cleanup remains manual."
+      ]
+    },
+    {
+      "id": "NAV-001",
+      "traceabilityStatus": "Implemented baseline",
+      "releaseDisposition": "required",
+      "evidence": [
+        "journey.navigation"
+      ],
+      "gaps": [
+        "Persistent menu behavior needs end-to-end journey evidence."
+      ]
+    },
+    {
+      "id": "NAV-002",
+      "traceabilityStatus": "Implemented",
+      "releaseDisposition": "required",
+      "evidence": [
+        "journey.navigation"
+      ],
+      "gaps": [
+        "Destination coverage is planned as a navigation journey."
+      ]
+    },
+    {
+      "id": "NAV-003",
+      "traceabilityStatus": "Implemented in source: stale and malformed warning actions make no mutation and route to Today with an explanation; current actions route to a shared confirmation intent",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.notifications"
+      ],
+      "gaps": [
+        "End-to-end route presentation remains planned."
+      ]
+    },
+    {
+      "id": "NAV-004",
+      "traceabilityStatus": "Implemented source; Finder/Spotlight and status-menu reopen remain manual gates",
+      "releaseDisposition": "required",
+      "evidence": [
+        "manual.reopen"
+      ],
+      "gaps": [
+        "Finder, Spotlight, and status-menu reopen require manual execution."
+      ]
+    },
+    {
+      "id": "STA-004",
+      "traceabilityStatus": "Partial: deterministic precedence and menu/Today/accessibility copy share one snapshot, while typed notification events remain event-specific",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.presentation-priority"
+      ],
+      "gaps": [
+        "Typed notification events remain event-specific."
+      ]
+    },
+    {
+      "id": "ONB-001",
+      "traceabilityStatus": "Implemented",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.onboarding-readiness",
+        "ui.onboarding"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "ONB-002",
+      "traceabilityStatus": "Implemented",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.onboarding-readiness"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "ONB-003",
+      "traceabilityStatus": "Implemented",
+      "releaseDisposition": "required",
+      "evidence": [
+        "ui.login-readiness"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "ONB-004",
+      "traceabilityStatus": "Implemented",
+      "releaseDisposition": "required",
+      "evidence": [
+        "ui.onboarding",
+        "manual.accessibility"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "PRE-001",
+      "traceabilityStatus": "Implemented with separate Run Preview, Skip Preview, and Start Homeward actions",
+      "releaseDisposition": "required",
+      "evidence": [
+        "journey.preview-lifecycle"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "PRE-002",
+      "traceabilityStatus": "Implemented",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.preview-state",
+        "journey.preview-lifecycle"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "PRE-003",
+      "traceabilityStatus": "Implemented with explicit confirmation before ending an active preview",
+      "releaseDisposition": "required",
+      "evidence": [
+        "journey.preview-lifecycle"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "PRE-004",
+      "traceabilityStatus": "Implemented with reason-specific missing, refusal, timeout, and exited-process guidance",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.preview-state",
+        "journey.preview-lifecycle"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "SCH-001",
+      "traceabilityStatus": "Implemented",
+      "releaseDisposition": "required",
+      "evidence": [
+        "core.schedule-resolution",
+        "ui.schedule"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "SCH-002",
+      "traceabilityStatus": "Implemented source; manual clock/time-zone evidence required",
+      "releaseDisposition": "required",
+      "evidence": [
+        "core.schedule-time-zone",
+        "manual.clock-session"
+      ],
+      "gaps": [
+        "Real clock and time-zone changes require manual execution."
+      ]
+    },
+    {
+      "id": "SCH-003",
+      "traceabilityStatus": "Implemented baseline",
+      "releaseDisposition": "required",
+      "evidence": [
+        "core.schedule-resolution"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "SCH-004",
+      "traceabilityStatus": "Partial",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.schedule-commit",
+        "ui.schedule"
+      ],
+      "gaps": [
+        "The complete editor state matrix is not covered."
+      ]
+    },
+    {
+      "id": "SCH-005",
+      "traceabilityStatus": "Implemented with close-mode-specific confirmation copy",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.schedule-commit",
+        "journey.today-overrides"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "SCH-006",
+      "traceabilityStatus": "Implemented with immediate-close detection and confirmation",
+      "releaseDisposition": "required",
+      "evidence": [
+        "core.schedule-resolution",
+        "journey.today-overrides"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "APP-001",
+      "traceabilityStatus": "Implemented baseline",
+      "releaseDisposition": "required",
+      "evidence": [
+        "ui.work-apps"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "APP-002",
+      "traceabilityStatus": "Implemented",
+      "releaseDisposition": "required",
+      "evidence": [
+        "core.domain-validation",
+        "core.enforcement-planning",
+        "hosted.application-resolution",
+        "hosted.running-control-policy"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "APP-003",
+      "traceabilityStatus": "Implemented",
+      "releaseDisposition": "required",
+      "evidence": [
+        "ui.work-apps"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "APP-004",
+      "traceabilityStatus": "Implemented baseline",
+      "releaseDisposition": "required",
+      "evidence": [
+        "journey.closing-flows"
+      ],
+      "gaps": [
+        "Immediate-closing confirmation journey remains planned."
+      ]
+    },
+    {
+      "id": "APP-005",
+      "traceabilityStatus": "Implemented",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.onboarding-readiness",
+        "ui.onboarding"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "APP-006",
+      "traceabilityStatus": "Implemented",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.application-resolution",
+        "ui.work-apps"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "APP-007",
+      "traceabilityStatus": "Implemented",
+      "releaseDisposition": "required",
+      "evidence": [
+        "core.enforcement-planning",
+        "hosted.application-resolution"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "APP-008",
+      "traceabilityStatus": "Implemented with path disambiguation in selection and process-ID disambiguation in lifecycle actions",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.application-resolution",
+        "ui.work-apps"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "GNT-001",
+      "traceabilityStatus": "Implemented",
+      "releaseDisposition": "required",
+      "evidence": [
+        "core.enforcement-planning",
+        "hosted.fixture-lifecycle",
+        "releaseLifecycle.fixture-lifecycle"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "GNT-002",
+      "traceabilityStatus": "Implemented",
+      "releaseDisposition": "required",
+      "evidence": [
+        "journey.closing-flows"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "GNT-003",
+      "traceabilityStatus": "Implemented baseline",
+      "releaseDisposition": "required",
+      "evidence": [
+        "core.schedule-resolution",
+        "journey.closing-flows"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "FRM-001",
+      "traceabilityStatus": "Implemented with deterministic and fixture-backed Release evidence",
+      "releaseDisposition": "required",
+      "evidence": [
+        "core.firm-grace",
+        "releaseLifecycle.fixture-lifecycle"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "FRM-002",
+      "traceabilityStatus": "Implemented source; manual safety evidence required",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.force-safety",
+        "manual.firm-safety"
+      ],
+      "gaps": [
+        "Real safety-panel behavior requires manual execution."
+      ]
+    },
+    {
+      "id": "FRM-003",
+      "traceabilityStatus": "Implemented source; lock/Spaces/display evidence required",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.force-safety",
+        "manual.window-lifecycle"
+      ],
+      "gaps": [
+        "Lock, Spaces, and display behavior requires manual execution."
+      ]
+    },
+    {
+      "id": "FRM-004",
+      "traceabilityStatus": "Implemented source",
+      "releaseDisposition": "required",
+      "evidence": [
+        "core.firm-grace",
+        "hosted.force-safety",
+        "journey.closing-flows"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "FRM-005",
+      "traceabilityStatus": "Partial: milestones exist; focus stability needs UI/manual evidence",
+      "releaseDisposition": "required",
+      "evidence": [
+        "core.countdown-announcements",
+        "manual.firm-safety"
+      ],
+      "gaps": [
+        "Focus stability needs UI or manual evidence."
+      ]
+    },
+    {
+      "id": "FRM-006",
+      "traceabilityStatus": "Partial: restoration exists for some paths; initial Stop focus and normal automatic activation are not guaranteed",
+      "releaseDisposition": "required",
+      "evidence": [
+        "manual.firm-safety"
+      ],
+      "gaps": [
+        "Initial Stop focus and automatic-activation restoration are not guaranteed."
+      ]
+    },
+    {
+      "id": "FRM-007",
+      "traceabilityStatus": "Implemented baseline",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.force-safety",
+        "journey.closing-flows"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "BLK-001",
+      "traceabilityStatus": "Implemented with fixture-backed process relaunch evidence",
+      "releaseDisposition": "required",
+      "evidence": [
+        "journey.blocked-launch",
+        "releaseLifecycle.fixture-lifecycle"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "BLK-002",
+      "traceabilityStatus": "Implemented in source with generic panel/notification copy and cooldown aggregation; notification-center presentation remains manual",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.notifications",
+        "manual.notification-center"
+      ],
+      "gaps": [
+        "Notification Center presentation remains manual."
+      ]
+    },
+    {
+      "id": "BLK-003",
+      "traceabilityStatus": "Implemented",
+      "releaseDisposition": "required",
+      "evidence": [
+        "core.process-identity",
+        "releaseLifecycle.fixture-lifecycle"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "NOT-001",
+      "traceabilityStatus": "Implemented",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.notifications"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "NOT-002",
+      "traceabilityStatus": "Implemented for current notification paths",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.notifications"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "NOT-003",
+      "traceabilityStatus": "Implemented in current notification paths; future thoughts notification must preserve this",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.notifications"
+      ],
+      "gaps": [
+        "Any future Saved Thoughts notification must preserve content suppression."
+      ]
+    },
+    {
+      "id": "NOT-004",
+      "traceabilityStatus": "Deferred after version 0.1.0; no detailed-content preference is implemented or implied",
+      "releaseDisposition": "excluded",
+      "evidence": [],
+      "gaps": []
+    },
+    {
+      "id": "NOT-005",
+      "traceabilityStatus": "Implemented in source with persisted generation and cutoff validation, no-mutation stale handling, Today routing, and shared confirmation intents",
+      "releaseDisposition": "required",
+      "evidence": [
+        "core.schedule-resolution",
+        "hosted.notifications"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "NOT-006",
+      "traceabilityStatus": "Implemented in source for warning/status pending, delivered, and in-flight requests; platform Notification Center behavior remains manual",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.notifications",
+        "manual.notification-center"
+      ],
+      "gaps": [
+        "Platform Notification Center cleanup remains manual."
+      ]
+    },
+    {
+      "id": "NOT-007",
+      "traceabilityStatus": "Deferred after version 0.1.0",
+      "releaseDisposition": "excluded",
+      "evidence": [],
+      "gaps": []
+    },
+    {
+      "id": "NTE-001",
+      "traceabilityStatus": "Implemented",
+      "releaseDisposition": "required",
+      "evidence": [
+        "core.notes-domain",
+        "core.atomic-storage"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "NTE-002",
+      "traceabilityStatus": "Implemented with Saving and success states",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.notes-lifecycle",
+        "journey.saved-thoughts"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "NTE-003",
+      "traceabilityStatus": "Implemented in source with passive title/count-only readiness and explicit review",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.presentation-priority",
+        "journey.saved-thoughts"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "NTE-004",
+      "traceabilityStatus": "Implemented in source; lock and fast-user-switch behavior remains a manual platform gate",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.presentation-priority",
+        "manual.note-privacy"
+      ],
+      "gaps": [
+        "Lock and Fast User Switching require manual execution."
+      ]
+    },
+    {
+      "id": "NTE-005",
+      "traceabilityStatus": "Implemented in source with persistent review-session Restore and Undo Keep; no permanent archive",
+      "releaseDisposition": "required",
+      "evidence": [
+        "core.notes-domain",
+        "hosted.notes-lifecycle",
+        "journey.saved-thoughts"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "NTE-006",
+      "traceabilityStatus": "Implemented in source with approved irreversible copy",
+      "releaseDisposition": "required",
+      "evidence": [
+        "journey.saved-thoughts"
+      ],
+      "gaps": [
+        "Delete confirmation journey remains planned."
+      ]
+    },
+    {
+      "id": "NTE-007",
+      "traceabilityStatus": "Implemented in source with Retry, validated-backup Restore, notes-only Reset, and UI evidence that runtime remains ready",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.notes-lifecycle",
+        "ui.startup-recovery"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "NTE-008",
+      "traceabilityStatus": "Deferred after version 0.1.0",
+      "releaseDisposition": "excluded",
+      "evidence": [],
+      "gaps": []
+    },
+    {
+      "id": "REC-001",
+      "traceabilityStatus": "Implemented with deterministic preservation evidence",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.startup-recovery",
+        "hosted.notes-lifecycle",
+        "ui.startup-recovery"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "REC-002",
+      "traceabilityStatus": "Implemented",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.startup-recovery",
+        "ui.startup-recovery"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "FCS-001",
+      "traceabilityStatus": "Implemented baseline; save-dialog manual evidence required",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.presentation-priority",
+        "manual.firm-safety"
+      ],
+      "gaps": [
+        "Real save-dialog focus behavior requires manual execution."
+      ]
+    },
+    {
+      "id": "FCS-002",
+      "traceabilityStatus": "Partial: native panel restoration and deterministic initial controls are implemented; save-dialog and assistive-technology behavior remain manual",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.presentation-priority",
+        "manual.accessibility",
+        "manual.firm-safety"
+      ],
+      "gaps": [
+        "Save-dialog and assistive-technology behavior remain manual."
+      ]
+    },
+    {
+      "id": "FCS-003",
+      "traceabilityStatus": "Implemented in source for recovery/Firm suppression and passive-event ordering; simultaneous platform-window behavior remains manual",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.presentation-priority",
+        "manual.window-lifecycle"
+      ],
+      "gaps": [
+        "Simultaneous platform-window behavior remains manual."
+      ]
+    },
+    {
+      "id": "A11Y-001",
+      "traceabilityStatus": "Partial: deterministic entry/safety controls are implemented; assistive-technology evidence remains manual",
+      "releaseDisposition": "required",
+      "evidence": [
+        "ui.onboarding",
+        "ui.schedule",
+        "manual.accessibility"
+      ],
+      "gaps": [
+        "Assistive-technology evidence remains manual."
+      ]
+    },
+    {
+      "id": "A11Y-002",
+      "traceabilityStatus": "Partial",
+      "releaseDisposition": "required",
+      "evidence": [
+        "ui.startup-recovery",
+        "manual.accessibility"
+      ],
+      "gaps": [
+        "Complete roles, values, errors, reasons, and announcement coverage is unproven."
+      ]
+    },
+    {
+      "id": "A11Y-003",
+      "traceabilityStatus": "Partial/manual evidence",
+      "releaseDisposition": "required",
+      "evidence": [
+        "manual.visual-settings"
+      ],
+      "gaps": [
+        "Color-independent meaning requires manual visual review."
+      ]
+    },
+    {
+      "id": "A11Y-004",
+      "traceabilityStatus": "Manual evidence; no conformance claim",
+      "releaseDisposition": "required",
+      "evidence": [
+        "manual.accessibility",
+        "manual.visual-settings"
+      ],
+      "gaps": [
+        "No WCAG conformance claim exists without completing the manual gate."
+      ]
+    },
+    {
+      "id": "VIS-001",
+      "traceabilityStatus": "Partial/manual evidence: the Work Apps row and chooser remain reachable with a representative long name; compact resizing, other long-copy surfaces, visual settings, largest text, and zoom still require manual validation",
+      "releaseDisposition": "required",
+      "evidence": [
+        "ui.work-apps",
+        "ui.schedule",
+        "manual.visual-settings"
+      ],
+      "gaps": [
+        "Compact resizing, other long copy, visual settings, largest text, and zoom remain manual."
+      ]
+    },
+    {
+      "id": "LOC-001",
+      "traceabilityStatus": "Deferred after version 0.1.0; locale-aware date/time formatting exists, but full string externalization, translated plurals/lists, RTL, and pseudo-localization are not claimed",
+      "releaseDisposition": "excluded",
+      "evidence": [],
+      "gaps": []
+    },
+    {
+      "id": "REL-001",
+      "traceabilityStatus": "Implemented source; device evidence required",
+      "releaseDisposition": "required",
+      "evidence": [
+        "core.schedule-time-zone",
+        "manual.clock-session"
+      ],
+      "gaps": [
+        "Device clock, day, wake, and session changes require manual execution."
+      ]
+    },
+    {
+      "id": "REL-002",
+      "traceabilityStatus": "Implemented source",
+      "releaseDisposition": "required",
+      "evidence": [
+        "core.atomic-storage"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "REL-003",
+      "traceabilityStatus": "Implemented baseline",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.schedule-commit"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "REL-004",
+      "traceabilityStatus": "Implemented in source, including disabled outside-Applications guidance, Show in Finder, and Check Again; real system approval/login evidence remains manual",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.login-readiness",
+        "ui.login-readiness",
+        "manual.login-item"
+      ],
+      "gaps": [
+        "Real system approval and login behavior remain manual."
+      ]
+    },
+    {
+      "id": "REL-005",
+      "traceabilityStatus": "Implemented in source; logout/shutdown execution remains a manual platform check",
+      "releaseDisposition": "required",
+      "evidence": [
+        "hosted.termination-policy",
+        "manual.shutdown"
+      ],
+      "gaps": [
+        "Logout and shutdown execution remain manual."
+      ]
+    },
+    {
+      "id": "REL-006",
+      "traceabilityStatus": "Manual evidence",
+      "releaseDisposition": "required",
+      "evidence": [
+        "manual.window-lifecycle"
+      ],
+      "gaps": [
+        "Lock, sleep/wake, Spaces, full-screen, and multiple displays require manual execution."
+      ]
+    },
+    {
+      "id": "REL-007",
+      "traceabilityStatus": "Implemented with version/build, download, release-note, support, privacy, manual update, removal, and data-deletion guidance; automatic updates and in-app uninstall remain deferred",
+      "releaseDisposition": "required",
+      "evidence": [
+        "releaseLifecycle.public-package",
+        "manual.release-dogfood"
+      ],
+      "gaps": [
+        "Signing, notarization, Gatekeeper, clean-machine install, safety run, and dogfood remain release gates."
+      ]
+    }
+  ]
+}

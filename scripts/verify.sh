@@ -9,16 +9,40 @@ destination="platform=macOS,arch=arm64"
 verification_marker="${HOMEWARD_VERIFICATION_MARKER:-$derived_data/verified-release.json}"
 native_test_storage="$derived_data/native-test-storage"
 run_ui_tests="${RUN_UI_TESTS:-1}"
+run_journey_e2e="${RUN_JOURNEY_E2E:-$run_ui_tests}"
+run_release_e2e="${RUN_RELEASE_E2E:-$run_ui_tests}"
+result_directory="$derived_data/TestResults"
+ui_result="$result_directory/HomewardUI.xcresult"
+journey_result="$result_directory/HomewardJourneyE2E.xcresult"
+release_e2e_result="$result_directory/HomewardReleaseE2E.xcresult"
 
 cd "$repository_root"
 rm -f "$verification_marker"
 rm -rf "$native_test_storage"
-trap 'rm -rf "$native_test_storage"' EXIT
+rm -rf "$result_directory"
+mkdir -p "$result_directory"
 # shellcheck source=scripts/release-evidence.sh
 source "$repository_root/scripts/release-evidence.sh"
 
 [[ "$run_ui_tests" == "0" || "$run_ui_tests" == "1" ]] || {
   printf 'RUN_UI_TESTS must be 0 or 1.\n' >&2
+  exit 1
+}
+[[ "$run_journey_e2e" == "0" || "$run_journey_e2e" == "1" ]] || {
+  printf 'RUN_JOURNEY_E2E must be 0 or 1.\n' >&2
+  exit 1
+}
+[[ "$run_release_e2e" == "0" || "$run_release_e2e" == "1" ]] || {
+  printf 'RUN_RELEASE_E2E must be 0 or 1.\n' >&2
+  exit 1
+}
+[[ "$run_journey_e2e" == "0" || "$run_ui_tests" == "1" ]] || {
+  printf 'RUN_JOURNEY_E2E=1 requires RUN_UI_TESTS=1.\n' >&2
+  exit 1
+}
+[[ "$run_release_e2e" == "0"
+   || ( "$run_ui_tests" == "1" && "$run_journey_e2e" == "1" ) ]] || {
+  printf 'RUN_RELEASE_E2E=1 requires UI and journey E2E tests.\n' >&2
   exit 1
 }
 
@@ -27,30 +51,59 @@ source "$repository_root/scripts/release-evidence.sh"
   exit 1
 }
 
-stop_repository_test_instances() {
-  local pattern="$repository_root/.*/Homeward.app/Contents/MacOS/Homeward"
+stop_repository_processes() {
+  local test_name="$1"
+  local pattern="$repository_root/.*/${test_name}.app/Contents/MacOS/${test_name}"
   local process_ids
   process_ids="$(pgrep -f "$pattern" || true)"
   if [[ -n "$process_ids" ]]; then
-    printf 'Stopping stale Homeward test instance(s): %s\n' "$process_ids"
+    printf 'Stopping stale %s test instance(s): %s\n' \
+      "$test_name" "$process_ids"
     while IFS= read -r process_id; do
-      kill "$process_id"
+      if ! kill "$process_id" 2>/dev/null; then
+        continue
+      fi
       for _ in {1..50}; do
         kill -0 "$process_id" 2>/dev/null || break
         sleep 0.1
       done
       if kill -0 "$process_id" 2>/dev/null; then
-        printf 'Homeward test instance did not terminate: %s\n' \
-          "$process_id" >&2
-        exit 1
+        printf '%s test instance did not terminate: %s\n' \
+          "$test_name" "$process_id" >&2
+        return 1
       fi
     done <<<"$process_ids"
   fi
+}
+
+stop_repository_test_instances() {
+  stop_repository_processes "Homeward"
   if pgrep -x Homeward >/dev/null; then
     printf 'Quit any installed Homeward app before running native tests.\n' >&2
     exit 1
   fi
+
+  local test_name
+  for test_name in HomewardTestShell HomewardFixture; do
+    stop_repository_processes "$test_name"
+    if pgrep -x "$test_name" >/dev/null; then
+      printf 'Unexpected %s instance is running outside this repository.\n' \
+        "$test_name" >&2
+      exit 1
+    fi
+  done
 }
+
+cleanup_verification() {
+  local status=$?
+  rm -rf "$native_test_storage"
+  stop_repository_processes "Homeward" || true
+  stop_repository_processes "HomewardTestShell" || true
+  stop_repository_processes "HomewardFixture" || true
+  return "$status"
+}
+
+trap cleanup_verification EXIT
 
 command -v xcodegen >/dev/null || {
   printf 'XcodeGen 2.46.0 is required; install the pinned release archive.\n' >&2
@@ -106,7 +159,12 @@ xcodebuild \
   clean
 swift scripts/check-test-docs.swift
 PYTHONDONTWRITEBYTECODE=1 \
-  /usr/bin/python3 -m unittest scripts/test_local_candidate_manifest.py
+  /usr/bin/python3 -m unittest \
+    scripts/test_local_candidate_manifest.py \
+    scripts/test_validate_release_coverage.py \
+    scripts/test_validate_xcresult.py \
+    scripts/test_validate_xctestrun.py
+/usr/bin/python3 scripts/validate_release_coverage.py
 ./scripts/test-public-release-gates.sh
 swift test
 
@@ -134,10 +192,50 @@ if [[ "$run_ui_tests" == "1" ]]; then
     CODE_SIGN_IDENTITY=- \
     DEVELOPMENT_TEAM= \
     INFOPLIST_KEY_LSMultipleInstancesProhibited=NO \
+    -resultBundlePath "$ui_result" \
     test
+  /usr/bin/python3 \
+    "$repository_root/scripts/validate_xcresult.py" \
+    "$repository_root/scripts/release_coverage_contract.json" \
+    ui \
+    "$ui_result"
 else
   printf 'Skipping UI automation because RUN_UI_TESTS=%s.\n' \
     "$run_ui_tests"
+fi
+
+if [[ "$run_journey_e2e" == "1" ]]; then
+  stop_repository_test_instances
+  xcodebuild \
+    -project "$project" \
+    -scheme HomewardJourneyE2E \
+    -configuration Release \
+    -destination "$destination" \
+    -derivedDataPath "$derived_data" \
+    -parallel-testing-enabled NO \
+    -resultBundlePath "$journey_result" \
+    CODE_SIGN_STYLE=Manual \
+    CODE_SIGN_IDENTITY=- \
+    DEVELOPMENT_TEAM= \
+    test
+  /usr/bin/python3 \
+    "$repository_root/scripts/validate_xcresult.py" \
+    "$repository_root/scripts/release_coverage_contract.json" \
+    journey \
+    "$journey_result"
+else
+  printf 'Skipping shell journey automation because RUN_JOURNEY_E2E=%s.\n' \
+    "$run_journey_e2e"
+  xcodebuild \
+    -project "$project" \
+    -scheme HomewardJourneyE2E \
+    -configuration Release \
+    -destination "$destination" \
+    -derivedDataPath "$derived_data" \
+    CODE_SIGN_STYLE=Manual \
+    CODE_SIGN_IDENTITY=- \
+    DEVELOPMENT_TEAM= \
+    build-for-testing
 fi
 
 xcodebuild \
@@ -150,7 +248,7 @@ xcodebuild \
 
 xcodebuild \
   -project "$project" \
-  -scheme Homeward \
+  -scheme HomewardReleaseE2E \
   -configuration Release \
   -destination "$destination" \
   -derivedDataPath "$derived_data" \
@@ -158,7 +256,41 @@ xcodebuild \
   CODE_SIGN_IDENTITY=- \
   DEVELOPMENT_TEAM= \
   CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
-  build
+  build-for-testing
+
+shopt -s nullglob
+release_xctestrun_candidates=(
+  "$derived_data"/Build/Products/HomewardReleaseE2E_*.xctestrun
+)
+shopt -u nullglob
+[[ "${#release_xctestrun_candidates[@]}" == "1" ]] || {
+  printf 'Expected exactly one HomewardReleaseE2E xctestrun; found %s.\n' \
+    "${#release_xctestrun_candidates[@]}" >&2
+  exit 1
+}
+release_xctestrun="${release_xctestrun_candidates[0]}"
+/usr/bin/python3 \
+  "$repository_root/scripts/validate_xctestrun.py" \
+  "$release_xctestrun"
+
+if [[ "$run_release_e2e" == "1" ]]; then
+  stop_repository_test_instances
+  xcodebuild \
+    -xctestrun "$release_xctestrun" \
+    -destination "$destination" \
+    -parallel-testing-enabled NO \
+    -resultBundlePath "$release_e2e_result" \
+    test-without-building
+  /usr/bin/python3 \
+    "$repository_root/scripts/validate_xcresult.py" \
+    "$repository_root/scripts/release_coverage_contract.json" \
+    releaseLifecycle \
+    "$release_e2e_result"
+else
+  printf 'Skipping Release lifecycle automation because RUN_RELEASE_E2E=%s.\n' \
+    "$run_release_e2e"
+fi
+stop_repository_test_instances
 
 app="$derived_data/Build/Products/Release/Homeward.app"
 binary="$app/Contents/MacOS/Homeward"
@@ -193,8 +325,10 @@ build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")"
   printf 'Release app version metadata is invalid.\n' >&2
   exit 1
 }
-if /usr/bin/find "$app" -iname '*fixture*' -print -quit | /usr/bin/grep -q .; then
-  printf 'Fixture code was found in the release app.\n' >&2
+if /usr/bin/find "$app" \
+  \( -iname '*fixture*' -o -iname '*testshell*' \) \
+  -print -quit | /usr/bin/grep -q .; then
+  printf 'Test fixture or shell content was found in the release app.\n' >&2
   exit 1
 fi
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$app"
@@ -207,6 +341,32 @@ if [[ "$entitlements" == *"com.apple.security.app-sandbox"* ||
   exit 1
 fi
 homeward_verify_dsym "$binary" "$dsym"
+
+coverage_contract_sha=""
+ui_result_sha=""
+journey_result_sha=""
+release_result_sha=""
+release_xctestrun_sha=""
+release_e2e_configuration=""
+release_e2e_scheme=""
+if [[ "$run_ui_tests" == "1" ]]; then
+  coverage_contract_sha="$(
+    shasum -a 256 "$repository_root/scripts/release_coverage_contract.json" |
+      awk '{print $1}'
+  )"
+  ui_result_sha="$(homeward_tree_sha256 "$ui_result")"
+fi
+if [[ "$run_journey_e2e" == "1" ]]; then
+  journey_result_sha="$(homeward_tree_sha256 "$journey_result")"
+fi
+if [[ "$run_release_e2e" == "1" ]]; then
+  release_result_sha="$(homeward_tree_sha256 "$release_e2e_result")"
+  release_xctestrun_sha="$(
+    shasum -a 256 "$release_xctestrun" | awk '{print $1}'
+  )"
+  release_e2e_configuration="Release"
+  release_e2e_scheme="HomewardReleaseE2E"
+fi
 
 if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
   printf '%s\n' \
@@ -221,24 +381,47 @@ BINARY_UUID="$(homeward_macho_uuid "$binary")" \
 VERSION="$version" \
 BUILD="$build" \
 UI_TESTS_ENABLED="$run_ui_tests" \
+UI_RESULT_SHA256="$ui_result_sha" \
+JOURNEY_E2E_ENABLED="$run_journey_e2e" \
+RELEASE_E2E_ENABLED="$run_release_e2e" \
+COVERAGE_CONTRACT_SHA256="$coverage_contract_sha" \
+JOURNEY_RESULT_SHA256="$journey_result_sha" \
+RELEASE_RESULT_SHA256="$release_result_sha" \
+XCTESTRUN_SHA256="$release_xctestrun_sha" \
+RELEASE_E2E_CONFIGURATION="$release_e2e_configuration" \
+RELEASE_E2E_SCHEME="$release_e2e_scheme" \
 /usr/bin/python3 - "$verification_marker" <<'PY'
 import json
 import os
 import sys
 
+def optional(name):
+    return os.environ[name] or None
+
 evidence = {
     "appTreeSHA256": os.environ["APP_TREE_SHA"],
     "binaryUUID": os.environ["BINARY_UUID"],
     "build": os.environ["BUILD"],
+    "coverageContractSHA256": optional("COVERAGE_CONTRACT_SHA256"),
     "dSYMTreeSHA256": os.environ["DSYM_TREE_SHA"],
-    "schemaVersion": 2,
+    "journeyE2EEnabled": os.environ["JOURNEY_E2E_ENABLED"] == "1",
+    "journeyResultSHA256": optional("JOURNEY_RESULT_SHA256"),
+    "releaseE2EConfiguration": optional("RELEASE_E2E_CONFIGURATION"),
+    "releaseE2EEnabled": os.environ["RELEASE_E2E_ENABLED"] == "1",
+    "releaseE2EScheme": optional("RELEASE_E2E_SCHEME"),
+    "releaseResultSHA256": optional("RELEASE_RESULT_SHA256"),
+    "schemaVersion": 3,
     "sourceSHA": os.environ["SOURCE_SHA"],
     "uiTestsEnabled": os.environ["UI_TESTS_ENABLED"] == "1",
+    "uiResultSHA256": optional("UI_RESULT_SHA256"),
     "version": os.environ["VERSION"],
+    "xctestrunSHA256": optional("XCTESTRUN_SHA256"),
 }
-with open(sys.argv[1], "w", encoding="utf-8") as output:
+temporary = sys.argv[1] + ".tmp"
+with open(temporary, "w", encoding="utf-8") as output:
     json.dump(evidence, output, indent=2, sort_keys=True)
     output.write("\n")
+os.replace(temporary, sys.argv[1])
 PY
 
 printf 'Homeward verification passed.\n'

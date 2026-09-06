@@ -19,6 +19,12 @@ See [`docs/STATUS.md`](docs/STATUS.md) for the current evidence boundary,
 [`docs/TRACEABILITY.md`](docs/TRACEABILITY.md) for requirement coverage. The
 original planning PRD is owner-local and is not part of this repository.
 
+Public releases must also complete the
+[`docs/RELEASE-CHECKLIST.md`](docs/RELEASE-CHECKLIST.md) A-to-Z gate. The
+checklist separates implemented shell-hosted journeys, exact Release lifecycle
+checks, and real-platform manual evidence; those lanes are not substitutes for
+one another.
+
 ## Requirements
 
 - macOS 15 or later
@@ -71,13 +77,26 @@ See [`docs/DISTRIBUTION.md`](docs/DISTRIBUTION.md) for the exact tagged release
 procedure and artifact set, and [`docs/STATUS.md`](docs/STATUS.md) for the
 dated release-readiness snapshot.
 
+Every public release requires a pre-package sign-off bound to its clean source
+SHA and verified Release app-tree hash, followed by a post-package sign-off
+bound to the final stapled DMG SHA-256 and accepted notarization submission
+ID. Product or UX changes must update the coverage contract and rerun affected
+evidence. Passing the gate supports the release decision; it is not a claim
+that Homeward is 100% bug-free.
+
 ## Architecture
 
 - `Sources/HomewardCore`: Foundation-only schedule, configuration, persistence,
   note, and enforcement planning logic.
 - `HomewardApp`: SwiftUI/AppKit application, macOS adapters, and presentation.
+- `HomewardTestShell`: test-only host for production views and model behavior
+  with typed deterministic platform substitutes.
 - `HomewardAppTests`: app-layer and fixture-backed lifecycle tests.
 - `HomewardUITests`: accessibility-driven first-launch tests.
+- `HomewardJourneyUITests`: A-to-Z product and UX journeys hosted by the test
+  shell.
+- `HomewardReleaseE2ETests`: exact Release-app lifecycle checks against only
+  the adjacent fixture.
 - `TestFixtures/HomewardFixture`: disposable lifecycle target used only by
   tests.
 

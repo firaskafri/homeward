@@ -47,8 +47,12 @@ actor HomewardRepository {
             .appendingPathComponent("Homeward", isDirectory: true)
     }
 
-    nonisolated static func shouldPresentMainWindow() -> Bool {
-        guard let directoryURL = try? defaultDirectoryURL() else {
+    nonisolated static func shouldPresentMainWindow(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        guard let directoryURL = try? defaultDirectoryURL(
+            environment: environment
+        ) else {
             return true
         }
         return shouldPresentMainWindow(directoryURL: directoryURL)

@@ -1,4 +1,5 @@
 import AppKit
+import Foundation
 import SwiftUI
 
 @main
@@ -41,12 +42,13 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate {
     }
 
     let mode = Mode(
-        rawValue: ProcessInfo.processInfo.environment["HOMEWARD_FIXTURE_MODE"] ?? ""
-    ) ?? .immediate
+        rawValue: ProcessInfo.processInfo.environment[
+            "HOMEWARD_FIXTURE_MODE"
+        ] ?? ""
+    ) ?? .refuse
     let delay = TimeInterval(
         ProcessInfo.processInfo.environment["HOMEWARD_FIXTURE_DELAY"] ?? ""
     ) ?? 2
-
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         switch mode {
         case .immediate:

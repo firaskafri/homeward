@@ -3,14 +3,14 @@ import Darwin
 import XCTest
 
 // 1 - Name: Homeward UI test file.
-// 2 - Description: Verifies startup, exact-build reopening, recovery, readiness transitions, navigation, and compact schedule editing with isolated scenario fixtures.
-// 3 - Assumptions: UI scenarios use temporary storage, inert platform adapters, preview-only application identities, and simulated external approvals.
-// 4 - Expectations: Critical states and installation guidance remain accurate without selecting, launching, or controlling any installed user application.
+// 2 - Description: Verifies startup, exact-build reopening, recovery, readiness transitions, navigation, constrained Work Apps layout, and responsive schedule editing and copying with isolated scenario fixtures.
+// 3 - Assumptions: UI scenarios use temporary storage, inert platform adapters, preview-only application identities, simulated external approvals, and the production window hierarchy.
+// 4 - Expectations: Critical states, installation guidance, and split-view content remain visible without selecting, launching, or controlling any installed user application.
 
 /// 1 - Name: Homeward UI test suite.
-/// 2 - Description: Exercises exact-build launch/reopen, recovery, installation and approval transitions, long content, and native schedule workflows.
-/// 3 - Assumptions: Each test launches one named scenario whose files, external status transitions, and runtime adapters are isolated from user state.
-/// 4 - Expectations: Native surfaces expose clear next actions and confirmations while automated lifecycle control remains fixture-only.
+/// 2 - Description: Exercises exact-build launch/reopen, recovery, installation and approval transitions, long content, Work Apps viewport containment, and native schedule selection, time, overnight, copy, and save workflows.
+/// 3 - Assumptions: Each test launches one named scenario whose files, preview catalog, external status transitions, and runtime adapters are isolated from user state.
+/// 4 - Expectations: Native surfaces remain ordered and reachable, expose clear next actions and confirmations, and keep automated lifecycle control fixture-only.
 @MainActor
 final class HomewardUITests: XCTestCase {
     private var fixture: IsolatedApplicationFixture?
@@ -203,11 +203,57 @@ final class HomewardUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Choose Application…"].firstMatch.exists)
     }
 
-    /// 1 - Name: Compact schedule disclosure reachability.
-    /// 2 - Description: Shrinks first-launch setup to its minimum width and opens weekday disclosures at the start and end of the week.
+    /// 1 - Name: Work Apps catalog layout.
+    /// 2 - Description: Opens Work Apps with an isolated preview catalog and verifies its controls remain above the catalog rows.
+    /// 3 - Assumptions: The test window uses the production split-view layout while catalog discovery returns only inert preview identities.
+    /// 4 - Expectations: The picker, chooser, and first catalog row are visible in document order without content underlapping the title bar.
+    func testWorkAppsCatalogStartsBelowPickerControls() throws {
+        let app = try launch(.outsideApplications)
+        try reopenHomeward(app)
+
+        let workAppsNavigation = app.descendants(matching: .any)[
+            "navigation.Work Apps"
+        ]
+        XCTAssertTrue(
+            workAppsNavigation.waitForExistence(
+                timeout: UITestPolicy.launchTimeout
+            )
+        )
+        workAppsNavigation.click()
+
+        let picker = app.descendants(matching: .any)["apps.view"]
+        let chooser = app.buttons["Choose Application…"].firstMatch
+        let toolbar = app.toolbars.firstMatch
+        let firstCatalogRow = app.descendants(matching: .any)[
+            "apps.row.com.homeward.preview.studio"
+        ]
+        XCTAssertTrue(
+            picker.waitForExistence(timeout: UITestPolicy.navigationTimeout)
+        )
+        XCTAssertTrue(
+            chooser.waitForExistence(timeout: UITestPolicy.navigationTimeout)
+        )
+        XCTAssertTrue(toolbar.exists)
+        XCTAssertTrue(
+            firstCatalogRow.waitForExistence(
+                timeout: UITestPolicy.navigationTimeout
+            )
+        )
+        XCTAssertGreaterThanOrEqual(
+            chooser.frame.minY,
+            toolbar.frame.maxY
+        )
+        XCTAssertGreaterThanOrEqual(
+            firstCatalogRow.frame.minY,
+            chooser.frame.maxY
+        )
+    }
+
+    /// 1 - Name: Compact schedule selector reachability.
+    /// 2 - Description: Shrinks first-launch setup to its minimum width and selects days at the start and end of the week.
     /// 3 - Assumptions: The empty isolated repository supplies the default workweek and the native window honors its SwiftUI minimum.
-    /// 4 - Expectations: Every day remains reachable, switching days closes the prior editor, and Sunday can be opened after scrolling.
-    func testScheduleDisclosuresRemainReachableAtMinimumWidth() throws {
+    /// 4 - Expectations: Every day remains reachable and selecting a day updates the single focused editor without horizontal scrolling.
+    func testScheduleSelectorsRemainReachableAtMinimumWidth() throws {
         let app = try launch(.firstLaunch)
         let window = app.windows.firstMatch
         XCTAssertTrue(
@@ -217,78 +263,59 @@ final class HomewardUITests: XCTestCase {
         XCTAssertLessThanOrEqual(window.frame.width, 700)
 
         let monday = scheduleElement(
-            "schedule.day.monday.disclosure",
+            "schedule.day.monday.selector",
             in: app
         )
         let sunday = scheduleElement(
-            "schedule.day.sunday.disclosure",
+            "schedule.day.sunday.selector",
             in: app
         )
         XCTAssertTrue(
             monday.waitForExistence(timeout: UITestPolicy.navigationTimeout)
         )
-        XCTAssertFalse(
-            scheduleElement("schedule.day.monday.mode", in: app).exists
-        )
         XCTAssertTrue(
             sunday.waitForExistence(timeout: UITestPolicy.navigationTimeout)
         )
-
-        monday.click()
         XCTAssertTrue(
             scheduleElement("schedule.day.monday.mode", in: app)
                 .waitForExistence(timeout: UITestPolicy.navigationTimeout)
         )
         let tuesday = scheduleElement(
-            "schedule.day.tuesday.disclosure",
+            "schedule.day.tuesday.selector",
             in: app
         )
         XCTAssertTrue(
             tuesday.waitForExistence(timeout: UITestPolicy.navigationTimeout)
         )
-        let visibleTuesday = scheduleElement(
-            "schedule.day.tuesday.disclosure",
-            in: app
-        )
-        visibleTuesday.click()
-        let expanded = expectation(
-            for: NSPredicate(format: "value == %@", "Expanded"),
-            evaluatedWith: visibleTuesday
-        )
-        wait(for: [expanded], timeout: UITestPolicy.navigationTimeout)
+        tuesday.click()
         XCTAssertTrue(
             scheduleElement("schedule.day.tuesday.mode", in: app)
                 .waitForExistence(timeout: UITestPolicy.navigationTimeout)
         )
         XCTAssertEqual(
             scheduleElement(
-                "schedule.day.monday.disclosure",
+                "schedule.day.monday.selector",
                 in: app
             ).value as? String,
-            "Collapsed"
+            "Not selected"
         )
 
-        scrollToVisible(sunday, in: app.scrollViews.firstMatch)
         XCTAssertTrue(sunday.isHittable)
         sunday.click()
-        let sundayExpanded = expectation(
-            for: NSPredicate(format: "value == %@", "Expanded"),
-            evaluatedWith: sunday
-        )
-        wait(
-            for: [sundayExpanded],
-            timeout: UITestPolicy.navigationTimeout
+        XCTAssertTrue(
+            scheduleElement("schedule.day.sunday.mode", in: app)
+                .waitForExistence(timeout: UITestPolicy.navigationTimeout)
         )
     }
 
     /// 1 - Name: Schedule mode and action states.
-    /// 2 - Description: Changes Monday to all-day availability, then resets the draft using native editor controls.
+    /// 2 - Description: Reselects Monday's current mode, changes it to all-day availability, then resets the draft.
     /// 3 - Assumptions: First-launch setup has an unconfirmed default schedule and persistence has not started.
-    /// 4 - Expectations: Save & Continue is available unchanged, Reset Draft tracks edits, and the selected mode updates the collapsed summary.
+    /// 4 - Expectations: Reselecting the current mode is a no-op, while a real mode change enables reset and updates the day tile.
     func testScheduleModeSwitchingAndResetSaveStates() throws {
         let app = try launch(.firstLaunch)
         XCTAssertTrue(
-            scheduleElement("schedule.day.monday.disclosure", in: app)
+            scheduleElement("schedule.day.monday.selector", in: app)
                 .waitForExistence(timeout: UITestPolicy.launchTimeout)
         )
         let reset = app.buttons["schedule.reset"]
@@ -296,21 +323,28 @@ final class HomewardUITests: XCTestCase {
         XCTAssertFalse(reset.isEnabled)
         XCTAssertTrue(save.isEnabled)
         XCTAssertEqual(save.label, "Save & Continue")
-
-        scheduleElement(
-            "schedule.day.monday.disclosure",
-            in: app
-        ).click()
-        chooseMenuOption(
-            "Available all day",
-            from: scheduleElement("schedule.day.monday.mode", in: app),
-            in: app
+        XCTAssertTrue(
+            scheduleElement("schedule.day.monday.start", in: app).exists
         )
+
+        let scheduledHours = app.radioButtons["Scheduled hours"].firstMatch
+        XCTAssertTrue(scheduledHours.exists)
+        scheduledHours.click()
+        XCTAssertFalse(reset.isEnabled)
+
+        let availableAllDay = app.radioButtons["Available all day"].firstMatch
+        XCTAssertTrue(
+            availableAllDay.waitForExistence(
+                timeout: UITestPolicy.navigationTimeout
+            )
+        )
+        XCTAssertTrue(availableAllDay.isHittable)
+        availableAllDay.click()
 
         XCTAssertTrue(reset.isEnabled)
         XCTAssertTrue(
             scheduleElement(
-                "schedule.day.monday.disclosure",
+                "schedule.day.monday.selector",
                 in: app
             ).label.contains("Available all day")
         )
@@ -318,7 +352,73 @@ final class HomewardUITests: XCTestCase {
         XCTAssertFalse(reset.isEnabled)
         XCTAssertTrue(
             scheduleElement(
-                "schedule.day.monday.disclosure",
+                "schedule.day.monday.selector",
+                in: app
+            ).label.contains("9:00")
+        )
+    }
+
+    /// 1 - Name: Focused schedule time picker.
+    /// 2 - Description: Opens the redesigned start-time control from Monday's focused editor.
+    /// 3 - Assumptions: The default workweek selects Monday and exposes its scheduled-hours controls.
+    /// 4 - Expectations: Time editing opens a dedicated hour-and-minute popover instead of inline steppers.
+    func testScheduleTimePickerUsesFocusedPopover() throws {
+        let app = try launch(.firstLaunch)
+        let startTime = scheduleElement(
+            "schedule.day.monday.start",
+            in: app
+        )
+        XCTAssertTrue(
+            startTime.waitForExistence(timeout: UITestPolicy.launchTimeout)
+        )
+        scrollToVisible(startTime, in: app.scrollViews.firstMatch)
+        XCTAssertTrue(startTime.isHittable)
+
+        startTime.click()
+
+        XCTAssertTrue(
+            app.staticTexts["Uses your Mac’s time format"]
+                .waitForExistence(timeout: UITestPolicy.navigationTimeout)
+        )
+        XCTAssertTrue(app.buttons["Done"].exists)
+    }
+
+    /// 1 - Name: Schedule copy workflow.
+    /// 2 - Description: Applies Monday's default scheduled rule first to matching weekdays and then to both weekend days.
+    /// 3 - Assumptions: The first-launch schedule starts with Monday scheduled and the weekend closed.
+    /// 4 - Expectations: A no-op copy stays clean while a changed copy updates both weekend tiles and enables reset.
+    func testScheduleCopiesSelectedDayToWeekend() throws {
+        let app = try launch(.firstLaunch)
+        let copyMenu = app.menuButtons["schedule.copy.destination"]
+        XCTAssertTrue(
+            copyMenu.waitForExistence(timeout: UITestPolicy.launchTimeout)
+        )
+        copyMenu.click()
+
+        let weekdays = app.menuItems["Weekdays"]
+        XCTAssertTrue(
+            weekdays.waitForExistence(timeout: UITestPolicy.navigationTimeout)
+        )
+        weekdays.click()
+        XCTAssertFalse(app.buttons["schedule.reset"].isEnabled)
+
+        copyMenu.click()
+        let weekend = app.menuItems["Weekend"]
+        XCTAssertTrue(
+            weekend.waitForExistence(timeout: UITestPolicy.navigationTimeout)
+        )
+        weekend.click()
+
+        XCTAssertTrue(app.buttons["schedule.reset"].isEnabled)
+        XCTAssertTrue(
+            scheduleElement(
+                "schedule.day.saturday.selector",
+                in: app
+            ).label.contains("9:00")
+        )
+        XCTAssertTrue(
+            scheduleElement(
+                "schedule.day.sunday.selector",
                 in: app
             ).label.contains("9:00")
         )
@@ -326,18 +426,14 @@ final class HomewardUITests: XCTestCase {
 
     /// 1 - Name: Overnight destination label.
     /// 2 - Description: Enables Monday overnight hours and inspects its destination-day control.
-    /// 3 - Assumptions: Changing the native checkbox updates only the in-memory draft.
-    /// 4 - Expectations: Monday names Tuesday and its collapsed summary updates when enabled.
+    /// 3 - Assumptions: Changing the native switch updates only the in-memory draft.
+    /// 4 - Expectations: Monday names Tuesday and its day tile summary updates when enabled.
     func testScheduleOvernightControlNamesDestinationDay() throws {
         let app = try launch(.firstLaunch)
         XCTAssertTrue(
-            scheduleElement("schedule.day.monday.disclosure", in: app)
+            scheduleElement("schedule.day.monday.selector", in: app)
                 .waitForExistence(timeout: UITestPolicy.launchTimeout)
         )
-        scheduleElement(
-            "schedule.day.monday.disclosure",
-            in: app
-        ).click()
         let mondayOvernight = scheduleElement(
             "schedule.day.monday.overnight",
             in: app
@@ -348,9 +444,11 @@ final class HomewardUITests: XCTestCase {
             )
         )
         XCTAssertEqual(mondayOvernight.label, "Ends Tuesday")
+        scrollToVisible(mondayOvernight, in: app.scrollViews.firstMatch)
+        XCTAssertTrue(mondayOvernight.isHittable)
         mondayOvernight.click()
         let mondaySummary = scheduleElement(
-            "schedule.day.monday.disclosure",
+            "schedule.day.monday.selector",
             in: app
         )
         let updatedSummary = expectation(
@@ -367,7 +465,7 @@ final class HomewardUITests: XCTestCase {
     func testOnboardingScheduleSaveContinuesToWorkApps() throws {
         let app = try launch(.firstLaunch)
         XCTAssertTrue(
-            scheduleElement("schedule.day.monday.disclosure", in: app)
+            scheduleElement("schedule.day.monday.selector", in: app)
                 .waitForExistence(timeout: UITestPolicy.launchTimeout)
         )
         let save = app.buttons["schedule.save"]
@@ -469,22 +567,6 @@ final class HomewardUITests: XCTestCase {
         in app: XCUIApplication
     ) -> XCUIElement {
         app.descendants(matching: .any)[identifier]
-    }
-
-    private func chooseMenuOption(
-        _ option: String,
-        from picker: XCUIElement,
-        in app: XCUIApplication
-    ) {
-        XCTAssertTrue(
-            picker.waitForExistence(timeout: UITestPolicy.navigationTimeout)
-        )
-        picker.click()
-        let menuItem = app.menuItems[option]
-        XCTAssertTrue(
-            menuItem.waitForExistence(timeout: UITestPolicy.navigationTimeout)
-        )
-        menuItem.click()
     }
 
     private func resizeWindowToMinimum(_ window: XCUIElement) {
@@ -667,11 +749,11 @@ private final class IsolatedApplicationFixture {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = ["-a", applicationURL.path]
         try process.run()
-        let deadline = Date().addingTimeInterval(
-            UITestPolicy.processTerminationTimeout
-        )
-        while process.isRunning && Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.05)
+        let deadline = ProcessInfo.processInfo.systemUptime
+            + UITestPolicy.processTerminationTimeout
+        while process.isRunning,
+              ProcessInfo.processInfo.systemUptime < deadline {
+            Thread.sleep(forTimeInterval: UITestPolicy.pollInterval)
         }
         guard !process.isRunning else {
             process.terminate()
@@ -690,11 +772,11 @@ private final class IsolatedApplicationFixture {
                 throw FixtureError.runningApplicationIdentityMismatch
             }
             application.terminate()
-            let deadline = Date().addingTimeInterval(
-                UITestPolicy.testApplicationTerminationTimeout
-            )
-            while application.state != .notRunning && Date() < deadline {
-                Thread.sleep(forTimeInterval: 0.05)
+            let deadline = ProcessInfo.processInfo.systemUptime
+                + UITestPolicy.testApplicationTerminationTimeout
+            while application.state != .notRunning,
+                  ProcessInfo.processInfo.systemUptime < deadline {
+                Thread.sleep(forTimeInterval: UITestPolicy.pollInterval)
             }
             guard application.state == .notRunning else {
                 throw FixtureError.terminationTimedOut
@@ -732,9 +814,10 @@ private final class IsolatedApplicationFixture {
         _ processIdentifier: pid_t,
         timeout: TimeInterval
     ) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while processIsRunning(processIdentifier) && Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.05)
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while processIsRunning(processIdentifier),
+              ProcessInfo.processInfo.systemUptime < deadline {
+            Thread.sleep(forTimeInterval: UITestPolicy.pollInterval)
         }
         return !processIsRunning(processIdentifier)
     }
@@ -768,16 +851,9 @@ private final class IsolatedApplicationFixture {
     private static func builtApplication(
         testBundle: Bundle
     ) throws -> (url: URL, bundleIdentifier: String) {
-        var runnerURL = testBundle.bundleURL.standardizedFileURL
-        while runnerURL.pathExtension != "app",
-              runnerURL.path != "/" {
-            runnerURL.deleteLastPathComponent()
-        }
-        guard runnerURL.pathExtension == "app" else {
-            throw FixtureError.missingTestRunner
-        }
-        let buildProductsURL = runnerURL.deletingLastPathComponent()
-            .resolvingSymlinksInPath().standardizedFileURL
+        let buildProductsURL = try BuiltApplicationLocator.productsDirectory(
+            testBundle: testBundle
+        )
         let unresolvedCandidate = buildProductsURL
             .appendingPathComponent("Homeward.app", isDirectory: true)
         let candidate = unresolvedCandidate
@@ -804,7 +880,6 @@ private enum FixtureError: Error {
     case builtApplicationIdentityMismatch(String)
     case missingFixture
     case missingResource(String)
-    case missingTestRunner
     case reopenFailed(Int32)
     case reopenTimedOut
     case runningApplicationIdentityMismatch
@@ -822,6 +897,7 @@ private enum UITestPolicy {
     static let scenarioEnvironment = "HOMEWARD_UI_TEST_SCENARIO"
     static let processTerminationTimeout: TimeInterval = 5
     static let testApplicationTerminationTimeout: TimeInterval = 15
+    static let pollInterval: TimeInterval = 0.05
 
     static func isAllowedApplicationBundleIdentifier(
         _ bundleIdentifier: String

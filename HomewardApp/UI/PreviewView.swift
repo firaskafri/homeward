@@ -11,6 +11,7 @@ struct PreviewView: View {
     @ObservedObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @State private var selectionID: UUID?
+    @State private var showEndConfirmation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: HomewardSpacing.panelInset) {
@@ -18,6 +19,7 @@ struct PreviewView: View {
                 Label("Preview the handoff", systemImage: "play.circle")
                     .font(.title2.bold())
                     .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("preview.view")
                 Text(
                     "Choose a harmless app and open it first. "
                         + "The preview requests a normal quit and never force-quits."
@@ -61,10 +63,11 @@ struct PreviewView: View {
             ViewThatFits(in: .horizontal) {
                 HStack {
                     Button("End Preview") {
-                        endPreviewAndDismiss()
+                        requestEndPreview()
                     }
                     .keyboardShortcut(.cancelAction)
-                    if case .needsAttention = model.previewState {
+                    .accessibilityIdentifier("preview.end")
+                    if model.previewState.canShowApplication {
                         Button("Show App") {
                             model.showPreviewApplication()
                         }
@@ -74,15 +77,16 @@ struct PreviewView: View {
                 }
                 VStack(alignment: .leading, spacing: 10) {
                     runPreviewButton
-                    if case .needsAttention = model.previewState {
+                    if model.previewState.canShowApplication {
                         Button("Show App") {
                             model.showPreviewApplication()
                         }
                     }
                     Button("End Preview") {
-                        endPreviewAndDismiss()
+                        requestEndPreview()
                     }
                     .keyboardShortcut(.cancelAction)
+                    .accessibilityIdentifier("preview.end")
                 }
             }
         }
@@ -91,7 +95,20 @@ struct PreviewView: View {
         .onDisappear {
             model.endPreview()
         }
-        .accessibilityIdentifier("preview.view")
+        .confirmationDialog(
+            "End preview?",
+            isPresented: $showEndConfirmation
+        ) {
+            Button("End Preview", role: .destructive) {
+                endPreviewAndDismiss()
+            }
+            Button("Continue Preview", role: .cancel) {}
+        } message: {
+            Text(
+                "Ending preview prevents later preview steps. "
+                    + "A normal quit the app already accepted cannot be undone."
+            )
+        }
     }
 
     private var runPreviewButton: some View {
@@ -144,10 +161,10 @@ struct PreviewView: View {
                 symbol: "testtube.2",
                 color: .accentColor
             )
-        case let .needsAttention(name):
+        case let .needsAttention(name, _, reason):
             Presentation(
                 title: "App needs attention",
-                text: "\(name) needs your attention before the preview can continue.",
+                text: attentionMessage(name: name, reason: reason),
                 symbol: "exclamationmark.triangle",
                 color: .orange
             )
@@ -164,5 +181,39 @@ struct PreviewView: View {
     private func endPreviewAndDismiss() {
         model.endPreview()
         dismiss()
+    }
+
+    private func requestEndPreview() {
+        guard previewHasLifecycleConsequences else {
+            endPreviewAndDismiss()
+            return
+        }
+        showEndConfirmation = true
+    }
+
+    private var previewHasLifecycleConsequences: Bool {
+        switch model.previewState {
+        case .idle, .needsAttention(_, _, .applicationNotRunning):
+            return false
+        case .waitingForFirstExit, .waitingForRelaunch,
+             .waitingForSecondExit, .needsAttention, .complete:
+            return true
+        }
+    }
+
+    private func attentionMessage(
+        name: String,
+        reason: AppModel.PreviewAttentionReason
+    ) -> String {
+        switch reason {
+        case .applicationNotRunning:
+            "Open \(name), then run the preview again."
+        case .normalQuitRejected:
+            "\(name) declined the normal quit request. Check the app, then try again or skip preview."
+        case .timedOut:
+            "Preview timed out. Check \(name), try again, or skip preview."
+        case .applicationExited:
+            "\(name) is no longer running. Open it, then try again or skip preview."
+        }
     }
 }

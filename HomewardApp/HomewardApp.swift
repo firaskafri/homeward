@@ -67,11 +67,14 @@ struct HomewardApp: App {
 
     init() {
         HomewardPreferenceKeys.migrate()
+        let environment = HomewardRuntime.resolvedEnvironment()
         presentsMainWindowOnLaunch =
-            HomewardRepository.shouldPresentMainWindow()
+            HomewardRepository.shouldPresentMainWindow(
+                environment: environment
+            )
         let instance: AppModel
         do {
-            instance = try AppModel.makeDefault()
+            instance = try AppModel.makeDefault(environment: environment)
         } catch {
             fatalError("Homeward built-in defaults are invalid: \(error)")
         }

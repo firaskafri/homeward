@@ -10,70 +10,77 @@ struct AppPickerView: View {
     @State private var pendingSelectionRevision: Int?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: HomewardSpacing.small) {
-                Label("Choose the apps that end with work", systemImage: "square.grid.2x2")
-                    .font(.title2.bold())
-                    .accessibilityAddTraits(.isHeader)
-                Text(
-                    "Homeward only manages apps you select. You can change this list at any time."
-                )
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding([.horizontal, .top], HomewardSpacing.xLarge)
-            .padding(.bottom, 18)
-            .accessibilityElement(children: .combine)
-
-            if let error = model.lastError {
-                InlineErrorView(message: error) {
-                    model.clearError()
+        GeometryReader { availableSpace in
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: HomewardSpacing.small) {
+                    Label("Choose the apps that end with work", systemImage: "square.grid.2x2")
+                        .font(.title2.bold())
+                        .accessibilityAddTraits(.isHeader)
+                    Text(
+                        "Homeward only manages apps you select. You can change this list at any time."
+                    )
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(.horizontal, HomewardSpacing.xLarge)
-                .padding(.bottom, 12)
-            }
-
-            selectedApplications
-                .padding(.horizontal, HomewardSpacing.xLarge)
+                .padding([.horizontal, .top], HomewardSpacing.xLarge)
                 .padding(.bottom, 18)
+                .accessibilityElement(children: .combine)
 
-            Divider()
-
-            VStack(alignment: .leading, spacing: 12) {
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .firstTextBaseline) {
-                        catalogHeading
-                        Spacer()
-                        Button("Choose Application…") {
-                            chooseApplication()
-                        }
-                        .accessibilityIdentifier("apps.choose")
+                if let error = model.lastError {
+                    InlineErrorView(message: error) {
+                        model.clearError()
                     }
-                    VStack(alignment: .leading, spacing: HomewardSpacing.small) {
-                        catalogHeading
-                        Button("Choose Application…") {
-                            chooseApplication()
-                        }
-                        .accessibilityIdentifier("apps.choose")
-                    }
+                    .padding(.horizontal, HomewardSpacing.xLarge)
+                    .padding(.bottom, 12)
                 }
 
-                TextField("Search applications", text: $searchText)
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityLabel("Search available applications")
-                    .accessibilityIdentifier("apps.search")
+                selectedApplications
+                    .padding(.horizontal, HomewardSpacing.xLarge)
+                    .padding(.bottom, 18)
 
-                catalogContent
+                Divider()
 
-                Label(
-                    "You can also drop application files here.",
-                    systemImage: "arrow.down.app"
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .accessibilityElement(children: .combine)
+                VStack(alignment: .leading, spacing: 12) {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .firstTextBaseline) {
+                            catalogHeading
+                            Spacer()
+                            Button("Choose Application…") {
+                                chooseApplication()
+                            }
+                            .accessibilityIdentifier("apps.choose")
+                        }
+                        VStack(alignment: .leading, spacing: HomewardSpacing.small) {
+                            catalogHeading
+                            Button("Choose Application…") {
+                                chooseApplication()
+                            }
+                            .accessibilityIdentifier("apps.choose")
+                        }
+                    }
+
+                    TextField("Search applications", text: $searchText)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("Search available applications")
+                        .accessibilityIdentifier("apps.search")
+
+                    catalogContent
+
+                    Label(
+                        "You can also drop application files here.",
+                        systemImage: "arrow.down.app"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityElement(children: .combine)
+                }
+                .padding(HomewardSpacing.xLarge)
             }
-            .padding(HomewardSpacing.xLarge)
+            .frame(
+                width: availableSpace.size.width,
+                height: availableSpace.size.height,
+                alignment: .topLeading
+            )
         }
         .navigationTitle("Work Apps")
         .dropDestination(for: URL.self) { urls, _ in
@@ -199,7 +206,7 @@ struct AppPickerView: View {
                 applicationRow(application)
             }
             .listStyle(.inset)
-            .frame(minHeight: 120, maxHeight: .infinity)
+            .frame(minHeight: 120)
         }
     }
 
@@ -535,9 +542,10 @@ struct AppPickerView: View {
     }
 
     private var immediateCloseConsequence: String {
-        "The current time is closed. Homeward will begin "
-            + "\(SchedulePresentation.closeModeName(model.configuration.closeMode)) "
-            + "after the change is saved."
+        SchedulePresentation.immediateClosingMessage(
+            context: "The current time is closed.",
+            closeMode: model.configuration.closeMode
+        )
     }
 
     private func chooseReplacement(for id: UUID) {

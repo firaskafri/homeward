@@ -240,6 +240,7 @@ private struct ClosingPanelView: View {
     private func closingRow(_ row: AppModel.ClosingRow) -> some View {
         let rowTone = tone(for: row.status)
         let rowStatusText = statusText(for: row)
+        let rowDisplayName = displayName(for: row)
         HomewardCard(padding: HomewardSpacing.medium) {
             VStack(alignment: .leading, spacing: HomewardSpacing.medium) {
                 HStack(alignment: .top, spacing: HomewardSpacing.medium) {
@@ -257,7 +258,7 @@ private struct ClosingPanelView: View {
                         .accessibilityHidden(true)
 
                     VStack(alignment: .leading, spacing: HomewardSpacing.xSmall) {
-                        Text(row.applicationName)
+                        Text(rowDisplayName)
                             .font(.headline)
                         Text(rowStatusText)
                             .font(.callout)
@@ -280,7 +281,7 @@ private struct ClosingPanelView: View {
                 if row.status == .needsAttention || row.status == .forceFailed {
                     HStack {
                         Spacer()
-                        Button("Show \(row.applicationName)") {
+                        Button("Show \(rowDisplayName)") {
                             model.bringForward(sessionID: row.id)
                         }
                         .accessibilityHint("Brings the application to the front")
@@ -301,7 +302,7 @@ private struct ClosingPanelView: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(row.applicationName)
+        .accessibilityLabel(rowDisplayName)
         .accessibilityValue(rowStatusText)
         .accessibilityIdentifier("closing.row.\(row.id)")
     }
@@ -319,6 +320,14 @@ private struct ClosingPanelView: View {
         case .forceFailed:
             "exclamationmark.triangle"
         }
+    }
+
+    private func displayName(for row: AppModel.ClosingRow) -> String {
+        ApplicationListFormatter.processLabel(
+            name: row.applicationName,
+            processIdentifier: row.processIdentifier,
+            allNames: model.closingRows.map(\.applicationName)
+        )
     }
 
     private func tone(for status: AppModel.ClosingRow.Status) -> HomewardTone {

@@ -3,6 +3,17 @@ import Foundation
 enum ApplicationListFormatter {
     static let maximumVisibleItemCount = 3
 
+    static func processLabel(
+        name: String,
+        processIdentifier: Int32,
+        allNames: [String]
+    ) -> String {
+        guard allNames.count(where: { $0 == name }) > 1 else {
+            return name
+        }
+        return "\(name) — Process \(processIdentifier)"
+    }
+
     static func summary(
         names: [String],
         emptyFallback: String

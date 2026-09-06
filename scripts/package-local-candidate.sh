@@ -42,10 +42,26 @@ dsym="$derived_data/Build/Products/Release/Homeward.app.dSYM"
 }
 version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")"
 build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")"
-evidence="$(homeward_read_release_evidence "$verification_marker" 0)"
-IFS=$'\t' read -r verified_source_sha verified_app_tree_sha \
-  verified_binary_uuid verified_dsym_tree_sha verified_version \
-  verified_build verified_ui_tests <<<"$evidence"
+verified_source_sha=""
+verified_app_tree_sha=""
+verified_binary_uuid=""
+verified_dsym_tree_sha=""
+verified_version=""
+verified_build=""
+verified_ui_tests=""
+verified_ui_result_sha256=""
+verified_journey_e2e=""
+verified_release_e2e=""
+verified_release_e2e_configuration=""
+verified_release_e2e_scheme=""
+verified_coverage_contract_sha256=""
+verified_journey_result_sha256=""
+verified_release_result_sha256=""
+verified_xctestrun_sha256=""
+evidence_assignments="$(
+  homeward_read_release_evidence "$verification_marker" 0
+)"
+eval "$evidence_assignments"
 source_sha="$(git rev-parse HEAD)"
 [[ "$verified_source_sha" == "$source_sha" &&
    "$verified_app_tree_sha" == "$(homeward_tree_sha256 "$app")" &&
@@ -56,6 +72,46 @@ source_sha="$(git rev-parse HEAD)"
   printf 'Release app does not match the latest verified source/build.\n' >&2
   exit 1
 }
+result_directory="$derived_data/TestResults"
+if [[ "$verified_ui_tests" == "true" ]]; then
+  [[ "$verified_coverage_contract_sha256" == "$(
+    shasum -a 256 "$repository_root/scripts/release_coverage_contract.json" |
+      awk '{print $1}'
+  )" ]] || {
+    printf 'Release coverage contract does not match verification evidence.\n' >&2
+    exit 1
+  }
+  homeward_verify_tree_evidence \
+    "$result_directory/HomewardUI.xcresult" \
+    "$verified_ui_result_sha256" \
+    "UI test result"
+fi
+if [[ "$verified_journey_e2e" == "true" ]]; then
+  homeward_verify_tree_evidence \
+    "$result_directory/HomewardJourneyE2E.xcresult" \
+    "$verified_journey_result_sha256" \
+    "Journey E2E result"
+fi
+if [[ "$verified_release_e2e" == "true" ]]; then
+  homeward_verify_tree_evidence \
+    "$result_directory/HomewardReleaseE2E.xcresult" \
+    "$verified_release_result_sha256" \
+    "Release E2E result"
+  shopt -s nullglob
+  release_xctestrun_candidates=(
+    "$derived_data"/Build/Products/HomewardReleaseE2E_*.xctestrun
+  )
+  shopt -u nullglob
+  [[ "${#release_xctestrun_candidates[@]}" == "1" ]] || {
+    printf 'Expected exactly one HomewardReleaseE2E xctestrun; found %s.\n' \
+      "${#release_xctestrun_candidates[@]}" >&2
+    exit 1
+  }
+  homeward_verify_file_evidence \
+    "${release_xctestrun_candidates[0]}" \
+    "$verified_xctestrun_sha256" \
+    "Release E2E xctestrun"
+fi
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$app"
 homeward_verify_dsym "$binary" "$dsym"
 dsym_binary="$dsym/Contents/Resources/DWARF/Homeward"
@@ -103,15 +159,24 @@ BINARY_UUID="$verified_binary_uuid" \
 BUILD="$build" \
 BUNDLE_IDENTIFIER="$bundle_identifier" \
 CHECKSUM="$checksum" \
+COVERAGE_CONTRACT_SHA256="$verified_coverage_contract_sha256" \
 MINIMUM_SYSTEM_VERSION="$minimum_system_version" \
 DSYM_TREE_SHA="$verified_dsym_tree_sha" \
 DSYM_UUID="$dsym_uuid" \
+JOURNEY_E2E_ENABLED="$verified_journey_e2e" \
+JOURNEY_RESULT_SHA256="$verified_journey_result_sha256" \
+RELEASE_E2E_CONFIGURATION="$verified_release_e2e_configuration" \
+RELEASE_E2E_ENABLED="$verified_release_e2e" \
+RELEASE_E2E_SCHEME="$verified_release_e2e_scheme" \
+RELEASE_RESULT_SHA256="$verified_release_result_sha256" \
 SIGNATURE_MODE="ad-hoc" \
 SIZE="$size" \
 SOURCE_SHA="$source_sha" \
 SWIFT_VERSION="$swift_version" \
 UI_TESTS_ENABLED="$verified_ui_tests" \
+UI_RESULT_SHA256="$verified_ui_result_sha256" \
 VERSION="$version" \
+XCTESTRUN_SHA256="$verified_xctestrun_sha256" \
 XCODE_VERSION="$xcode_version" \
 /usr/bin/python3 \
   "$repository_root/scripts/local_candidate_manifest.py" \

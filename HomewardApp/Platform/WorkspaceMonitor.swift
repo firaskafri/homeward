@@ -1,4 +1,4 @@
-import AppKit
+@preconcurrency import AppKit
 import Foundation
 
 @MainActor
@@ -19,12 +19,28 @@ protocol WorkspaceMonitorDelegate: AnyObject {
     )
 }
 
+// NotificationCenter guarantees delivery on the requested main queue. This
+// wrapper carries the framework-owned value into MainActor.assumeIsolated.
+private struct SendableWorkspaceNotification: @unchecked Sendable {
+    nonisolated(unsafe) let value: Notification
+
+    nonisolated init(value: Notification) {
+        self.value = value
+    }
+}
+
+private struct WorkspaceObservation {
+    let center: NotificationCenter
+    let token: NSObjectProtocol
+}
+
 @MainActor
 final class WorkspaceMonitor: NSObject {
     weak var delegate: WorkspaceMonitorDelegate?
 
     private let workspace: NSWorkspace
     private var started = false
+    private var observations: [WorkspaceObservation] = []
 
     init(workspace: NSWorkspace = .shared) {
         self.workspace = workspace
@@ -51,74 +67,77 @@ final class WorkspaceMonitor: NSObject {
         started = true
 
         let center = workspace.notificationCenter
-        center.addObserver(
-            self,
-            selector: #selector(applicationDidLaunch(_:)),
-            name: NSWorkspace.didLaunchApplicationNotification,
+        observe(
+            center,
+            forName: NSWorkspace.didLaunchApplicationNotification,
             object: workspace
-        )
-        center.addObserver(
-            self,
-            selector: #selector(applicationDidTerminate(_:)),
-            name: NSWorkspace.didTerminateApplicationNotification,
+        ) { monitor, notification in
+            monitor.applicationDidLaunch(notification)
+        }
+        observe(
+            center,
+            forName: NSWorkspace.didTerminateApplicationNotification,
             object: workspace
-        )
-        center.addObserver(
-            self,
-            selector: #selector(workspaceWillSleep(_:)),
-            name: NSWorkspace.willSleepNotification,
+        ) { monitor, notification in
+            monitor.applicationDidTerminate(notification)
+        }
+        observe(
+            center,
+            forName: NSWorkspace.willSleepNotification,
             object: workspace
-        )
-        center.addObserver(
-            self,
-            selector: #selector(workspaceDidWake(_:)),
-            name: NSWorkspace.didWakeNotification,
+        ) { monitor, notification in
+            monitor.workspaceWillSleep(notification)
+        }
+        observe(
+            center,
+            forName: NSWorkspace.didWakeNotification,
             object: workspace
-        )
-        center.addObserver(
-            self,
-            selector: #selector(workspaceWillSleep(_:)),
-            name: NSWorkspace.screensDidSleepNotification,
+        ) { monitor, notification in
+            monitor.workspaceDidWake(notification)
+        }
+        observe(
+            center,
+            forName: NSWorkspace.screensDidSleepNotification,
             object: workspace
-        )
-        center.addObserver(
-            self,
-            selector: #selector(workspaceDidWake(_:)),
-            name: NSWorkspace.screensDidWakeNotification,
+        ) { monitor, notification in
+            monitor.workspaceWillSleep(notification)
+        }
+        observe(
+            center,
+            forName: NSWorkspace.screensDidWakeNotification,
             object: workspace
-        )
-        center.addObserver(
-            self,
-            selector: #selector(sessionDidBecomeActive(_:)),
-            name: NSWorkspace.sessionDidBecomeActiveNotification,
+        ) { monitor, notification in
+            monitor.workspaceDidWake(notification)
+        }
+        observe(
+            center,
+            forName: NSWorkspace.sessionDidBecomeActiveNotification,
             object: workspace
-        )
-        center.addObserver(
-            self,
-            selector: #selector(sessionDidResignActive(_:)),
-            name: NSWorkspace.sessionDidResignActiveNotification,
+        ) { monitor, notification in
+            monitor.sessionDidBecomeActive(notification)
+        }
+        observe(
+            center,
+            forName: NSWorkspace.sessionDidResignActiveNotification,
             object: workspace
-        )
+        ) { monitor, notification in
+            monitor.sessionDidResignActive(notification)
+        }
 
         let defaultCenter = NotificationCenter.default
-        defaultCenter.addObserver(
-            self,
-            selector: #selector(systemTimeDidChange(_:)),
-            name: .NSSystemClockDidChange,
-            object: nil
-        )
-        defaultCenter.addObserver(
-            self,
-            selector: #selector(systemTimeDidChange(_:)),
-            name: .NSSystemTimeZoneDidChange,
-            object: nil
-        )
-        defaultCenter.addObserver(
-            self,
-            selector: #selector(systemTimeDidChange(_:)),
-            name: .NSCalendarDayChanged,
-            object: nil
-        )
+        for name in [
+            Notification.Name.NSSystemClockDidChange,
+            .NSSystemTimeZoneDidChange,
+            .NSCalendarDayChanged,
+        ] {
+            observe(
+                defaultCenter,
+                forName: name,
+                object: nil
+            ) { monitor, notification in
+                monitor.systemTimeDidChange(notification)
+            }
+        }
     }
 
     func stop() {
@@ -126,11 +145,39 @@ final class WorkspaceMonitor: NSObject {
             return
         }
         started = false
-        workspace.notificationCenter.removeObserver(self)
-        NotificationCenter.default.removeObserver(self)
+        for observation in observations {
+            observation.center.removeObserver(observation.token)
+        }
+        observations.removeAll()
     }
 
-    @objc
+    private func observe(
+        _ center: NotificationCenter,
+        forName name: Notification.Name,
+        object: Any?,
+        handler: @escaping @MainActor @Sendable (
+            WorkspaceMonitor,
+            Notification
+        ) -> Void
+    ) {
+        let token = center.addObserver(
+            forName: name,
+            object: object,
+            queue: .main
+        ) { [weak self] notification in
+            let value = SendableWorkspaceNotification(value: notification)
+            MainActor.assumeIsolated {
+                guard let self, self.started else {
+                    return
+                }
+                handler(self, value.value)
+            }
+        }
+        observations.append(
+            WorkspaceObservation(center: center, token: token)
+        )
+    }
+
     private func applicationDidLaunch(_ notification: Notification) {
         guard let application = notification.userInfo?[
             NSWorkspace.applicationUserInfoKey
@@ -141,7 +188,6 @@ final class WorkspaceMonitor: NSObject {
         delegate?.workspaceMonitor(self, didLaunch: application)
     }
 
-    @objc
     private func applicationDidTerminate(_ notification: Notification) {
         guard let application = notification.userInfo?[
             NSWorkspace.applicationUserInfoKey
@@ -152,12 +198,10 @@ final class WorkspaceMonitor: NSObject {
         delegate?.workspaceMonitor(self, didTerminate: application)
     }
 
-    @objc
     private func workspaceWillSleep(_ notification: Notification) {
         delegate?.workspaceMonitorWillSuspend(self)
     }
 
-    @objc
     private func workspaceDidWake(_ notification: Notification) {
         delegate?.workspaceMonitor(
             self,
@@ -165,17 +209,14 @@ final class WorkspaceMonitor: NSObject {
         )
     }
 
-    @objc
     private func sessionDidBecomeActive(_ notification: Notification) {
         delegate?.workspaceMonitor(self, sessionActiveDidChange: true)
     }
 
-    @objc
     private func sessionDidResignActive(_ notification: Notification) {
         delegate?.workspaceMonitor(self, sessionActiveDidChange: false)
     }
 
-    @objc
     private func systemTimeDidChange(_ notification: Notification) {
         delegate?.workspaceMonitorRequiresReconciliation(self)
     }

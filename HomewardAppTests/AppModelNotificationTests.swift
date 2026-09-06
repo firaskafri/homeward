@@ -388,9 +388,9 @@ struct AppModelNotificationTests {
     }
 
     /// 1 - Name: Current notification action confirmation.
-    /// 2 - Description: Routes a generation-bound warning action through Today's shared confirmation intent.
+    /// 2 - Description: Routes a generation-bound warning action through Today's shared confirmation intent, including sheet dismissal ordering.
     /// 3 - Assumptions: The saved schedule is currently available and setup is complete.
-    /// 4 - Expectations: The action does not mutate policy until confirmation, then applies End Work Now.
+    /// 4 - Expectations: The action does not mutate policy until confirmation, then applies End Work Now even after the sheet clears its binding.
     @Test
     func currentNotificationActionRequiresSharedConfirmation() async throws {
         let fixture = AppModelFixture()
@@ -446,7 +446,9 @@ struct AppModelNotificationTests {
         #expect(model.configuration.overrides.isEmpty)
         #expect(model.pendingPolicyConfirmation == .endWorkNow)
         #expect(routedDestination == .today)
-        #expect(await model.confirmPolicyAction())
+        let capturedIntent = try #require(model.pendingPolicyConfirmation)
+        model.cancelPolicyConfirmation()
+        #expect(await model.confirmPolicyAction(capturedIntent))
         #expect(model.configuration.overrides.contains {
             $0.kind == .endWorkNow
         })

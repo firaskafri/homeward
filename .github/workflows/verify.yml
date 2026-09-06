@@ -47,7 +47,11 @@ jobs:
           test "$(xcodegen version | awk '{print $2}')" = "$XCODEGEN_VERSION"
 
       - name: Verify without interactive UI automation
-        run: RUN_UI_TESTS=0 ./scripts/verify.sh
+        run: |
+          RUN_UI_TESTS=0 \
+          RUN_JOURNEY_E2E=0 \
+          RUN_RELEASE_E2E=0 \
+          ./scripts/verify.sh
 
       - name: Package unreleased test candidate
         run: SKIP_VERIFY=1 ./scripts/package-local-candidate.sh

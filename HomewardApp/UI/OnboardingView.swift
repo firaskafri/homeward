@@ -2,6 +2,11 @@ import HomewardCore
 import SwiftUI
 
 struct OnboardingView: View {
+    private enum PreviewChoice {
+        case undecided
+        case skipped
+    }
+
     private enum AdvancementRequirement {
         case none
         case confirmedSchedule
@@ -96,6 +101,7 @@ struct OnboardingView: View {
     @ObservedObject var model: AppModel
     @State private var step: Int
     @State private var showPreview = false
+    @State private var previewChoice: PreviewChoice = .undecided
 
     init(model: AppModel) {
         self.model = model
@@ -128,6 +134,9 @@ struct OnboardingView: View {
                         )
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
+                            .accessibilityIdentifier(
+                                "onboarding.step.\(currentStep.rawValue + 1)"
+                            )
                         Text(currentStep.metadata.title)
                             .font(.largeTitle.bold())
                             .accessibilityAddTraits(.isHeader)
@@ -228,7 +237,6 @@ struct OnboardingView: View {
             }
             await model.refreshSystemStatuses()
         }
-        .accessibilityIdentifier("onboarding.step.\(currentStep.rawValue + 1)")
     }
 
     @ViewBuilder
@@ -238,8 +246,14 @@ struct OnboardingView: View {
             Label(prompt, systemImage: "circle.dashed")
                 .font(.callout)
                 .foregroundStyle(.secondary)
+                .accessibilityIdentifier("onboarding.blocker")
         } else if currentStep == .review {
-            Label("Setup stays editable after you start", systemImage: "checkmark.circle")
+            Label(
+                previewChoice == .skipped
+                    ? "Preview skipped. You can run it later from Work Apps."
+                    : "Setup stays editable after you start",
+                systemImage: "checkmark.circle"
+            )
                 .font(.callout)
                 .foregroundStyle(.secondary)
         } else {
@@ -255,9 +269,16 @@ struct OnboardingView: View {
             .disabled(currentStep == .schedule)
 
             if currentStep == .review {
-                Button("Test Setup…") {
+                Button("Run Preview…") {
+                    previewChoice = .undecided
                     showPreview = true
                 }
+                .accessibilityIdentifier("onboarding.runPreview")
+                Button("Skip Preview") {
+                    previewChoice = .skipped
+                }
+                .disabled(previewChoice == .skipped)
+                .accessibilityIdentifier("onboarding.skipPreview")
                 Button(startButtonTitle) {
                     Task { await model.completeOnboarding() }
                 }

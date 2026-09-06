@@ -37,7 +37,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.firaskafri.homeward
         PRODUCT_NAME: Homeward
         MARKETING_VERSION: 0.1.0
-        CURRENT_PROJECT_VERSION: 5
+        CURRENT_PROJECT_VERSION: 6
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_APP_SANDBOX: false
         ENABLE_HARDENED_RUNTIME: true
@@ -64,6 +64,7 @@ targets:
     platform: macOS
     sources:
       - path: HomewardUITests
+      - path: TestSupport/BuiltApplicationLocator.swift
       - path: TestFixtures/HomewardCompletedSetup
         buildPhase: resources
     dependencies:
@@ -72,6 +73,62 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.firaskafri.homeward.uitests
         GENERATE_INFOPLIST_FILE: true
+
+  HomewardTestShell:
+    type: application
+    platform: macOS
+    info:
+      path: TestFixtures/HomewardTestShell/Info.plist
+      properties:
+        CFBundleDisplayName: Homeward Test Shell
+        LSUIElement: true
+        LSMultipleInstancesProhibited: true
+    sources:
+      - path: HomewardApp
+        excludes:
+          - Info.plist
+    dependencies:
+      - package: HomewardCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.firaskafri.homeward.testshell
+        PRODUCT_NAME: HomewardTestShell
+        ENABLE_APP_SANDBOX: false
+        ENABLE_HARDENED_RUNTIME: true
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+        SUPPORTS_MACCATALYST: false
+
+  HomewardJourneyUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: HomewardJourneyUITests
+      - path: TestSupport/BuiltApplicationLocator.swift
+    dependencies:
+      - target: HomewardTestShell
+      - package: HomewardCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.firaskafri.homeward.journeytests
+        GENERATE_INFOPLIST_FILE: true
+        TEST_TARGET_NAME: HomewardTestShell
+
+  HomewardReleaseE2ETests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: HomewardReleaseE2ETests
+      - path: TestSupport/BuiltApplicationLocator.swift
+    dependencies:
+      - target: Homeward
+      - package: HomewardCore
+      - target: HomewardFixture
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.firaskafri.homeward.releasee2etests
+        GENERATE_INFOPLIST_FILE: true
+        TEST_TARGET_NAME: Homeward
 
   HomewardFixture:
     type: application
@@ -108,6 +165,29 @@ schemes:
     test:
       targets:
         - HomewardUITests
+  HomewardJourneyE2E:
+    build:
+      targets:
+        HomewardTestShell: [test]
+        HomewardJourneyUITests: [test]
+    test:
+      config: Release
+      macroExpansion: HomewardTestShell
+      targets:
+        - name: HomewardJourneyUITests
+          parallelizable: false
+  HomewardReleaseE2E:
+    build:
+      targets:
+        Homeward: [test]
+        HomewardFixture: [test]
+        HomewardReleaseE2ETests: [test]
+    test:
+      config: Release
+      macroExpansion: Homeward
+      targets:
+        - name: HomewardReleaseE2ETests
+          parallelizable: false
   HomewardFixture:
     build:
       targets:

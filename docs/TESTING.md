@@ -14,12 +14,32 @@ the remaining gate explicitly with:
 RUN_UI_TESTS=0 ./scripts/verify.sh
 ```
 
-The skipped UI test remains a manual blocker; this option must not be used to
-certify a release.
+The skipped UI, journey, and Release lifecycle suites remain release
+blockers; this option must not be used to certify a release.
 
 Concurrent local verification runs must use distinct DerivedData directories,
 for example `HOMEWARD_DERIVED_DATA_PATH=.build/xcode-agent-1
 ./scripts/verify.sh`.
+
+## Release-gate evidence model
+
+The A-to-Z gate separates three kinds of evidence that must not be treated as
+interchangeable:
+
+- **Shell-hosted journeys** run production Homeward model and view sources in
+  `HomewardTestShell.app` with isolated storage and typed deterministic
+  platform substitutes.
+- **Exact Release lifecycle** exercises the built Release `Homeward.app` with
+  normal multiple-instance protection and the real workspace monitor,
+  enforcement planner, safety panel, and lifecycle controller. Catalog,
+  notification, login-item, and installation services remain isolated, and
+  lifecycle control is restricted to the adjacent `HomewardFixture.app`.
+- **Real-platform manual evidence** covers Notification Center, Start at Login,
+  power/session/display behavior, real save-dialog interaction, assistive
+  technologies, signing, notarization, Gatekeeper, and clean installation.
+
+All three lanes are required for every public release. See
+`RELEASE-CHECKLIST.md` for the complete contract and evidence identities.
 
 ## Automated layers
 
@@ -33,6 +53,13 @@ for example `HOMEWARD_DERIVED_DATA_PATH=.build/xcode-agent-1
   states, compact schedule disclosure reachability, schedule editing,
   overnight labels, onboarding schedule progression, and representative
   long-English Work Apps reachability.
+- `HomewardJourneyUITests`: Release-built `HomewardTestShell.app` journeys
+  through onboarding, preview choices, management navigation, recovery,
+  end-work, and return-to-weekly-schedule consequences using isolated
+  deterministic platform substitutes.
+- `HomewardReleaseE2ETests`: the exact Release `Homeward.app` and adjacent
+  `HomewardFixture.app` through Gentle, Firm, Stop, and blocked-relaunch
+  lifecycle paths with production timing and multiple-instance protection.
 - `xcodebuild analyze`: static analysis under the production project settings.
 - Release build inspection: arm64 architecture, menu-bar accessory property,
   and fixture exclusion.
@@ -45,6 +72,12 @@ Every unit-test file, suite/type, and test case documents:
 4. Expectations
 
 `scripts/check-test-docs.swift` enforces that structure.
+
+`scripts/release_coverage_contract.json` maps every active traceability
+requirement to automated or manual evidence. `scripts/validate_release_coverage.py`
+rejects missing, duplicate, orphaned, or still-planned automated evidence.
+Release result bundles are checked against the contract's exact required test
+identifiers before verification evidence is written.
 
 ## Fixture safety
 
@@ -122,3 +155,21 @@ These cannot be certified by unattended automation:
   deterministic long-English reachability scenario.
 - Developer ID signing, notarization, Gatekeeper, and clean-machine install.
 - Seven-day safety and two-week behavioral dogfood.
+
+For real-application evidence, verify immediately beforehand that the
+standardized path is exactly `/Applications/Slack.app` and the bundle
+identifier is exactly `com.tinyspeck.slackmacgap`. Stop if either check fails
+or Slack is unavailable; do not substitute another application. Automated
+destructive tests remain fixture-only, and Cursor
+(`com.todesktop.230313mzl4w4u92`) is never a test target.
+
+Manual records must identify the tested source SHA and verified app-tree hash
+before packaging, or the final stapled DMG SHA-256 and accepted notarization
+submission ID after packaging. A passing result for different bytes is not
+release evidence.
+
+Passing these gates is evidence for a release decision, not a claim that the
+application is 100% bug-free. Product or UX changes must update the coverage
+contract—journeys, states, copy/consequences, accessibility expectations,
+fixtures, automated assertions, and manual scenarios—and rerun all affected
+evidence before sign-off.

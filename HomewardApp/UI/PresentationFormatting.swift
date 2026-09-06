@@ -353,6 +353,14 @@ enum SchedulePresentation {
         mode == .gentle ? "Gentle Close" : "Firm Close"
     }
 
+    static func immediateClosingMessage(
+        context: String,
+        closeMode: CloseMode
+    ) -> String {
+        "\(context) Homeward will begin \(closeModeName(closeMode)) "
+            + "after the change is saved."
+    }
+
     static func overrideName(_ kind: OverrideKind) -> String {
         switch kind {
         case .endWorkNow:
@@ -429,36 +437,95 @@ enum ScheduleEditorPresentation {
         }
     }
 
-    static func weeklySummaryLines(
-        rules: [Weekday: DayRule],
+    static func compactRuleSummary(
+        _ rule: DayRule,
         locale: Locale = .autoupdatingCurrent
-    ) -> [String] {
-        var groups: [(weekdays: [Weekday], rule: DayRule)] = []
-        for weekday in orderedWeekdays {
-            let rule = rules[weekday] ?? .blockedAllDay
-            if let lastIndex = groups.indices.last,
-               groups[lastIndex].rule == rule,
-               canGroup(rule) {
-                groups[lastIndex].weekdays.append(weekday)
-            } else {
-                groups.append(([weekday], rule))
-            }
-        }
-        return groups.map { group in
-            "\(weekdayRangeName(group.weekdays, locale: locale)) · "
-                + ruleSummary(
-                    group.rule,
-                    for: group.weekdays[0],
-                    locale: locale
-                )
+    ) -> String {
+        switch rule {
+        case let .scheduled(start, end, endsNextDay):
+            return "\(formattedTime(start, locale: locale))–"
+                + "\(formattedTime(end, locale: locale))"
+                + (endsNextDay ? " +1" : "")
+        case .availableAllDay:
+            return "All day"
+        case .blockedAllDay:
+            return "Closed"
         }
     }
 
-    private static func canGroup(_ rule: DayRule) -> Bool {
-        if case .scheduled(_, _, endsNextDay: true) = rule {
-            return false
+    static func weekSummary(
+        rules: [Weekday: DayRule]
+    ) -> String {
+        var scheduledCount = 0
+        var allDayCount = 0
+        var closedCount = 0
+        for weekday in orderedWeekdays {
+            switch rules[weekday] ?? .blockedAllDay {
+            case .scheduled:
+                scheduledCount += 1
+            case .availableAllDay:
+                allDayCount += 1
+            case .blockedAllDay:
+                closedCount += 1
+            }
         }
-        return true
+
+        var summaries: [String] = []
+        if scheduledCount > 0 {
+            summaries.append(
+                "\(scheduledCount) \(scheduledCount == 1 ? "day" : "days") scheduled"
+            )
+        }
+        if allDayCount > 0 {
+            summaries.append(
+                "\(allDayCount) \(allDayCount == 1 ? "day" : "days") open all day"
+            )
+        }
+        if closedCount > 0 {
+            summaries.append(
+                "\(closedCount) \(closedCount == 1 ? "day" : "days") closed"
+            )
+        }
+        return summaries.joined(separator: "  •  ")
+    }
+
+    static func formattedTime(
+        _ time: LocalTime,
+        locale: Locale = .autoupdatingCurrent
+    ) -> String {
+        let calendar = calendar(locale: locale)
+        return formattedDate(
+            hour: time.hour,
+            minute: time.minute,
+            calendar: calendar
+        )
+        .formatted(
+            Date.FormatStyle(
+                date: .omitted,
+                time: .shortened,
+                locale: locale,
+                calendar: calendar,
+                timeZone: calendar.timeZone
+            )
+        )
+    }
+
+    static func formattedHourLabels(
+        locale: Locale = .autoupdatingCurrent
+    ) -> [String] {
+        let calendar = calendar(locale: locale)
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.setLocalizedDateFormatFromTemplate("j")
+        return (0..<24).map { hour in
+            formatter.string(
+                from: formattedDate(
+                    hour: hour,
+                    minute: 0,
+                    calendar: calendar
+                )
+            )
+        }
     }
 
     static func validation(
@@ -518,41 +585,28 @@ enum ScheduleEditorPresentation {
         }
     }
 
-    private static func weekdayRangeName(
-        _ weekdays: [Weekday],
-        locale: Locale
-    ) -> String {
-        guard let first = weekdays.first else {
-            return ""
-        }
-        guard let last = weekdays.last, first != last else {
-            return shortWeekdayName(first, locale: locale)
-        }
-        return "\(shortWeekdayName(first, locale: locale))–"
-            + "\(shortWeekdayName(last, locale: locale))"
+    static func dayIdentifierPrefix(for weekday: Weekday) -> String {
+        "schedule.day.\(identifier(for: weekday))"
     }
 
-    private static func formattedTime(
-        _ time: LocalTime,
-        locale: Locale
-    ) -> String {
+    private static func calendar(locale: Locale) -> Calendar {
         var calendar = Calendar.autoupdatingCurrent
         calendar.locale = locale
+        return calendar
+    }
+
+    private static func formattedDate(
+        hour: Int,
+        minute: Int,
+        calendar: Calendar
+    ) -> Date {
         let date = calendar.date(
             from: DateComponents(
                 calendar: calendar,
-                hour: time.hour,
-                minute: time.minute
-            )
-        ) ?? Date()
-        return date.formatted(
-            Date.FormatStyle(
-                date: .omitted,
-                time: .shortened,
-                locale: locale,
-                calendar: calendar,
-                timeZone: calendar.timeZone
+                hour: hour,
+                minute: minute
             )
         )
+        return date ?? Date(timeIntervalSinceReferenceDate: 0)
     }
 }

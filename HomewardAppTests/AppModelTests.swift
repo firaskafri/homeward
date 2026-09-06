@@ -5,14 +5,14 @@ import Testing
 import HomewardCore
 
 // 1 - Name: Homeward application-model test file.
-// 2 - Description: Verifies model startup generations, mutation/load serialization, recovery, catalog reconciliation, readiness, notes, and runtime safety policy.
+// 2 - Description: Verifies model startup generations, mutation/load serialization, recovery, catalog reconciliation, readiness, preview actions, notes, and runtime safety policy.
 // 3 - Assumptions: Tests use isolated repositories, injected adapters, and no running application control targets.
-// 4 - Expectations: Model operations preserve fail-open behavior, serialize persistence, and maintain policy invariants.
+// 4 - Expectations: Model operations preserve fail-open behavior, serialize persistence, expose only valid preview actions, and maintain policy invariants.
 
 /// 1 - Name: Homeward application-model suite.
-/// 2 - Description: Covers app composition, bootstrap ordering, recovery, catalog and readiness state, notes behavior, and safety-action ordering.
+/// 2 - Description: Covers app composition, bootstrap ordering, recovery, catalog and readiness state, preview action availability, notes behavior, and safety-action ordering.
 /// 3 - Assumptions: Repository creation does not write until an explicit save and all fixtures are isolated.
-/// 4 - Expectations: Startup and mutation failures remain recoverable while runtime safety actions apply immediately.
+/// 4 - Expectations: Startup and mutation failures remain recoverable, stale preview actions stay hidden, and runtime safety actions apply immediately.
 @Suite("Homeward application model")
 @MainActor
 struct AppModelTests {
@@ -342,6 +342,36 @@ struct AppModelTests {
         #expect(model.lastError != nil)
     }
 
+    /// 1 - Name: Post-setup zero-app attention.
+    /// 2 - Description: Loads a completed configuration whose selected-app list is empty.
+    /// 3 - Assumptions: Persisted configuration can become empty after setup and enforcement must remain fail open.
+    /// 4 - Expectations: Homeward reports attention and routes the user to Work Apps without attempting lifecycle control.
+    @Test
+    func completedSetupWithoutApplicationsNeedsWorkAppsAttention() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let repository = HomewardRepository(
+            directoryURL: fixture.directoryURL
+        )
+        let configuration = try HomewardConfiguration(
+            schedule: .defaultWorkWeek(),
+            selectedApplications: [],
+            onboardingScheduleConfirmed: true,
+            completedOnboarding: true
+        )
+        _ = try await repository.saveConfiguration(configuration)
+        let model = try AppModel(
+            repository: repository,
+            catalogDiscoverer: { [] }
+        )
+
+        await model.start()
+
+        #expect(model.attentionCount > 0)
+        #expect(model.primaryAttentionDestination == .workApps)
+        #expect(model.closingRows.isEmpty)
+    }
+
     /// 1 - Name: Return to weekly schedule preserves force pause.
     /// 2 - Description: Removes today-only availability policy without bypassing an explicit Firm safety pause.
     /// 3 - Assumptions: Stop Force Quit and availability overrides have distinct purposes.
@@ -362,6 +392,35 @@ struct AppModelTests {
         #expect(model.configuration.overrides.allSatisfy {
             $0.kind == .forceEscalationPaused
         })
+    }
+
+    /// 1 - Name: Return to weekly schedule immediate-close consequence.
+    /// 2 - Description: Evaluates removal of an active availability extension while the base weekly schedule is closed.
+    /// 3 - Assumptions: The fixed Saturday time is blocked by the default workweek and the extension temporarily makes it available.
+    /// 4 - Expectations: Homeward requires an immediate-close confirmation before returning to the closed weekly schedule.
+    @Test
+    func returnToWeeklyScheduleDetectsImmediateClose() async throws {
+        let fixture = AppModelFixture()
+        defer { fixture.remove() }
+        let now = try #require(Calendar.autoupdatingCurrent.date(
+            from: DateComponents(
+                year: 2026,
+                month: 9,
+                day: 5,
+                hour: 12
+            )
+        ))
+        let model = try AppModel(
+            repository: HomewardRepository(
+                directoryURL: fixture.directoryURL
+            ),
+            nowProvider: { now }
+        )
+        await model.start()
+
+        #expect(await model.createExtension(minutes: 10))
+        #expect(model.resolvedSchedule.isAvailable)
+        #expect(model.returnToWeeklyScheduleRequiresImmediateClose)
     }
 
     /// 1 - Name: Protected app rejected at model boundary.
@@ -581,6 +640,27 @@ struct AppModelTests {
             expectedSessionID: nil,
             terminatedSessionID: expected
         ))
+    }
+
+    /// 1 - Name: Preview Show App availability.
+    /// 2 - Description: Compares attention states with and without an exact running preview process.
+    /// 3 - Assumptions: Only a needs-attention state that retains a live process may offer activation.
+    /// 4 - Expectations: Show App is unavailable after exit or during other preview stages.
+    @Test
+    func previewShowAppRequiresRunningAttentionTarget() {
+        #expect(AppModel.PreviewState.needsAttention(
+            "Preview",
+            canShowApplication: true,
+            reason: .normalQuitRejected
+        ).canShowApplication)
+        #expect(!AppModel.PreviewState.needsAttention(
+            "Preview",
+            canShowApplication: false,
+            reason: .applicationNotRunning
+        ).canShowApplication)
+        #expect(!AppModel.PreviewState.waitingForRelaunch(
+            "Preview"
+        ).canShowApplication)
     }
 
     /// 1 - Name: Note reset mutation serialization.

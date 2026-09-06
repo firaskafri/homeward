@@ -174,27 +174,84 @@ binary_build_metadata="$(/usr/bin/xcrun vtool -show-build "$source_binary")"
   printf 'Release binary does not declare macOS 15.0 as its minimum OS.\n' >&2
   exit 1
 }
-if /usr/bin/find "$source_app" -iname '*fixture*' -print -quit |
+if /usr/bin/find "$source_app" \
+  \( -iname '*fixture*' -o -iname '*testshell*' \) \
+  -print -quit |
   /usr/bin/grep -q .; then
-  printf 'Fixture content was found in the Release app.\n' >&2
+  printf 'Test fixture or shell content was found in the Release app.\n' >&2
   exit 1
 fi
 homeward_verify_dsym "$source_binary" "$source_dsym"
 
-evidence="$(homeward_read_release_evidence "$verification_marker" 1)"
-IFS=$'\t' read -r verified_source_sha verified_app_tree_sha \
-  verified_binary_uuid verified_dsym_tree_sha verified_version \
-  verified_build verified_ui_tests <<<"$evidence"
+verified_source_sha=""
+verified_app_tree_sha=""
+verified_binary_uuid=""
+verified_dsym_tree_sha=""
+verified_version=""
+verified_build=""
+verified_ui_tests=""
+verified_ui_result_sha256=""
+verified_journey_e2e=""
+verified_release_e2e=""
+verified_release_e2e_configuration=""
+verified_release_e2e_scheme=""
+verified_coverage_contract_sha256=""
+verified_journey_result_sha256=""
+verified_release_result_sha256=""
+verified_xctestrun_sha256=""
+evidence_assignments="$(
+  homeward_read_release_evidence "$verification_marker" 1
+)"
+eval "$evidence_assignments"
+result_directory="$derived_data/TestResults"
+ui_result="$result_directory/HomewardUI.xcresult"
+journey_result="$result_directory/HomewardJourneyE2E.xcresult"
+release_result="$result_directory/HomewardReleaseE2E.xcresult"
 [[ "$verified_source_sha" == "$source_sha" &&
    "$verified_app_tree_sha" == "$(homeward_tree_sha256 "$source_app")" &&
    "$verified_binary_uuid" == "$(homeward_macho_uuid "$source_binary")" &&
    "$verified_dsym_tree_sha" == "$(homeward_tree_sha256 "$source_dsym")" &&
    "$verified_version" == "$version" &&
    "$verified_build" == "$build" &&
-   "$verified_ui_tests" == "true" ]] || {
-  printf 'Release app and dSYM do not match UI-enabled verification evidence.\n' >&2
+   "$verified_ui_tests" == "true" &&
+   "$verified_journey_e2e" == "true" &&
+   "$verified_release_e2e" == "true" ]] || {
+  printf 'Release app and dSYM do not match complete UI verification evidence.\n' >&2
   exit 1
 }
+[[ "$verified_coverage_contract_sha256" == "$(
+  shasum -a 256 "$repository_root/scripts/release_coverage_contract.json" |
+    awk '{print $1}'
+)" ]] || {
+  printf 'Release coverage contract does not match verification evidence.\n' >&2
+  exit 1
+}
+homeward_verify_tree_evidence \
+  "$ui_result" \
+  "$verified_ui_result_sha256" \
+  "UI test result"
+homeward_verify_tree_evidence \
+  "$journey_result" \
+  "$verified_journey_result_sha256" \
+  "Journey E2E result"
+homeward_verify_tree_evidence \
+  "$release_result" \
+  "$verified_release_result_sha256" \
+  "Release E2E result"
+shopt -s nullglob
+release_xctestrun_candidates=(
+  "$derived_data"/Build/Products/HomewardReleaseE2E_*.xctestrun
+)
+shopt -u nullglob
+[[ "${#release_xctestrun_candidates[@]}" == "1" ]] || {
+  printf 'Expected exactly one HomewardReleaseE2E xctestrun; found %s.\n' \
+    "${#release_xctestrun_candidates[@]}" >&2
+  exit 1
+}
+homeward_verify_file_evidence \
+  "${release_xctestrun_candidates[0]}" \
+  "$verified_xctestrun_sha256" \
+  "Release E2E xctestrun"
 
 homeward_require_pushed_head "$repository_root"
 homeward_require_signed_release_tag "$repository_root" "$release_tag"
@@ -486,20 +543,30 @@ CDHASH="$cdhash" \
 CERTIFICATE="$identity" \
 CERTIFICATE_SHA1="$certificate_sha1" \
 CHECKSUM="$checksum" \
+COVERAGE_CONTRACT_SHA256="$verified_coverage_contract_sha256" \
 DSYM_UUID="$dsym_uuid" \
+JOURNEY_E2E_ENABLED="$verified_journey_e2e" \
+JOURNEY_RESULT_SHA256="$verified_journey_result_sha256" \
 MINIMUM_SYSTEM_VERSION="$minimum_system_version" \
 NOTARIZATION_ID="$notarization_id" \
 NOTARIZATION_STATUS="$notarization_status" \
 NOTARYTOOL_VERSION="$notarytool_version" \
+RELEASE_E2E_CONFIGURATION="$verified_release_e2e_configuration" \
+RELEASE_E2E_ENABLED="$verified_release_e2e" \
+RELEASE_E2E_SCHEME="$verified_release_e2e_scheme" \
+RELEASE_RESULT_SHA256="$verified_release_result_sha256" \
 SIGNED_APP_TREE_SHA="$signed_app_tree_sha" \
 SIZE="$size" \
 SOURCE_SHA="$source_sha" \
 SWIFT_VERSION="$swift_version" \
 TAG="$release_tag" \
 TEAM_ID="$team_id" \
+UI_TESTS_ENABLED="$verified_ui_tests" \
+UI_RESULT_SHA256="$verified_ui_result_sha256" \
 VERIFIED_APP_TREE_SHA="$verified_app_tree_sha" \
 VERIFIED_DSYM_TREE_SHA="$verified_dsym_tree_sha" \
 VERSION="$version" \
+XCTESTRUN_SHA256="$verified_xctestrun_sha256" \
 XCODE_VERSION="$xcode_version" \
 /usr/bin/python3 - "$output_root/$manifest_name" <<'PY'
 import json
@@ -515,15 +582,22 @@ manifest = {
     "certificate": os.environ["CERTIFICATE"],
     "certificateSHA1": os.environ["CERTIFICATE_SHA1"],
     "cdHash": os.environ["CDHASH"],
+    "coverageContractSHA256": os.environ["COVERAGE_CONTRACT_SHA256"],
     "dSYMTreeSHA256": os.environ["VERIFIED_DSYM_TREE_SHA"],
     "dSYMUUID": os.environ["DSYM_UUID"],
+    "journeyE2EEnabled": os.environ["JOURNEY_E2E_ENABLED"] == "true",
+    "journeyResultSHA256": os.environ["JOURNEY_RESULT_SHA256"],
     "license": "All rights reserved",
     "minimumSystemVersion": os.environ["MINIMUM_SYSTEM_VERSION"],
     "notarization": {
         "id": os.environ["NOTARIZATION_ID"],
         "status": os.environ["NOTARIZATION_STATUS"],
     },
-    "schemaVersion": 1,
+    "releaseE2EConfiguration": os.environ["RELEASE_E2E_CONFIGURATION"],
+    "releaseE2EEnabled": os.environ["RELEASE_E2E_ENABLED"] == "true",
+    "releaseE2EScheme": os.environ["RELEASE_E2E_SCHEME"],
+    "releaseResultSHA256": os.environ["RELEASE_RESULT_SHA256"],
+    "schemaVersion": 2,
     "sha256": os.environ["CHECKSUM"],
     "signedAppTreeSHA256": os.environ["SIGNED_APP_TREE_SHA"],
     "size": int(os.environ["SIZE"]),
@@ -531,8 +605,11 @@ manifest = {
     "swift": os.environ["SWIFT_VERSION"],
     "tag": os.environ["TAG"],
     "teamID": os.environ["TEAM_ID"],
+    "uiTestsEnabled": os.environ["UI_TESTS_ENABLED"] == "true",
+    "uiResultSHA256": os.environ["UI_RESULT_SHA256"],
     "verifiedAppTreeSHA256": os.environ["VERIFIED_APP_TREE_SHA"],
     "version": os.environ["VERSION"],
+    "xctestrunSHA256": os.environ["XCTESTRUN_SHA256"],
     "xcode": os.environ["XCODE_VERSION"],
     "notarytool": os.environ["NOTARYTOOL_VERSION"],
 }

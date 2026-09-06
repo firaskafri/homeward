@@ -11,13 +11,35 @@ final class AppModel: NSObject, ObservableObject {
     private static let terminationSaveWait: Duration = .seconds(2)
     private static let terminationSavePoll: Duration = .milliseconds(25)
 
+    enum PreviewAttentionReason: Equatable {
+        case applicationNotRunning
+        case normalQuitRejected
+        case timedOut
+        case applicationExited
+    }
+
     enum PreviewState: Equatable {
         case idle
         case waitingForFirstExit(String)
         case waitingForRelaunch(String)
         case waitingForSecondExit(String)
-        case needsAttention(String)
+        case needsAttention(
+            String,
+            canShowApplication: Bool,
+            reason: PreviewAttentionReason
+        )
         case complete(String)
+
+        var canShowApplication: Bool {
+            guard case let .needsAttention(
+                _,
+                canShowApplication,
+                _
+            ) = self else {
+                return false
+            }
+            return canShowApplication
+        }
     }
 
     struct ClosingRow: Identifiable, Equatable {
@@ -178,6 +200,7 @@ final class AppModel: NSObject, ObservableObject {
     private let loginItemService: LoginItemService
     private let installationLocationService: InstallationLocationService
     private let notificationService: HomewardNotificationService
+    private let runtimeDidActivate: () -> Void
     private var transitionTask: Task<Void, Never>?
     private var notesLoadTask: Task<Void, Never>?
     private var systemStatusTask: Task<Void, Never>?
@@ -237,6 +260,7 @@ final class AppModel: NSObject, ObservableObject {
         loginItemService: LoginItemService? = nil,
         installationLocationService: InstallationLocationService? = nil,
         notificationService: HomewardNotificationService? = nil,
+        runtimeDidActivate: @escaping () -> Void = {},
         notesLoader: (() async throws -> NotesDocument)? = nil,
         notesRecoveryCandidateLoader:
             (() async throws -> NotesDocument?)? = nil,
@@ -262,6 +286,7 @@ final class AppModel: NSObject, ObservableObject {
             installationLocationService ?? InstallationLocationService()
         self.notificationService =
             notificationService ?? HomewardNotificationService()
+        self.runtimeDidActivate = runtimeDidActivate
         self.notesLoader = notesLoader ?? {
             try await repository.loadNotes()
         }
@@ -335,7 +360,18 @@ final class AppModel: NSObject, ObservableObject {
                 ?? InstallationLocationService(
                     statusProvider: { .applications }
                 ),
-            notificationService: .isolatedForUITesting()
+            notificationService: .isolatedForUITesting(),
+            runtimeDidActivate: {
+                guard let path = repositoryEnvironment[
+                    "HOMEWARD_TEST_READY_FILE"
+                ], !path.isEmpty else {
+                    return
+                }
+                _ = FileManager.default.createFile(
+                    atPath: path,
+                    contents: Data()
+                )
+            }
         )
         if uiTestFixture?.beginsInDelayedStartup == true {
             model.markStartupDelayed()
@@ -487,6 +523,22 @@ final class AppModel: NSObject, ObservableObject {
         return configuration.overrides.contains {
             $0.kind != .forceEscalationPaused && $0.isActive(at: now)
         }
+    }
+
+    var returnToWeeklyScheduleRequiresImmediateClose: Bool {
+        guard hasAvailabilityOverride, resolvedSchedule.isAvailable else {
+            return false
+        }
+        var weeklyConfiguration = configuration
+        weeklyConfiguration.clearAvailabilityOverrides()
+        let weeklySchedule = resolver.resolve(
+            schedule: weeklyConfiguration.schedule,
+            overrides: weeklyConfiguration.overrides,
+            at: nowProvider(),
+            calendar: .autoupdatingCurrent,
+            warnings: weeklyConfiguration.warningPreferences
+        )
+        return !weeklySchedule.isAvailable
     }
 
     private var requiresImmediateCloseForAppChange: Bool {
@@ -927,7 +979,11 @@ final class AppModel: NSObject, ObservableObject {
             runningApplications: snapshots
         ).first else {
             lastError = "Open \(selection.displayName), then try the preview again."
-            previewState = .needsAttention(selection.displayName)
+            previewState = .needsAttention(
+                selection.displayName,
+                canShowApplication: false,
+                reason: .applicationNotRunning
+            )
             return
         }
         previewSelectionID = selectionID
@@ -935,7 +991,11 @@ final class AppModel: NSObject, ObservableObject {
         let accepted = runningController.requestNormalTermination(for: target.id)
         previewState = accepted
             ? .waitingForFirstExit(selection.displayName)
-            : .needsAttention(selection.displayName)
+            : .needsAttention(
+                selection.displayName,
+                canShowApplication: true,
+                reason: .normalQuitRejected
+            )
         schedulePreviewTimeout(applicationName: selection.displayName)
     }
 
@@ -1295,6 +1355,11 @@ final class AppModel: NSObject, ObservableObject {
         guard let intent = pendingPolicyConfirmation else {
             return false
         }
+        return await confirmPolicyAction(intent)
+    }
+
+    @discardableResult
+    func confirmPolicyAction(_ intent: PolicyConfirmationIntent) async -> Bool {
         pendingPolicyConfirmation = nil
         switch intent {
         case .endWorkNow:
@@ -1785,6 +1850,7 @@ final class AppModel: NSObject, ObservableObject {
         todayExplanation = nil
     }
 
+
     private func performConfigurationRecovery(
         failureMessage: String,
         operation: () async throws -> ConfigurationRecoveryOutcome
@@ -1942,7 +2008,14 @@ final class AppModel: NSObject, ObservableObject {
             guard !Task.isCancelled, let self else {
                 return
             }
-            self.previewState = .needsAttention(applicationName)
+            let canShowApplication = self.previewProcessSessionID.map {
+                !self.runningController.isTerminated(sessionID: $0)
+            } ?? false
+            self.previewState = .needsAttention(
+                applicationName,
+                canShowApplication: canShowApplication,
+                reason: .timedOut
+            )
         }
     }
 
@@ -1967,7 +2040,11 @@ final class AppModel: NSObject, ObservableObject {
         let accepted = runningController.requestNormalTermination(for: target.id)
         previewState = accepted
             ? .waitingForSecondExit(selection.displayName)
-            : .needsAttention(selection.displayName)
+            : .needsAttention(
+                selection.displayName,
+                canShowApplication: true,
+                reason: .normalQuitRejected
+            )
         schedulePreviewTimeout(applicationName: selection.displayName)
         return true
     }
@@ -1990,6 +2067,12 @@ final class AppModel: NSObject, ObservableObject {
         case let .waitingForSecondExit(applicationName):
             previewState = .complete(applicationName)
             previewTimeoutTask = nil
+        case let .needsAttention(applicationName, _, _):
+            previewState = .needsAttention(
+                applicationName,
+                canShowApplication: false,
+                reason: .applicationExited
+            )
         default:
             return false
         }
@@ -2038,6 +2121,7 @@ final class AppModel: NSObject, ObservableObject {
         }
         runtimeActivated = true
         health = .ready
+        runtimeDidActivate()
         if lastError
             == "Applications could not be found. Existing verified app selections were kept." {
             lastError = nil
