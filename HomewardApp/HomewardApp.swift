@@ -68,8 +68,10 @@ struct HomewardApp: App {
     init() {
         HomewardPreferenceKeys.migrate()
         let environment = HomewardRuntime.resolvedEnvironment()
+        let isTestShell = Bundle.main.bundleIdentifier
+            == HomewardRuntime.testShellBundleIdentifier
         presentsMainWindowOnLaunch =
-            HomewardRepository.shouldPresentMainWindow(
+            !isTestShell && HomewardRepository.shouldPresentMainWindow(
                 environment: environment
             )
         let instance: AppModel
@@ -81,6 +83,9 @@ struct HomewardApp: App {
         let navigationState = HomewardNavigationState()
         _model = StateObject(wrappedValue: instance)
         _navigation = StateObject(wrappedValue: navigationState)
+        if isTestShell {
+            navigationState.requestMainWindow()
+        }
         instance.installRouteHandler { route in
             navigationState.requestMainWindow(route)
         }

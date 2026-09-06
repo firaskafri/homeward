@@ -310,14 +310,6 @@ private final class ShellApplicationFixture {
             self == .review ? 4 : (self == .firstLaunch ? 0 : nil)
         }
 
-        var requiresReopen: Bool {
-            switch self {
-            case .completed, .temporarilyAvailable, .notesRecovery:
-                true
-            case .firstLaunch, .review, .configurationRecovery:
-                false
-            }
-        }
     }
 
     private let scenario: Scenario
@@ -386,9 +378,6 @@ private final class ShellApplicationFixture {
             guard FileManager.default.fileExists(atPath: readyURL.path) else {
                 throw ShellFixtureError.shellDidNotStart
             }
-        }
-        if scenario.requiresReopen {
-            try await reopen(app)
         }
         return app
     }
@@ -476,29 +465,6 @@ private final class ShellApplicationFixture {
         }
     }
 
-    private func reopen(_ app: XCUIApplication) async throws {
-        guard app.menuBars.statusItems.firstMatch.waitForExistence(
-            timeout: ShellPolicy.launchTimeout
-        ), exactRunningShell() != nil else {
-            throw ShellFixtureError.runningIdentityMismatch
-        }
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = true
-        let reopened = try await NSWorkspace.shared.openApplication(
-            at: applicationURL,
-            configuration: configuration
-        )
-        guard reopened.processIdentifier == exactRunningShell()?
-            .processIdentifier else {
-            throw ShellFixtureError.runningIdentityMismatch
-        }
-        guard app.windows["homeward"].waitForExistence(
-            timeout: ShellPolicy.navigationTimeout
-        ) else {
-            throw ShellFixtureError.reopenTimedOut
-        }
-    }
-
     private func rejectUnexpectedRunningShells() throws {
         let running = NSRunningApplication.runningApplications(
             withBundleIdentifier: ShellPolicy.bundleIdentifier
@@ -523,7 +489,6 @@ private final class ShellApplicationFixture {
 }
 
 private enum ShellFixtureError: Error {
-    case reopenTimedOut
     case runningIdentityMismatch
     case shellDidNotStart
     case terminationTimedOut
