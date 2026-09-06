@@ -144,7 +144,7 @@ final class ReleaseLifecycleE2ETests: XCTestCase {
         }
         stop.click()
 
-        let paused = NSPredicate(format: "label CONTAINS[c] %@", "paused")
+        let paused = NSPredicate(format: "value CONTAINS[c] %@", "paused")
         let pausedState = homeward.staticTexts.matching(paused).firstMatch
         XCTAssertTrue(pausedState.waitForExistence(
             timeout: ReleaseE2EPolicy.launchTimeout
