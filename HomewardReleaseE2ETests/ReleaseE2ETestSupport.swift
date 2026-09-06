@@ -182,11 +182,7 @@ final class ReleaseE2EFixture {
             if exactRunningApplication(
                 bundleIdentifier: ReleaseE2EPolicy.homewardBundleIdentifier,
                 bundleURL: homewardURL
-            ) == nil {
-                cleanupError = ReleaseE2EError.runningIdentityMismatch(
-                    homewardURL
-                )
-            } else {
+            ) != nil {
                 homeward.terminate()
                 if !waitForProcessExit(
                     applicationURL: homewardURL,
@@ -198,10 +194,24 @@ final class ReleaseE2EFixture {
                         homewardURL
                     )
                 }
+            } else {
+                let deadline = ProcessInfo.processInfo.systemUptime
+                    + ReleaseE2EPolicy.terminationTimeout
+                while homeward.state != .notRunning,
+                      ProcessInfo.processInfo.systemUptime < deadline {
+                    Thread.sleep(
+                        forTimeInterval: ReleaseE2EPolicy.pollInterval
+                    )
+                }
+                if homeward.state != .notRunning {
+                    cleanupError = ReleaseE2EError.runningIdentityMismatch(
+                        homewardURL
+                    )
+                }
             }
         }
         if let application = controlledApplication,
-           !application.isTerminated {
+           processIsRunning(application.processIdentifier) {
             if identityMatches(
                 application,
                 bundleIdentifier: ReleaseE2EPolicy.fixtureBundleIdentifier,

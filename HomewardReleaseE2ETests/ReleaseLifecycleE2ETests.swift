@@ -78,16 +78,22 @@ final class ReleaseLifecycleE2ETests: XCTestCase {
     /// 4 - Expectations: The fixture remains alive for the full visible grace period before exact-session force termination.
     func testFirmHonorsFullGracePeriod() async throws {
         let fixture = try makeFixture()
-        _ = try await fixture.launchHomeward(closeMode: .firm)
-        let fixtureLaunchUptime = ProcessInfo.processInfo.systemUptime
+        let homeward = try await fixture.launchHomeward(closeMode: .firm)
         let first = try await fixture.launchFixture()
         let firstProcessIdentifier = first.processIdentifier
+        guard homeward.buttons["closing.stopForce"].waitForExistence(
+            timeout: ReleaseE2EPolicy.launchTimeout
+        ) else {
+            XCTFail("Firm countdown did not become visible")
+            return
+        }
+        let countdownVisibleUptime = ProcessInfo.processInfo.systemUptime
         XCTAssertTrue(fixture.waitUntilTerminated(
             processIdentifier: firstProcessIdentifier,
             timeout: ReleaseE2EPolicy.forceTerminationUpperBound
         ))
         XCTAssertGreaterThanOrEqual(
-            ProcessInfo.processInfo.systemUptime - fixtureLaunchUptime,
+            ProcessInfo.processInfo.systemUptime - countdownVisibleUptime,
             ReleaseE2EPolicy.firmGracePeriod
                 - ReleaseE2EPolicy.graceLowerBoundTolerance
         )
